@@ -24,6 +24,19 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured()
     })
   : null;
 
+// Helpers para preservação estrita de zero numérico ao converter campos vazios para null
+const toNullableNumber = (val: number | string | null | undefined): number | null => {
+  if (val === undefined || val === null || val === '') return null;
+  const num = typeof val === 'number' ? val : Number(val);
+  return isNaN(num) ? null : num;
+};
+
+const toNullableString = (val: string | null | undefined): string | null => {
+  if (val === undefined || val === null) return null;
+  const trimmed = val.trim();
+  return trimmed === '' ? null : trimmed;
+};
+
 /**
  * Salva a Vistoria completa e suas entidades filhas no Supabase via transação/upsert
  */
@@ -37,15 +50,15 @@ export async function syncVistoriaToSupabase(vistoria: VistoriaAggregate): Promi
     const { error: empError } = await supabase.from('empreendedores').upsert({
       id: vistoria.empreendedor.id,
       nome_razao_social: vistoria.empreendedor.nomeRazaoSocial,
-      cpf_cnpj: vistoria.empreendedor.cpfCnpj || null,
+      cpf_cnpj: toNullableString(vistoria.empreendedor.cpfCnpj),
       figura_juridica: vistoria.empreendedor.figuraJuridica,
-      endereco: vistoria.empreendedor.endereco || null,
-      telefone: vistoria.empreendedor.telefone || null,
-      email: vistoria.empreendedor.email || null,
-      documentos_pessoais: vistoria.empreendedor.documentosPessoais || null,
-      car_numero: vistoria.empreendedor.carNumero || null,
-      declaracao_uso: vistoria.empreendedor.declaracaoUsoOutorga || null,
-      quantidade_barragens_propriedade: vistoria.empreendedor.quantidadeBarragens || null,
+      endereco: toNullableString(vistoria.empreendedor.endereco),
+      telefone: toNullableString(vistoria.empreendedor.telefone),
+      email: toNullableString(vistoria.empreendedor.email),
+      documentos_pessoais: toNullableString(vistoria.empreendedor.documentosPessoais),
+      car_numero: toNullableString(vistoria.empreendedor.carNumero),
+      declaracao_uso: toNullableString(vistoria.empreendedor.declaracaoUsoOutorga),
+      quantidade_barragens_propriedade: toNullableNumber(vistoria.empreendedor.quantidadeBarragens),
       updated_at: new Date().toISOString()
     });
     if (empError) throw empError;
@@ -56,14 +69,14 @@ export async function syncVistoriaToSupabase(vistoria: VistoriaAggregate): Promi
       empreendedor_id: vistoria.empreendedor.id,
       nome: vistoria.barragem.nome,
       municipio: vistoria.barragem.municipio,
-      bacia_hidrografica: vistoria.barragem.baciaHidrografica || null,
-      curso_dagua: vistoria.barragem.cursoDagua || null,
-      latitude_decimal: vistoria.barragem.coordenadas.latitude ?? null,
-      longitude_decimal: vistoria.barragem.coordenadas.longitude ?? null,
+      bacia_hidrografica: toNullableString(vistoria.barragem.baciaHidrografica),
+      curso_dagua: toNullableString(vistoria.barragem.cursoDagua),
+      latitude_decimal: toNullableNumber(vistoria.barragem.coordenadas.latitude),
+      longitude_decimal: toNullableNumber(vistoria.barragem.coordenadas.longitude),
       datum: vistoria.barragem.coordenadas.datum || 'SIRGAS 2000',
-      cota_coroamento_metros: vistoria.barragem.cotaCoroamentoMetros || null,
-      ano_inicio_obra: vistoria.barragem.anoInicioObra || null,
-      ano_final_obra: vistoria.barragem.anoFinalObra || null,
+      cota_coroamento_metros: toNullableNumber(vistoria.barragem.cotaCoroamentoMetros),
+      ano_inicio_obra: toNullableNumber(vistoria.barragem.anoInicioObra),
+      ano_final_obra: toNullableNumber(vistoria.barragem.anoFinalObra),
       tipo_barragem_material: vistoria.barragem.tipoMaterial,
       uso_principal: vistoria.barragem.usoPrincipal,
       usos_secundarios: vistoria.barragem.usosSecundarios || [],
@@ -78,37 +91,37 @@ export async function syncVistoriaToSupabase(vistoria: VistoriaAggregate): Promi
       numero_vistoria: vistoria.numeroVistoria,
       campanha_ano: vistoria.campanhaAno,
       campanha_numero: vistoria.campanhaNumero,
-      processo_sema: vistoria.processoNumero || null,
+      processo_sema: toNullableString(vistoria.processoNumero),
       data_vistoria: vistoria.dataVistoria,
-      hora_inicio: vistoria.horaInicio || null,
-      hora_termino: vistoria.horaTermino || null,
+      hora_inicio: toNullableString(vistoria.horaInicio),
+      hora_termino: toNullableString(vistoria.horaTermino),
       condicoes_climaticas: vistoria.condicoesClimaticas,
-      cota_atual_nivel_agua: vistoria.medicoes.cotaAtualNivelAgua || null,
+      cota_atual_nivel_agua: toNullableNumber(vistoria.medicoes.cotaAtualNivelAgua),
       status_vistoria: vistoria.statusVistoria,
-      outros_problemas_descricao: vistoria.conclusoes.outrosProblemasDescricao || null,
-      conclusoes_sintese_fatica: vistoria.conclusoes.sinteseFatica || null,
-      medidas_imediatas_seguranca: vistoria.conclusoes.medidasImediatasSeguranca || null,
-      recomendacoes_empreendedor: vistoria.conclusoes.recomendacoesEmpreendedor || null,
+      outros_problemas_descricao: toNullableString(vistoria.conclusoes.outrosProblemasDescricao),
+      conclusoes_sintese_fatica: toNullableString(vistoria.conclusoes.sinteseFatica),
+      medidas_imediatas_seguranca: toNullableString(vistoria.conclusoes.medidasImediatasSeguranca),
+      recomendacoes_empreendedor: toNullableString(vistoria.conclusoes.recomendacoesEmpreendedor),
       requer_notificacao: vistoria.conclusoes.requerNotificacao,
-      notificacao_prazo_dias: vistoria.conclusoes.notificacaoPrazoDias || null,
-      notificacao_assunto: vistoria.conclusoes.notificacaoAssunto || null,
-      notificacao_exigencias: vistoria.conclusoes.notificacaoExigencias || null,
+      notificacao_prazo_dias: toNullableNumber(vistoria.conclusoes.notificacaoPrazoDias),
+      notificacao_assunto: toNullableString(vistoria.conclusoes.notificacaoAssunto),
+      notificacao_exigencias: toNullableString(vistoria.conclusoes.notificacaoExigencias),
       updated_at: new Date().toISOString()
     });
     if (visError) throw visError;
 
-    // 4. Upsert Medições
+    // 4. Upsert Medições (apenas borda_livre_medida_metros, preservando zero)
     const { error: medError } = await supabase.from('vistoria_medicoes').upsert({
       id: vistoria.medicoes.id,
       vistoria_id: vistoria.id,
-      altura_barragem_metros: vistoria.medicoes.alturaBarragemMetros || null,
-      distancia_crista_pe_metros: vistoria.medicoes.distanciaCristaPeMetros || null,
-      declividade_talude_jusante_graus: vistoria.medicoes.declividadeTaludeJusanteGraus || null,
-      largura_coroamento_metros: vistoria.medicoes.larguraCoroamentoMetros || null,
-      extensao_coroamento_metros: vistoria.medicoes.extensaoCoroamentoMetros || null,
-      borda_livre_medida_metros: vistoria.medicoes.bordaLivreMetros || null,
-      espelho_dagua_hectares: vistoria.medicoes.espelhoDaguaHectares || null,
-      volume_estimado_m3: vistoria.medicoes.volumeEstimadoM3 || null,
+      altura_barragem_metros: toNullableNumber(vistoria.medicoes.alturaBarragemMetros),
+      distancia_crista_pe_metros: toNullableNumber(vistoria.medicoes.distanciaCristaPeMetros),
+      declividade_talude_jusante_graus: toNullableNumber(vistoria.medicoes.declividadeTaludeJusanteGraus),
+      largura_coroamento_metros: toNullableNumber(vistoria.medicoes.larguraCoroamentoMetros),
+      extensao_coroamento_metros: toNullableNumber(vistoria.medicoes.extensaoCoroamentoMetros),
+      borda_livre_medida_metros: toNullableNumber(vistoria.medicoes.bordaLivreMetros),
+      espelho_dagua_hectares: toNullableNumber(vistoria.medicoes.espelhoDaguaHectares),
+      volume_estimado_m3: toNullableNumber(vistoria.medicoes.volumeEstimadoM3),
       updated_at: new Date().toISOString()
     });
     if (medError) throw medError;

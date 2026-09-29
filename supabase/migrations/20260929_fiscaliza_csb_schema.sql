@@ -1,7 +1,7 @@
 -- ==============================================================================
 -- SISTEMA FISCALIZA – COORDENADORIA DE SEGURANÇA DE BARRAGENS (CSB / SEMA-MT)
--- SCRIPT SQL COMPLETO PARA EXECUÇÃO NO SUPABASE (SQL EDITOR)
--- Arquitetura Relacional, Auditoria LGPD, Storage Privado de Fotos & Políticas RLS
+-- SCRIPT SQL DE MIGRAÇÃO: BANCO RELACIONAL, AUDITORIA LGPD & STORAGE PRIVADO
+-- Acesso protegido por RLS e autenticação oficial (sem exposição anônima)
 -- Data de Homologação: 2026-09-29
 -- ==============================================================================
 
@@ -409,7 +409,53 @@ ALTER TABLE vistoria_fotos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_documentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_historico_alteracoes ENABLE ROW LEVEL SECURITY;
 
--- 8.1. Políticas para Usuários Autenticados (Servidores Fiscais SEMA-MT)
+-- Limpeza idempotente de políticas prévias
+DROP POLICY IF EXISTS "Servidores SEMA: Empreendedores" ON empreendedores;
+DROP POLICY IF EXISTS "Servidores SEMA: Leitura de Empreendedores" ON empreendedores;
+DROP POLICY IF EXISTS "Servidores SEMA: Inserção/Edição de Empreendedores" ON empreendedores;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Empreendedores" ON empreendedores;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Barragens" ON barragens;
+DROP POLICY IF EXISTS "Servidores SEMA: Acesso a Barragens" ON barragens;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Barragens" ON barragens;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Vistorias" ON vistorias;
+DROP POLICY IF EXISTS "Servidores SEMA: Acesso a Vistorias" ON vistorias;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Vistorias" ON vistorias;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Equipe" ON vistoria_equipe;
+DROP POLICY IF EXISTS "Servidores SEMA: Equipe e Acompanhantes" ON vistoria_equipe;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Equipe" ON vistoria_equipe;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Acompanhantes" ON vistoria_acompanhantes;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Acompanhantes" ON vistoria_acompanhantes;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Medições" ON vistoria_medicoes;
+DROP POLICY IF EXISTS "Servidores SEMA: Medições de Campo" ON vistoria_medicoes;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Medições" ON vistoria_medicoes;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Condição Componentes" ON vistoria_componentes_condicao;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Componentes" ON vistoria_componentes_condicao;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Itens Avaliados" ON vistoria_itens_avaliados;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Itens" ON vistoria_itens_avaliados;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Observações Componentes" ON vistoria_observacoes_componentes;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Obs Componentes" ON vistoria_observacoes_componentes;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Fotos" ON vistoria_fotos;
+DROP POLICY IF EXISTS "Servidores SEMA: Fotos de Vistoria" ON vistoria_fotos;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Fotos" ON vistoria_fotos;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Documentos" ON vistoria_documentos;
+DROP POLICY IF EXISTS "Servidores SEMA: Documentos Gerados" ON vistoria_documentos;
+DROP POLICY IF EXISTS "Coleta Campo SEMA (Anon): Sincronizar Documentos" ON vistoria_documentos;
+
+DROP POLICY IF EXISTS "Servidores SEMA: Histórico Auditoria" ON vistoria_historico_alteracoes;
+DROP POLICY IF EXISTS "Servidores SEMA: Auditoria de Alterações" ON vistoria_historico_alteracoes;
+
+-- Políticas de Acesso: ESTRITAMENTE AUTENTICADAS (Conformidade com LGPD e Segurança Institucional)
+-- Nenhuma política pública ou anônima permitida para proteção de dados cadastrais e fotos
 CREATE POLICY "Servidores SEMA: Empreendedores" ON empreendedores
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
@@ -446,50 +492,14 @@ CREATE POLICY "Servidores SEMA: Documentos" ON vistoria_documentos
 CREATE POLICY "Servidores SEMA: Histórico Auditoria" ON vistoria_historico_alteracoes
     FOR SELECT TO authenticated USING (true);
 
--- 8.2. Políticas com Anon Key (Permite sincronização de campo via PWA/Offline)
--- Em ambiente restrito da SEMA-MT onde o fiscal coleta offline com a chave anon:
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Empreendedores" ON empreendedores
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Barragens" ON barragens
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Vistorias" ON vistorias
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Equipe" ON vistoria_equipe
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Acompanhantes" ON vistoria_acompanhantes
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Medições" ON vistoria_medicoes
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Componentes" ON vistoria_componentes_condicao
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Itens" ON vistoria_itens_avaliados
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Obs Componentes" ON vistoria_observacoes_componentes
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Fotos" ON vistoria_fotos
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Documentos" ON vistoria_documentos
-    FOR ALL TO anon USING (true) WITH CHECK (true);
-
 -- ------------------------------------------------------------------------------
--- 9. CONFIGURAÇÃO DO BUCKET PRIVADO DE FOTOS (SUPABASE STORAGE)
+-- 9. CONFIGURAÇÃO IDEMPOTENTE DO BUCKET PRIVADO DE FOTOS (SUPABASE STORAGE)
 -- ------------------------------------------------------------------------------
-INSERT INTO storage.buckets (id, name, public, avif_autodetection, file_size_limit, allowed_mime_types)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
     'fotos_vistorias_csb',
     'fotos_vistorias_csb',
-    false, -- BUCKET PRIVADO (Proteção de imagens conforme normas de segurança)
-    true,
+    false, -- BUCKET ESTRITAMENTE PRIVADO (Sem exposição pública)
     15728640, -- 15MB por arquivo
     ARRAY['image/jpeg', 'image/png', 'image/webp']
 )
@@ -498,17 +508,23 @@ ON CONFLICT (id) DO UPDATE SET
     file_size_limit = 15728640,
     allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp'];
 
--- Políticas de Storage para o Bucket 'fotos_vistorias_csb'
-CREATE POLICY "Upload de Fotos: Servidores Autenticados e Campo"
-ON storage.objects FOR INSERT TO authenticated, anon
+-- Políticas de Storage: Acesso estritamente autenticado
+DROP POLICY IF EXISTS "Upload de Fotos: Servidores Autenticados" ON storage.objects;
+DROP POLICY IF EXISTS "Upload de Fotos: Servidores Autenticados e Campo" ON storage.objects;
+CREATE POLICY "Upload de Fotos: Servidores Autenticados"
+ON storage.objects FOR INSERT TO authenticated
 WITH CHECK (bucket_id = 'fotos_vistorias_csb');
 
-CREATE POLICY "Visualização de Fotos: Acesso Restrito"
-ON storage.objects FOR SELECT TO authenticated, anon
+DROP POLICY IF EXISTS "Visualização de Fotos: Servidores Autenticados" ON storage.objects;
+DROP POLICY IF EXISTS "Visualização de Fotos: Acesso Restrito" ON storage.objects;
+CREATE POLICY "Visualização de Fotos: Servidores Autenticados"
+ON storage.objects FOR SELECT TO authenticated
 USING (bucket_id = 'fotos_vistorias_csb');
 
-CREATE POLICY "Exclusão de Fotos: Gestão de Vistoria"
-ON storage.objects FOR DELETE TO authenticated, anon
+DROP POLICY IF EXISTS "Exclusão de Fotos: Servidores Autenticados" ON storage.objects;
+DROP POLICY IF EXISTS "Exclusão de Fotos: Gestão de Vistoria" ON storage.objects;
+CREATE POLICY "Exclusão de Fotos: Servidores Autenticados"
+ON storage.objects FOR DELETE TO authenticated
 USING (bucket_id = 'fotos_vistorias_csb');
 
 -- ------------------------------------------------------------------------------
