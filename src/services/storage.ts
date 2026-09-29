@@ -1,0 +1,385 @@
+import { DAM_COMPONENTS } from '../data/damComponents';
+import { ComponentInspectionData, InspectionData, HistoricoAlteracaoEntity } from '../types/inspection';
+import { isSupabaseConfigured, syncVistoriaToSupabase } from './supabase';
+
+const STORAGE_KEY = 'fiscaliza_csb_sema_inspections_v1';
+const CURRENT_ACTIVE_KEY = 'fiscaliza_csb_sema_active_id';
+
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export function createEmptyInspection(): InspectionData {
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+  const timeStr = now.toTimeString().slice(0, 5);
+
+  const initialComponents: Record<string, ComponentInspectionData> = {};
+  DAM_COMPONENTS.forEach(comp => {
+    initialComponents[comp.id] = {
+      componentId: comp.id,
+      componentName: comp.name,
+      condition: 'adequado',
+      selectedAnomalies: [],
+      notes: ''
+    };
+  });
+
+  const vistoriaId = generateUUID();
+  const barragemId = generateUUID();
+  const empreendedorId = generateUUID();
+
+  return {
+    id: vistoriaId,
+    barragemId,
+    empreendedorId,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    isDraft: true,
+    generalInfo: {
+      recordNumber: '',
+      inspectionDate: dateStr,
+      startTime: timeStr,
+      endTime: '',
+      weather: 'seco',
+      inspectors: [
+        {
+          id: generateUUID(),
+          name: '',
+          role: 'Analista de Meio Ambiente / Fiscal',
+          registrationNumber: '',
+          sector: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
+        }
+      ],
+      accompaniedBy: {
+        id: generateUUID(),
+        hasAccompaniment: false,
+        name: '',
+        document: '',
+        relationship: 'Proprietário',
+        phone: ''
+      }
+    },
+    damIdentification: {
+      damName: '',
+      propertyOrBusinessName: '',
+      municipality: 'Cuiabá',
+      hydrographicBasin: 'Bacia Hidrográfica do Rio Cuiabá',
+      waterCourse: '',
+      coordinates: {
+        latitude: '',
+        longitude: '',
+        datum: 'SIRGAS 2000'
+      },
+      mainWaterUse: 'Irrigação',
+      secondaryWaterUses: [],
+      damType: 'terra_homogenea',
+      estimatedDimensions: {
+        heightMeters: '',
+        crestLengthMeters: '',
+        crestWidthMeters: '',
+        reservoirAreaHectares: '',
+        reservoirVolumeM3: '',
+        freeboardMeters: ''
+      },
+      spillwayType: 'canal_lateral_escavado',
+      regulatoryStatus: {
+        hasWaterPermit: 'nao_informado',
+        permitNumber: '',
+        hasEnvironmentalLicense: 'nao_informado',
+        licenseNumber: '',
+        hasCar: 'nao_informado',
+        carNumber: '',
+        notes: ''
+      }
+    },
+    componentsData: initialComponents,
+    photos: [],
+    conclusions: {
+      generalFindings: '',
+      immediateSafetyMeasures: '',
+      recommendationsToOwner: '',
+      requiresNotification: false,
+      notificationDetails: {
+        modelType: 'modelo_1_cadastro_classificacao',
+        modelTitle: 'Modelo 1: Novo Cadastro e Classificação de Barragem (DPA e CRI)',
+        numeroNotificacao: '',
+        dataEmissao: new Date().toISOString().split('T')[0],
+        processoNumero: '',
+        vinculoAutoInspecaoNumero: '',
+        prazoDias: '', // Não preencher automaticamente para exigir revisão explícita
+        objetivo: 'Notificação para novo cadastro e classificação do Dano Potencial Associado e Categoria de Risco para barragem.',
+        solicitacoesTexto: '',
+        observacoesGeraisTexto: '',
+        incluirAdvertenciaDesobediencia: true,
+        destinatario: {
+          nomeRazaoSocial: '',
+          cpfCnpj: '',
+          enderecoCorrespondencia: '',
+          numero: '',
+          complemento: '',
+          bairro: '',
+          municipio: '',
+          uf: 'MT',
+          cep: '',
+          telefone: '',
+          email: ''
+        },
+        localOcorrencia: {
+          nomeFantasia: '',
+          atividade: 'Barragem de acumulação de água',
+          enderecoEmpreendimento: '',
+          municipio: '',
+          uf: 'MT',
+          cep: '',
+          telefone: '',
+          areaEmpreendimento: ''
+        },
+        referenciasNormativas: [
+          {
+            id: 'lei_12334',
+            titulo: 'Lei Federal nº 12.334/2010',
+            dispositivo: 'Política Nacional de Segurança de Barragens',
+            ativo: true
+          },
+          {
+            id: 'res_cehidro_163',
+            titulo: 'Resolução CEHIDRO/MT nº 163/2023',
+            dispositivo: 'Segurança de barragens no Estado de Mato Grosso',
+            ativo: true
+          },
+          {
+            id: 'in_sema_08_2023',
+            titulo: 'Instrução Normativa SEMA-MT nº 08/2023',
+            dispositivo: 'Procedimentos e formulários da CSB/SEMA-MT',
+            ativo: true
+          },
+          {
+            id: 'tr_surh_17',
+            titulo: 'Termo de Referência SURH nº 17',
+            dispositivo: 'Diretrizes para cadastro e classificação',
+            ativo: true
+          },
+          {
+            id: 'res_cnrh_230',
+            titulo: 'Resolução CNRH nº 230/2022',
+            dispositivo: 'Sanções e fiscalização',
+            ativo: true
+          }
+        ],
+        modoConfirmacaoRecebimento: 'presencial',
+        deadlineDays: '',
+        notificationSubject: 'Novo Cadastro e Classificação de DPA e CRI',
+        demandedActions: ''
+      }
+    },
+    drafts: {
+      inspectionNotice: '',
+      technicalReport: '',
+      notificationLetter: ''
+    },
+    historicoAlteracoes: [
+      {
+        id: generateUUID(),
+        vistoriaId,
+        tabelaNome: 'vistorias',
+        registroId: vistoriaId,
+        operacao: 'INSERT',
+        dadosNovos: { status: 'criado' },
+        alteradoEm: now.toISOString()
+      }
+    ]
+  };
+}
+
+export function createSampleInspection(): InspectionData {
+  const base = createEmptyInspection();
+  base.generalInfo.recordNumber = 'PROC-2026/04812-SEMA';
+  base.generalInfo.inspectors[0].name = 'Fiscal Técnico (Exemplo)';
+  base.generalInfo.inspectors[0].registrationNumber = 'MAT-998877';
+  base.generalInfo.accompaniedBy.hasAccompaniment = true;
+  base.generalInfo.accompaniedBy.name = 'Representante da Propriedade (Exemplo)';
+  base.generalInfo.accompaniedBy.relationship = 'Gerente da Fazenda';
+  base.generalInfo.accompaniedBy.document = '000.000.000-00';
+  base.generalInfo.accompaniedBy.phone = '(65) 99999-0000';
+
+  base.damIdentification.damName = 'Barramento Fazenda Alvorada';
+  base.damIdentification.propertyOrBusinessName = 'Fazenda Alvorada do Pantanal';
+  base.damIdentification.municipality = 'Poconé';
+  base.damIdentification.hydrographicBasin = 'Bacia Hidrográfica do Paraguai (Alto Paraguai / Pantanal)';
+  base.damIdentification.waterCourse = 'Córrego das Araras';
+  base.damIdentification.coordinates = {
+    latitude: '-16.257400',
+    longitude: '-56.621800',
+    datum: 'SIRGAS 2000',
+    accuracyMeters: 4.2
+  };
+  base.damIdentification.mainWaterUse = 'Dessedentação animal e irrigação de pastagem';
+  base.damIdentification.estimatedDimensions = {
+    heightMeters: '4.8',
+    crestLengthMeters: '180',
+    crestWidthMeters: '4.0',
+    reservoirAreaHectares: '6.5',
+    reservoirVolumeM3: '95000',
+    freeboardMeters: '1.2'
+  };
+  base.damIdentification.regulatoryStatus.hasWaterPermit = 'em_tramitacao';
+  base.damIdentification.regulatoryStatus.permitNumber = 'SEMA-OUT-1029/2025';
+
+  base.componentsData['crista'].condition = 'alerta';
+  base.componentsData['crista'].selectedAnomalies = ['crista_vegetacao', 'crista_sulcos_erosao'];
+  base.componentsData['crista'].notes = 'Presença de pequenos arbustos nativos nas bordas da crista e sulcos superficiais provocados pelo tráfego de tratores durante o período chuvoso.';
+
+  base.componentsData['talude_jusante'].condition = 'alerta';
+  base.componentsData['talude_jusante'].selectedAnomalies = ['jusante_formigueiros'];
+  base.componentsData['talude_jusante'].notes = 'Foram identificados 2 formigueiros ativos de saúva no terço inferior do talude, sem indícios visíveis de carreamento de solo ou minadouro d\'água.';
+
+  base.componentsData['vertedouro'].condition = 'critico';
+  base.componentsData['vertedouro'].selectedAnomalies = ['vert_obstrucao', 'vert_erosao_restituicao'];
+  base.componentsData['vertedouro'].notes = 'Canal de descarga lateral com acúmulo de troncos e galhos caídos reduzindo a seção útil de vazão. Presença de erosão regressiva no ponto de restituição ao curso natural.';
+
+  base.conclusions.generalFindings = 'Barramento em terra homogênea em estado operacional regular, demandando manutenção imediata no desobstrução do extravasor e eliminação de formigueiros no talude de jusante para preservar a estabilidade da estrutura.';
+  base.conclusions.immediateSafetyMeasures = 'Realizar desobstrução manual imediata da calha do vertedouro antes da intensificação das chuvas na região e combater os formigueiros identificados.';
+  base.conclusions.recommendationsToOwner = 'Apresentar Anotação de Responsabilidade Técnica (ART) de profissional habilitado para inspeção periódica e protocolar complementação do pedido de outorga de direito de uso de recursos hídricos junto à SEMA-MT.';
+  base.conclusions.requiresNotification = true;
+  base.conclusions.notificationDetails = {
+    ...base.conclusions.notificationDetails,
+    modelType: 'modelo_2_anomalias_seguranca',
+    modelTitle: 'Modelo 2: Medidas Corretivas de Segurança, Reparo de Anomalias e Laudo com ART',
+    numeroNotificacao: '13503000481',
+    processoNumero: '4812/2026',
+    vinculoAutoInspecaoNumero: 'PROC-2026/04812-SEMA',
+    prazoDias: '30',
+    objetivo: 'Notificação para execução de medidas corretivas de segurança, mitigação de anomalias no barramento e apresentação de laudo técnico com ART.',
+    solicitacoesTexto: 
+`I. Notificamos Representante da Propriedade (Exemplo) CPF/CNPJ: 000.000.000-00 a providenciar, em caráter prioritário, as intervenções de manutenção corretiva e reparos nas anomalias identificadas na inspeção de campo e discriminadas no Auto de Inspeção Nº PROC-2026/04812-SEMA, em especial:
+- Promover a imediata desobstrução, limpeza e recomposição da capacidade hidráulica do vertedouro/extravasor;
+- Realizar a recomposição do solo e erradicação de formigueiros identificados no talude de jusante.
+
+II. Apresentar perante a Coordenadoria de Segurança de Barragens (CSB/SEMA-MT) Laudo Técnico de Estabilidade Estrutural e Segurança de Barragem, elaborado e assinado por profissional legalmente habilitado pelo sistema CONFEA/CREA, acompanhado da respectiva Anotação de Responsabilidade Técnica (ART).
+Prazo atendimento das solicitações: 30 dias.
+
+III. O descumprimento das obrigações assinaladas sujeitará o responsável às sanções administrativas previstas na legislação vigente.`,
+    observacoesGeraisTexto:
+`I. O empreendedor deverá manter vigilância contínua e monitoramento da estabilização dos componentes da barragem.
+
+II. Todas as intervenções físicas no maciço devem ser executadas sob responsabilidade de engenheiro habilitado.
+
+III. A manutenção deve ser pautada nos preceitos da Cartilha de Ações de Manutenção em Barragens de Terra disponibilizada pela SEMA-MT.`,
+    destinatario: {
+      nomeRazaoSocial: 'Agropecuária Fazenda Alvorada Ltda (Exemplo)',
+      cpfCnpj: '00.000.000/0001-99',
+      enderecoCorrespondencia: 'Rodovia MT-060, Km 42',
+      numero: 'S/N',
+      complemento: 'Zona Rural',
+      bairro: 'Pantanal',
+      municipio: 'Poconé',
+      uf: 'MT',
+      cep: '78175-000',
+      telefone: '(65) 99999-0000',
+      email: 'contato@fazendaalvorada.exemplo.br'
+    },
+    localOcorrencia: {
+      nomeFantasia: 'Barramento Fazenda Alvorada',
+      atividade: 'Barragem de acumulação de água',
+      enderecoEmpreendimento: 'Margem direita do Córrego das Araras',
+      municipio: 'Poconé',
+      uf: 'MT',
+      cep: '78175-000',
+      telefone: '(65) 99999-0000',
+      areaEmpreendimento: '6.5 hectares de lâmina d\'água'
+    },
+    deadlineDays: '30',
+    notificationSubject: 'Adequação da Segurança Estrutural e Desobstrução do Vertedouro',
+    demandedActions: '1) Proceder à limpeza e desobstrução completa da calha do extravasor de cheias;\n2) Efetuar a erradicação dos formigueiros no talude de jusante com recomposição do solo;\n3) Apresentar laudo técnico circunstanciado assinado por engenheiro habilitado com respectiva ART.'
+  };
+
+  return base;
+}
+
+export function getAllInspections(): InspectionData[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error('Erro ao ler vistorias do storage:', err);
+    return [];
+  }
+}
+
+export function saveInspection(inspection: InspectionData): void {
+  try {
+    const list = getAllInspections();
+    const existingIndex = list.findIndex(i => i.id === inspection.id);
+    const now = new Date().toISOString();
+
+    const auditEntry: HistoricoAlteracaoEntity = {
+      id: generateUUID(),
+      vistoriaId: inspection.id,
+      tabelaNome: 'vistorias',
+      registroId: inspection.id,
+      operacao: existingIndex >= 0 ? 'UPDATE' : 'INSERT',
+      dadosNovos: { updatedAt: now },
+      alteradoEm: now
+    };
+
+    const updated: InspectionData = {
+      ...inspection,
+      updatedAt: now,
+      historicoAlteracoes: [...(inspection.historicoAlteracoes || []), auditEntry]
+    };
+
+    if (existingIndex >= 0) {
+      list[existingIndex] = updated;
+    } else {
+      list.unshift(updated);
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    localStorage.setItem(CURRENT_ACTIVE_KEY, updated.id);
+  } catch (err) {
+    console.error('Erro ao salvar vistoria no storage:', err);
+  }
+}
+
+export function deleteInspection(id: string): void {
+  try {
+    const list = getAllInspections().filter(i => i.id !== id);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    if (localStorage.getItem(CURRENT_ACTIVE_KEY) === id) {
+      localStorage.removeItem(CURRENT_ACTIVE_KEY);
+    }
+  } catch (err) {
+    console.error('Erro ao deletar vistoria:', err);
+  }
+}
+
+export function getActiveInspectionId(): string | null {
+  return localStorage.getItem(CURRENT_ACTIVE_KEY);
+}
+
+export function setActiveInspectionId(id: string): void {
+  localStorage.setItem(CURRENT_ACTIVE_KEY, id);
+}
+
+export function exportInspectionToJson(inspection: InspectionData): void {
+  const jsonStr = JSON.stringify(inspection, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeName = (inspection.damIdentification.damName || 'vistoria-barragem')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '_');
+  a.href = url;
+  a.download = `SEMA_CSB_${safeName}_${inspection.generalInfo.inspectionDate || 'data'}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
