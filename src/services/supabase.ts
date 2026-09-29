@@ -106,7 +106,7 @@ export async function syncVistoriaToSupabase(vistoria: VistoriaAggregate): Promi
       declividade_talude_jusante_graus: vistoria.medicoes.declividadeTaludeJusanteGraus || null,
       largura_coroamento_metros: vistoria.medicoes.larguraCoroamentoMetros || null,
       extensao_coroamento_metros: vistoria.medicoes.extensaoCoroamentoMetros || null,
-      borda_libre_medida_metros: vistoria.medicoes.bordaLivreMetros || null,
+      borda_livre_medida_metros: vistoria.medicoes.bordaLivreMetros || null,
       espelho_dagua_hectares: vistoria.medicoes.espelhoDaguaHectares || null,
       volume_estimado_m3: vistoria.medicoes.volumeEstimadoM3 || null,
       updated_at: new Date().toISOString()

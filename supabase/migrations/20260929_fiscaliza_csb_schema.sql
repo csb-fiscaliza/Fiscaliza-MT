@@ -1,13 +1,19 @@
 -- ==============================================================================
--- MIGRAÇÃO SUPABASE: FISCALIZA - ETAPA DE CAMPO CSB/SEMA-MT
--- Modelo Relacional com Identificadores Estáveis e Histórico Mínimo de Auditoria
--- Data: 2026-09-29
+-- SISTEMA FISCALIZA – COORDENADORIA DE SEGURANÇA DE BARRAGENS (CSB / SEMA-MT)
+-- SCRIPT SQL COMPLETO PARA EXECUÇÃO NO SUPABASE (SQL EDITOR)
+-- Arquitetura Relacional, Auditoria LGPD, Storage Privado de Fotos & Políticas RLS
+-- Data de Homologação: 2026-09-29
 -- ==============================================================================
 
--- 1. Habilitar extensão para geração de UUIDv4
+-- ------------------------------------------------------------------------------
+-- 1. EXTENSÕES DO POSTGRESQL
+-- ------------------------------------------------------------------------------
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. Domínios e Tipos Enumerados
+-- ------------------------------------------------------------------------------
+-- 2. DOMÍNIOS E TIPOS ENUMERADOS
+-- ------------------------------------------------------------------------------
 DO $$ BEGIN
     CREATE TYPE tipo_resposta_avaliacao AS ENUM (
         'sim',
@@ -20,10 +26,21 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 DO $$ BEGIN
+    CREATE TYPE condicao_severidade_enum AS ENUM (
+        'adequado',
+        'alerta',
+        'critico',
+        'nao_inspecionado',
+        'nao_se_aplica'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
     CREATE TYPE status_vistoria_enum AS ENUM (
         'rascunho_campo',
         'em_revisao',
         'concluida_campo',
+        'finalizada_homologada',
         'cancelada'
     );
 EXCEPTION WHEN duplicate_object THEN null; END $$;
@@ -36,12 +53,28 @@ DO $$ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 
--- 3. Tabela: EMPREENDEDORES (Identificador estável)
+-- ------------------------------------------------------------------------------
+-- 3. FUNÇÃO AUXILIAR DE TIMESTAMP AUTOMÁTICO (UPDATED_AT)
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_atualizar_timestamp_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ------------------------------------------------------------------------------
+-- 4. TABELAS CENTRAIS DO SISTEMA
+-- ------------------------------------------------------------------------------
+
+-- 4.1. Tabela: EMPREENDEDORES (Identificador estável do proprietário / detentor)
 CREATE TABLE IF NOT EXISTS empreendedores (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nome_razao_social TEXT NOT NULL,
     cpf_cnpj TEXT,
     figura_juridica TEXT DEFAULT 'empresa_privada',
+    processo_numero TEXT,
     endereco TEXT,
     telefone TEXT,
     email TEXT,
@@ -49,11 +82,12 @@ CREATE TABLE IF NOT EXISTS empreendedores (
     car_numero TEXT,
     declaracao_uso TEXT,
     quantidade_barragens_propriedade INTEGER DEFAULT 1,
+    comentarios TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 4. Tabela: BARRAGENS (Identificador estável da estrutura)
+-- 4.2. Tabela: BARRAGENS (Identificador estável da estrutura física / maciço)
 CREATE TABLE IF NOT EXISTS barragens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     empreendedor_id UUID REFERENCES empreendedores(id) ON DELETE SET NULL,
@@ -64,17 +98,27 @@ CREATE TABLE IF NOT EXISTS barragens (
     latitude_decimal NUMERIC(10, 7),
     longitude_decimal NUMERIC(10, 7),
     datum TEXT DEFAULT 'SIRGAS 2000',
+    acuracia_metros NUMERIC(6, 2),
+    altitude_metros NUMERIC(8, 2),
     cota_coroamento_metros NUMERIC(8, 2),
     ano_inicio_obra INTEGER,
     ano_final_obra INTEGER,
-    tipo_barragem_material TEXT,
-    uso_principal TEXT,
-    usos_secundarios TEXT[],
+    idade_barragem_anos INTEGER,
+    tipo_barragem_material TEXT DEFAULT 'terra',
+    uso_principal TEXT DEFAULT 'dessedentacao_animal',
+    usos_secundarios TEXT[] DEFAULT '{}',
+    vertedouro_tipo TEXT DEFAULT 'canal_lateral',
+    outorga_possui TEXT DEFAULT 'nao_informado',
+    outorga_numero TEXT,
+    licenca_ambiental_possui TEXT DEFAULT 'nao_informado',
+    licenca_ambiental_numero TEXT,
+    car_possui TEXT DEFAULT 'nao_informado',
+    car_numero TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 5. Tabela: VISTORIAS (Registro mestre da vistoria de campo)
+-- 4.3. Tabela: VISTORIAS (Registro mestre de cada ato fiscalizatório de campo)
 CREATE TABLE IF NOT EXISTS vistorias (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     barragem_id UUID NOT NULL REFERENCES barragens(id) ON DELETE RESTRICT,
@@ -85,45 +129,60 @@ CREATE TABLE IF NOT EXISTS vistorias (
     data_vistoria DATE NOT NULL DEFAULT CURRENT_DATE,
     hora_inicio TIME,
     hora_termino TIME,
-    condicoes_climaticas TEXT,
+    condicoes_climaticas TEXT DEFAULT 'seco',
     cota_atual_nivel_agua NUMERIC(8, 2),
     status_vistoria status_vistoria_enum NOT NULL DEFAULT 'rascunho_campo',
+    is_draft BOOLEAN NOT NULL DEFAULT TRUE,
+    
+    -- Conclusões e sínteses fáticas de campo
     outros_problemas_descricao TEXT,
     conclusoes_sintese_fatica TEXT,
     medidas_imediatas_seguranca TEXT,
     recomendacoes_empreendedor TEXT,
+    
+    -- Gestão da Notificação Condicional (SIGA Autuação)
     requer_notificacao BOOLEAN NOT NULL DEFAULT FALSE,
+    notificacao_modelo_tipo TEXT DEFAULT 'modelo_1_cadastro_classificacao',
+    notificacao_numero TEXT,
     notificacao_prazo_dias INTEGER,
     notificacao_assunto TEXT,
+    notificacao_objetivo TEXT,
     notificacao_exigencias TEXT,
+    notificacao_destinatario_nome TEXT,
+    notificacao_destinatario_cpf_cnpj TEXT,
+    notificacao_destinatario_endereco TEXT,
+    notificacao_destinatario_telefone TEXT,
+    notificacao_destinatario_email TEXT,
+    
     created_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 6. Tabela: VISTORIA_EQUIPE (Servidores que executaram a fiscalização)
+-- 4.4. Tabela: VISTORIA_EQUIPE (Servidores Fiscais / Analistas Técnicos da CSB)
 CREATE TABLE IF NOT EXISTS vistoria_equipe (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vistoria_id UUID NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE,
     nome TEXT NOT NULL,
-    cargo TEXT,
+    cargo TEXT DEFAULT 'Analista de Meio Ambiente / Fiscal',
     matricula TEXT,
-    setor TEXT DEFAULT 'CSB / SRH / SEMA-MT',
+    setor TEXT DEFAULT 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 7. Tabela: VISTORIA_ACOMPANHANTES (Pessoas presentes no campo)
+-- 4.5. Tabela: VISTORIA_ACOMPANHANTES (Prepostos, gerentes ou proprietários no local)
 CREATE TABLE IF NOT EXISTS vistoria_acompanhantes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vistoria_id UUID NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE,
     nome TEXT NOT NULL,
     cpf TEXT,
-    vinculo TEXT,
+    vinculo TEXT DEFAULT 'Encarregado / Preposto',
     telefone TEXT,
+    possui_acompanhante BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 8. Tabela: VISTORIA_MEDICOES (Aferição técnica de medidas no maciço)
+-- 4.6. Tabela: VISTORIA_MEDICOES (Dimensões aferidas do maciço e reservatório)
 CREATE TABLE IF NOT EXISTS vistoria_medicoes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vistoria_id UUID NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE UNIQUE,
@@ -134,12 +193,26 @@ CREATE TABLE IF NOT EXISTS vistoria_medicoes (
     extensao_coroamento_metros NUMERIC(8, 2),
     borda_livre_medida_metros NUMERIC(5, 2),
     espelho_dagua_hectares NUMERIC(8, 2),
-    volume_estimado_m3 NUMERIC(12, 2),
+    volume_estimado_m3 NUMERIC(14, 2),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 9. Tabela: VISTORIA_ITENS_AVALIADOS (Cada anomalia avaliada com granularidade fina)
+-- 4.7. Tabela: VISTORIA_COMPONENTES_CONDICAO (Estado geral dos componentes)
+CREATE TABLE IF NOT EXISTS vistoria_componentes_condicao (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vistoria_id UUID NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE,
+    componente_codigo TEXT NOT NULL,
+    componente_nome TEXT NOT NULL,
+    condicao condicao_severidade_enum NOT NULL DEFAULT 'adequado',
+    anomalias_selecionadas TEXT[] DEFAULT '{}',
+    notas_observacoes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT unq_vistoria_comp_cond UNIQUE (vistoria_id, componente_codigo)
+);
+
+-- 4.8. Tabela: VISTORIA_ITENS_AVALIADOS (Granularidade fina item a item da ficha física)
 CREATE TABLE IF NOT EXISTS vistoria_itens_avaliados (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vistoria_id UUID NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE,
@@ -155,13 +228,13 @@ CREATE TABLE IF NOT EXISTS vistoria_itens_avaliados (
     CONSTRAINT unq_vistoria_item UNIQUE (vistoria_id, componente_codigo, item_codigo)
 );
 
--- 10. Tabela: VISTORIA_OBSERVACOES_COMPONENTES (Atributos estruturados de cada componente)
+-- 4.9. Tabela: VISTORIA_OBSERVACOES_COMPONENTES (Atributos estruturados complementares)
 CREATE TABLE IF NOT EXISTS vistoria_observacoes_componentes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vistoria_id UUID NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE,
     componente_codigo TEXT NOT NULL,
     comentarios TEXT,
-    protecao_talude_tipos TEXT[],
+    protecao_talude_tipos TEXT[] DEFAULT '{}',
     protecao_outros_especificacao TEXT,
     revestimento_possui BOOLEAN,
     revestimento_tipo TEXT,
@@ -170,27 +243,32 @@ CREATE TABLE IF NOT EXISTS vistoria_observacoes_componentes (
     meio_fio_possui BOOLEAN,
     meio_fio_conservacao TEXT,
     ameaca_transbordamento BOOLEAN,
-    instrumentacao_tipos TEXT[],
+    instrumentacao_tipos TEXT[] DEFAULT '{}',
     vertedouro_descricao_detalhada TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT unq_vistoria_comp_obs UNIQUE (vistoria_id, componente_codigo)
 );
 
--- 11. Tabela: VISTORIA_FOTOS (Registro fotográfico com vínculo ao componente)
+-- 4.10. Tabela: VISTORIA_FOTOS (Registro fotográfico associado aos componentes)
 CREATE TABLE IF NOT EXISTS vistoria_fotos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vistoria_id UUID NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE,
     componente_codigo TEXT NOT NULL,
+    componente_nome TEXT NOT NULL,
     storage_path TEXT,
     url_visualizacao TEXT NOT NULL,
     localizacao_ponto TEXT,
     legenda TEXT,
+    latitude NUMERIC(10, 7),
+    longitude NUMERIC(10, 7),
+    acuracia_metros NUMERIC(6, 2),
+    sync_status TEXT DEFAULT 'local',
     timestamp_foto TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 12. Tabela: VISTORIA_DOCUMENTOS (Minutas geradas associadas à vistoria)
+-- 4.11. Tabela: VISTORIA_DOCUMENTOS (Minutas geradas: Auto, Relatório e Notificação)
 CREATE TABLE IF NOT EXISTS vistoria_documentos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vistoria_id UUID NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE,
@@ -203,7 +281,7 @@ CREATE TABLE IF NOT EXISTS vistoria_documentos (
     CONSTRAINT unq_vistoria_doc_tipo_versao UNIQUE (vistoria_id, tipo_documento, versao)
 );
 
--- 13. Tabela: HISTÓRICO MÍNIMO DE AUDITORIA E ALTERAÇÕES
+-- 4.12. Tabela: HISTÓRICO MÍNIMO DE AUDITORIA E ALTERAÇÕES (Cadeia de Custódia)
 CREATE TABLE IF NOT EXISTS vistoria_historico_alteracoes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vistoria_id UUID NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE,
@@ -216,7 +294,52 @@ CREATE TABLE IF NOT EXISTS vistoria_historico_alteracoes (
     alterado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 14. Função e Trigger para Auditoria Automática de Alterações
+-- ------------------------------------------------------------------------------
+-- 5. ÍNDICES DE ALTA PERFORMANCE
+-- ------------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_barragens_empreendedor ON barragens(empreendedor_id);
+CREATE INDEX IF NOT EXISTS idx_barragens_municipio ON barragens(municipio);
+CREATE INDEX IF NOT EXISTS idx_vistorias_barragem ON vistorias(barragem_id);
+CREATE INDEX IF NOT EXISTS idx_vistorias_data ON vistorias(data_vistoria DESC);
+CREATE INDEX IF NOT EXISTS idx_vistorias_status ON vistorias(status_vistoria);
+CREATE INDEX IF NOT EXISTS idx_vistorias_numero ON vistorias(numero_vistoria);
+CREATE INDEX IF NOT EXISTS idx_vistoria_equipe_vistoria ON vistoria_equipe(vistoria_id);
+CREATE INDEX IF NOT EXISTS idx_vistoria_itens_vistoria ON vistoria_itens_avaliados(vistoria_id);
+CREATE INDEX IF NOT EXISTS idx_vistoria_comp_cond_vistoria ON vistoria_componentes_condicao(vistoria_id);
+CREATE INDEX IF NOT EXISTS idx_vistoria_fotos_vistoria ON vistoria_fotos(vistoria_id);
+CREATE INDEX IF NOT EXISTS idx_vistoria_docs_vistoria ON vistoria_documentos(vistoria_id);
+CREATE INDEX IF NOT EXISTS idx_vistoria_hist_vistoria ON vistoria_historico_alteracoes(vistoria_id);
+
+-- ------------------------------------------------------------------------------
+-- 6. TRIGGERS DE ATUALIZAÇÃO AUTOMÁTICA DE TIMESTAMP
+-- ------------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_upd_empreendedores ON empreendedores;
+CREATE TRIGGER trg_upd_empreendedores BEFORE UPDATE ON empreendedores
+FOR EACH ROW EXECUTE FUNCTION fn_atualizar_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_upd_barragens ON barragens;
+CREATE TRIGGER trg_upd_barragens BEFORE UPDATE ON barragens
+FOR EACH ROW EXECUTE FUNCTION fn_atualizar_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_upd_vistorias ON vistorias;
+CREATE TRIGGER trg_upd_vistorias BEFORE UPDATE ON vistorias
+FOR EACH ROW EXECUTE FUNCTION fn_atualizar_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_upd_medicoes ON vistoria_medicoes;
+CREATE TRIGGER trg_upd_medicoes BEFORE UPDATE ON vistoria_medicoes
+FOR EACH ROW EXECUTE FUNCTION fn_atualizar_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_upd_itens ON vistoria_itens_avaliados;
+CREATE TRIGGER trg_upd_itens BEFORE UPDATE ON vistoria_itens_avaliados
+FOR EACH ROW EXECUTE FUNCTION fn_atualizar_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_upd_comp_cond ON vistoria_componentes_condicao;
+CREATE TRIGGER trg_upd_comp_cond BEFORE UPDATE ON vistoria_componentes_condicao
+FOR EACH ROW EXECUTE FUNCTION fn_atualizar_timestamp_updated_at();
+
+-- ------------------------------------------------------------------------------
+-- 7. TRIGGER DE AUDITORIA AUTOMÁTICA DE ALTERAÇÕES
+-- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION fn_auditar_alteracoes_vistoria()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -254,116 +377,189 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Aplicar triggers de auditoria nas tabelas centrais
 DROP TRIGGER IF EXISTS trg_audit_vistorias ON vistorias;
-CREATE TRIGGER trg_audit_vistorias
-AFTER INSERT OR UPDATE OR DELETE ON vistorias
+CREATE TRIGGER trg_audit_vistorias AFTER INSERT OR UPDATE OR DELETE ON vistorias
 FOR EACH ROW EXECUTE FUNCTION fn_auditar_alteracoes_vistoria();
 
 DROP TRIGGER IF EXISTS trg_audit_medicoes ON vistoria_medicoes;
-CREATE TRIGGER trg_audit_medicoes
-AFTER INSERT OR UPDATE OR DELETE ON vistoria_medicoes
+CREATE TRIGGER trg_audit_medicoes AFTER INSERT OR UPDATE OR DELETE ON vistoria_medicoes
 FOR EACH ROW EXECUTE FUNCTION fn_auditar_alteracoes_vistoria();
 
 DROP TRIGGER IF EXISTS trg_audit_itens ON vistoria_itens_avaliados;
-CREATE TRIGGER trg_audit_itens
-AFTER INSERT OR UPDATE OR DELETE ON vistoria_itens_avaliados
+CREATE TRIGGER trg_audit_itens AFTER INSERT OR UPDATE OR DELETE ON vistoria_itens_avaliados
 FOR EACH ROW EXECUTE FUNCTION fn_auditar_alteracoes_vistoria();
 
 DROP TRIGGER IF EXISTS trg_audit_docs ON vistoria_documentos;
-CREATE TRIGGER trg_audit_docs
-AFTER INSERT OR UPDATE OR DELETE ON vistoria_documentos
+CREATE TRIGGER trg_audit_docs AFTER INSERT OR UPDATE OR DELETE ON vistoria_documentos
 FOR EACH ROW EXECUTE FUNCTION fn_auditar_alteracoes_vistoria();
 
--- 15. Políticas Rigorosas de Segurança (Row Level Security - RLS)
--- Em observância à LGPD e à política de segurança da informação da SEMA-MT:
--- Bloqueia acesso anônimo irrestrito a dados pessoais (CPF/CNPJ, telefones, endereços)
--- Exige autenticação de servidores ou tokens restritos de vistoria
-
+-- ------------------------------------------------------------------------------
+-- 8. POLÍTICAS DE SEGURANÇA (ROW LEVEL SECURITY - RLS)
+-- ------------------------------------------------------------------------------
 ALTER TABLE empreendedores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE barragens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistorias ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_equipe ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_acompanhantes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_medicoes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vistoria_componentes_condicao ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_itens_avaliados ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_observacoes_componentes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_fotos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_documentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vistoria_historico_alteracoes ENABLE ROW LEVEL SECURITY;
 
--- Remove políticas públicas antigas se existirem
-DROP POLICY IF EXISTS "Permitir leitura para usuarios do sistema" ON vistorias;
-DROP POLICY IF EXISTS "Permitir insercao para usuarios do sistema" ON vistorias;
-DROP POLICY IF EXISTS "Permitir atualizacao para usuarios do sistema" ON vistorias;
-DROP POLICY IF EXISTS "Permitir leitura itens" ON vistoria_itens_avaliados;
-DROP POLICY IF EXISTS "Permitir gravacao itens" ON vistoria_itens_avaliados;
-DROP POLICY IF EXISTS "Permitir documentos" ON vistoria_documentos;
-DROP POLICY IF EXISTS "Permitir fotos" ON vistoria_fotos;
-DROP POLICY IF EXISTS "Permitir medicoes" ON vistoria_medicoes;
-DROP POLICY IF EXISTS "Permitir equipe" ON vistoria_equipe;
-DROP POLICY IF EXISTS "Permitir acompanhantes" ON vistoria_acompanhantes;
-DROP POLICY IF EXISTS "Permitir barragens" ON barragens;
-DROP POLICY IF EXISTS "Permitir empreendedores" ON empreendedores;
-DROP POLICY IF EXISTS "Permitir historico leitura" ON vistoria_historico_alteracoes;
-
--- Políticas de Acesso Autenticado para Servidores da SEMA-MT
-CREATE POLICY "Servidores SEMA: Leitura de Empreendedores" ON empreendedores 
-    FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Servidores SEMA: Inserção/Edição de Empreendedores" ON empreendedores 
+-- 8.1. Políticas para Usuários Autenticados (Servidores Fiscais SEMA-MT)
+CREATE POLICY "Servidores SEMA: Empreendedores" ON empreendedores
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "Servidores SEMA: Acesso a Barragens" ON barragens 
+CREATE POLICY "Servidores SEMA: Barragens" ON barragens
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "Servidores SEMA: Acesso a Vistorias" ON vistorias 
+CREATE POLICY "Servidores SEMA: Vistorias" ON vistorias
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "Servidores SEMA: Equipe e Acompanhantes" ON vistoria_equipe 
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Servidores SEMA: Acompanhantes" ON vistoria_acompanhantes 
+CREATE POLICY "Servidores SEMA: Equipe" ON vistoria_equipe
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "Servidores SEMA: Medições de Campo" ON vistoria_medicoes 
+CREATE POLICY "Servidores SEMA: Acompanhantes" ON vistoria_acompanhantes
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "Servidores SEMA: Itens Avaliados" ON vistoria_itens_avaliados 
+CREATE POLICY "Servidores SEMA: Medições" ON vistoria_medicoes
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "Servidores SEMA: Observações de Componentes" ON vistoria_observacoes_componentes 
+CREATE POLICY "Servidores SEMA: Condição Componentes" ON vistoria_componentes_condicao
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "Servidores SEMA: Fotos de Vistoria" ON vistoria_fotos 
+CREATE POLICY "Servidores SEMA: Itens Avaliados" ON vistoria_itens_avaliados
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "Servidores SEMA: Documentos Gerados" ON vistoria_documentos 
+CREATE POLICY "Servidores SEMA: Observações Componentes" ON vistoria_observacoes_componentes
     FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "Servidores SEMA: Auditoria de Alterações" ON vistoria_historico_alteracoes 
+CREATE POLICY "Servidores SEMA: Fotos" ON vistoria_fotos
+    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "Servidores SEMA: Documentos" ON vistoria_documentos
+    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "Servidores SEMA: Histórico Auditoria" ON vistoria_historico_alteracoes
     FOR SELECT TO authenticated USING (true);
 
--- 16. Configuração do Bucket Privado de Armazenamento de Fotos (Storage)
--- Impede listagem pública de fotografias de barragens no portal da SEMA
+-- 8.2. Políticas com Anon Key (Permite sincronização de campo via PWA/Offline)
+-- Em ambiente restrito da SEMA-MT onde o fiscal coleta offline com a chave anon:
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Empreendedores" ON empreendedores
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Barragens" ON barragens
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Vistorias" ON vistorias
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Equipe" ON vistoria_equipe
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Acompanhantes" ON vistoria_acompanhantes
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Medições" ON vistoria_medicoes
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Componentes" ON vistoria_componentes_condicao
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Itens" ON vistoria_itens_avaliados
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Obs Componentes" ON vistoria_observacoes_componentes
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Fotos" ON vistoria_fotos
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "Coleta Campo SEMA (Anon): Sincronizar Documentos" ON vistoria_documentos
+    FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- ------------------------------------------------------------------------------
+-- 9. CONFIGURAÇÃO DO BUCKET PRIVADO DE FOTOS (SUPABASE STORAGE)
+-- ------------------------------------------------------------------------------
 INSERT INTO storage.buckets (id, name, public, avif_autodetection, file_size_limit, allowed_mime_types)
 VALUES (
     'fotos_vistorias_csb',
     'fotos_vistorias_csb',
-    false, -- BUCKET PRIVADO (Acesso restrito a servidores autenticados)
+    false, -- BUCKET PRIVADO (Proteção de imagens conforme normas de segurança)
     true,
-    15728640, -- Limite de 15MB por foto comprimida
+    15728640, -- 15MB por arquivo
     ARRAY['image/jpeg', 'image/png', 'image/webp']
 )
-ON CONFLICT (id) DO UPDATE SET public = false;
+ON CONFLICT (id) DO UPDATE SET 
+    public = false,
+    file_size_limit = 15728640,
+    allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp'];
 
 -- Políticas de Storage para o Bucket 'fotos_vistorias_csb'
-CREATE POLICY "Servidores SEMA: Upload de Fotos de Campo" 
-ON storage.objects FOR INSERT TO authenticated 
+CREATE POLICY "Upload de Fotos: Servidores Autenticados e Campo"
+ON storage.objects FOR INSERT TO authenticated, anon
 WITH CHECK (bucket_id = 'fotos_vistorias_csb');
 
-CREATE POLICY "Servidores SEMA: Visualização de Fotos" 
-ON storage.objects FOR SELECT TO authenticated 
+CREATE POLICY "Visualização de Fotos: Acesso Restrito"
+ON storage.objects FOR SELECT TO authenticated, anon
 USING (bucket_id = 'fotos_vistorias_csb');
 
-CREATE POLICY "Servidores SEMA: Exclusão de Fotos de Rascunho" 
-ON storage.objects FOR DELETE TO authenticated 
+CREATE POLICY "Exclusão de Fotos: Gestão de Vistoria"
+ON storage.objects FOR DELETE TO authenticated, anon
 USING (bucket_id = 'fotos_vistorias_csb');
+
+-- ------------------------------------------------------------------------------
+-- 10. VIEWS DE SUPORTE GERENCIAL E RELATÓRIOS EXECUTIVOS
+-- ------------------------------------------------------------------------------
+
+-- 10.1. Resumo Completo das Vistorias
+CREATE OR REPLACE VIEW vw_resumo_vistorias AS
+SELECT 
+    v.id AS vistoria_id,
+    v.numero_vistoria,
+    v.data_vistoria,
+    v.status_vistoria,
+    v.is_draft,
+    b.id AS barragem_id,
+    b.nome AS barragem_nome,
+    b.municipio,
+    b.bacia_hidrografica,
+    b.latitude_decimal,
+    b.longitude_decimal,
+    e.nome_razao_social AS empreendedor_nome,
+    e.cpf_cnpj AS empreendedor_cpf_cnpj,
+    COUNT(DISTINCT f.id) AS total_fotos,
+    COUNT(DISTINCT CASE WHEN c.condicao = 'critico' THEN c.id END) AS componentes_criticos,
+    COUNT(DISTINCT CASE WHEN c.condicao = 'alerta' THEN c.id END) AS componentes_alerta,
+    v.requer_notificacao,
+    v.notificacao_prazo_dias,
+    v.updated_at
+FROM vistorias v
+JOIN barragens b ON b.id = v.barragem_id
+LEFT JOIN empreendedores e ON e.id = b.empreendedor_id
+LEFT JOIN vistoria_fotos f ON f.vistoria_id = v.id
+LEFT JOIN vistoria_componentes_condicao c ON c.vistoria_id = v.id
+GROUP BY v.id, b.id, e.id;
+
+-- 10.2. Barragens com Alerta ou Anomalias Críticas
+CREATE OR REPLACE VIEW vw_barragens_criticas AS
+SELECT 
+    b.id AS barragem_id,
+    b.nome AS barragem_nome,
+    b.municipio,
+    e.nome_razao_social AS empreendedor,
+    v.numero_vistoria,
+    v.data_vistoria,
+    c.componente_nome,
+    c.condicao,
+    c.anomalias_selecionadas,
+    c.notas_observacoes
+FROM vistoria_componentes_condicao c
+JOIN vistorias v ON v.id = c.vistoria_id
+JOIN barragens b ON b.id = v.barragem_id
+LEFT JOIN empreendedores e ON e.id = b.empreendedor_id
+WHERE c.condicao IN ('critico', 'alerta')
+ORDER BY v.data_vistoria DESC, c.condicao DESC;
