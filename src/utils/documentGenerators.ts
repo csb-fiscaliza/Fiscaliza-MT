@@ -1,5 +1,6 @@
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { InspectionData } from '../types/inspection';
+import { formatGmsString } from './geoCoordinates';
 
 const DISCLAIMER_NOTICE = 
 `[MINUTA PRELIMINAR DE DOCUMENTO DE CAMPO – COORDENADORIA DE SEGURANÇA DE BARRAGENS / SEMA-MT]
@@ -18,7 +19,7 @@ export function generateAutoInspecaoText(data: InspectionData): string {
     : 'Vistoria realizada sem acompanhamento de preposto ou proprietário no local.';
 
   const coords = d.coordinates.latitude && d.coordinates.longitude
-    ? `Lat: ${d.coordinates.latitude}, Long: ${d.coordinates.longitude} (${d.coordinates.datum || 'SIRGAS 2000'}${d.coordinates.accuracyMeters ? `, precisão GPS: ±${d.coordinates.accuracyMeters.toFixed(1)}m` : ''})`
+    ? `Lat: ${formatGmsString(d.coordinates.latitude, true, false)}, Long: ${formatGmsString(d.coordinates.longitude, false, false)} (${d.coordinates.datum || 'SIRGAS 2000'}${d.coordinates.accuracyMeters ? `, precisão GPS: ±${d.coordinates.accuracyMeters.toFixed(1)}m` : ''})`
     : 'Coordenadas não informadas.';
 
   // Resumo de anomalias por componente

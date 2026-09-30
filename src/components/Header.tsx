@@ -23,6 +23,7 @@ import {
   Layers,
   FileText
 } from 'lucide-react';
+import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionData } from '../types/inspection';
 
 interface HeaderProps {
@@ -234,7 +235,7 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
           {currentInspection.damIdentification.coordinates.latitude && (
             <span className="hidden md:inline text-slate-500 font-mono text-[11px]">
-              [{currentInspection.damIdentification.coordinates.latitude}, {currentInspection.damIdentification.coordinates.longitude}]
+              [{formatGmsString(currentInspection.damIdentification.coordinates.latitude, true)}, {formatGmsString(currentInspection.damIdentification.coordinates.longitude, false)}]
             </span>
           )}
         </div>

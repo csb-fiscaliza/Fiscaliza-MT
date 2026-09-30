@@ -216,8 +216,8 @@ export function createSampleInspection(): InspectionData {
   base.damIdentification.hydrographicBasin = 'Bacia Hidrográfica do Paraguai (Alto Paraguai / Pantanal)';
   base.damIdentification.waterCourse = 'Córrego das Araras';
   base.damIdentification.coordinates = {
-    latitude: '-16.257400',
-    longitude: '-56.621800',
+    latitude: '16º15\'26,64"',
+    longitude: '56º37\'18,48"',
     datum: 'SIRGAS 2000',
     accuracyMeters: 4.2
   };

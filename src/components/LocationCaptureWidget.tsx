@@ -1,3 +1,9 @@
+// ==============================================================================
+// ARQUIVO: src/components/LocationCaptureWidget.tsx
+// Widget Oficial de Coordenadas Geográficas em Formato GMS (CSB/SEMA-MT)
+// Formato estrito: xxºxx'xx,xx" (ex: 16º15'26,64" S e 56º37'18,48" W)
+// ==============================================================================
+
 import React, { useState } from 'react';
 import { 
   Compass, 
@@ -7,9 +13,10 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Edit3, 
-  MapPin 
+  MapPin,
+  Sparkles
 } from 'lucide-react';
-import { decimalToGms, formatGmsString } from '../utils/geoCoordinates';
+import { formatGmsString, parseGmsToDecimal, decimalToGms } from '../utils/geoCoordinates';
 
 interface Props {
   latitude: string;
@@ -45,9 +52,7 @@ export const LocationCaptureWidget: React.FC<Props> = ({
     text: ''
   });
 
-  const latNum = latitude ? parseFloat(latitude) : null;
-  const lonNum = longitude ? parseFloat(longitude) : null;
-
+  // Captura direta via sensor GPS do aparelho e conversão imediata para GMS
   const handleCaptureGps = () => {
     if (!navigator.geolocation) {
       setStatusMessage({
@@ -62,15 +67,16 @@ export const LocationCaptureWidget: React.FC<Props> = ({
 
     navigator.geolocation.getCurrentPosition(
       pos => {
-        const lat = pos.coords.latitude.toFixed(6);
-        const lng = pos.coords.longitude.toFixed(6);
+        // Converte imediatamente os graus decimais do sensor em formato GMS xxºxx'xx,xx"
+        const latGms = formatGmsString(pos.coords.latitude, true, false);
+        const lngGms = formatGmsString(pos.coords.longitude, false, false);
         const acc = Math.round(pos.coords.accuracy * 10) / 10;
         const alt = pos.coords.altitude !== null ? Math.round(pos.coords.altitude * 10) / 10 : null;
         const nowIso = new Date().toISOString();
 
         onChange({
-          latitude: lat,
-          longitude: lng,
+          latitude: latGms,
+          longitude: lngGms,
           accuracyMeters: acc,
           altitudeMeters: alt,
           captureTimestamp: nowIso,
@@ -80,7 +86,7 @@ export const LocationCaptureWidget: React.FC<Props> = ({
         setLoading(false);
         setStatusMessage({
           type: 'success',
-          text: `Coordenadas capturadas com sucesso via sensor do dispositivo (acurácia: ±${acc}m).`
+          text: `Coordenadas capturadas em GMS (${latGms}, ${lngGms}) via sensor do dispositivo (acurácia: ±${acc}m).`
         });
       },
       err => {
@@ -125,6 +131,28 @@ export const LocationCaptureWidget: React.FC<Props> = ({
     });
   };
 
+  const handleNormalizeGms = () => {
+    if (latitude) {
+      const formattedLat = formatGmsString(latitude, true, false);
+      const formattedLon = longitude ? formatGmsString(longitude, false, false) : '';
+      onChange({
+        latitude: formattedLat,
+        longitude: formattedLon,
+        accuracyMeters,
+        altitudeMeters,
+        captureTimestamp,
+        isManualEdit: true
+      });
+      setStatusMessage({
+        type: 'success',
+        text: 'Coordenadas normalizadas com sucesso para o padrão GMS xxºxx\'xx,xx"'
+      });
+    }
+  };
+
+  const latGmsFormatado = latitude ? formatGmsString(latitude, true, false) : 'Pendente de preenchimento';
+  const lonGmsFormatado = longitude ? formatGmsString(longitude, false, false) : 'Pendente de preenchimento';
+
   return (
     <div className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-white shadow-xs space-y-4">
       {/* Cabeçalho do Bloco */}
@@ -133,23 +161,25 @@ export const LocationCaptureWidget: React.FC<Props> = ({
           <Compass className="w-5 h-5 text-emerald-600" />
           <div>
             <h3 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wide">
-              Coordenadas Geográficas da Crista (Datum {datum || 'SIRGAS 2000'})
+              Coordenadas Geográficas em Formato GMS (Datum {datum || 'SIRGAS 2000'})
             </h3>
             <p className="text-[11px] text-slate-500">
-              Captura opcional de campo via sensor ou digitação manual
+              Padrão obrigatório SEMA-MT: Graus, Minutos e Segundos (ex: 16º15'26,64" S)
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleCaptureGps}
-          disabled={loading}
-          className="min-h-[44px] px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-2 shadow-xs transition cursor-pointer disabled:opacity-50"
-        >
-          <Navigation className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>{loading ? 'Obtendo Coordenadas...' : 'Capturar Localização do Dispositivo'}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleCaptureGps}
+            disabled={loading}
+            className="min-h-[44px] px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-2 shadow-xs transition cursor-pointer disabled:opacity-50"
+          >
+            <Navigation className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>{loading ? 'Obtendo GMS...' : 'Capturar Localização do Dispositivo'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Alerta de Feedback */}
@@ -170,34 +200,38 @@ export const LocationCaptureWidget: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Grid de Campos Numéricos (Decimal) */}
+      {/* Grid de Campos em Formato GMS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
         <div>
           <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-            Latitude Numérica (Graus Decimais)
+            Latitude em GMS <span className="text-emerald-700 font-bold">(xxºxx'xx,xx")</span>
           </label>
           <input
-            type="number"
-            step="any"
-            placeholder="-15.598900"
+            type="text"
+            placeholder={`ex: 16º15'26,64"`}
             value={latitude}
             onChange={e => handleManualLatChange(e.target.value)}
-            className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
+            className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
           />
+          <span className="text-[10px] text-slate-500 mt-0.5 block">
+            Exemplo: 16º15'26,64"
+          </span>
         </div>
 
         <div>
           <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-            Longitude Numérica (Graus Decimais)
+            Longitude em GMS <span className="text-emerald-700 font-bold">(xxºxx'xx,xx")</span>
           </label>
           <input
-            type="number"
-            step="any"
-            placeholder="-56.094900"
+            type="text"
+            placeholder={`ex: 56º37'18,48"`}
             value={longitude}
             onChange={e => handleManualLonChange(e.target.value)}
-            className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono"
+            className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
           />
+          <span className="text-[10px] text-slate-500 mt-0.5 block">
+            Exemplo: 56º37'18,48"
+          </span>
         </div>
 
         <div>
@@ -210,25 +244,28 @@ export const LocationCaptureWidget: React.FC<Props> = ({
             readOnly
             className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 rounded-lg bg-slate-100 text-slate-700 font-semibold"
           />
+          <span className="text-[10px] text-slate-500 mt-0.5 block">
+            Padrão cartográfico legal de Mato Grosso
+          </span>
         </div>
       </div>
 
-      {/* Exibição em GMS (Graus, Minutos e Segundos) */}
-      <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-        <div>
-          <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">
-            Latitude em GMS:
+      {/* Quadro de Visualização Padronizada em GMS */}
+      <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200/80 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        <div className="space-y-0.5">
+          <span className="text-[10px] uppercase font-bold text-emerald-900 block">
+            Latitude Padronizada (GMS):
           </span>
-          <span className="font-mono text-slate-800 font-semibold">
-            {formatGmsString(latNum, true)}
+          <span className="font-mono text-emerald-950 font-bold text-sm block">
+            {latGmsFormatado}
           </span>
         </div>
-        <div>
-          <span className="text-[10px] uppercase font-bold text-slate-500 block mb-0.5">
-            Longitude em GMS:
+        <div className="space-y-0.5">
+          <span className="text-[10px] uppercase font-bold text-emerald-900 block">
+            Longitude Padronizada (GMS):
           </span>
-          <span className="font-mono text-slate-800 font-semibold">
-            {formatGmsString(lonNum, false)}
+          <span className="font-mono text-emerald-950 font-bold text-sm block">
+            {lonGmsFormatado}
           </span>
         </div>
       </div>
@@ -260,7 +297,7 @@ export const LocationCaptureWidget: React.FC<Props> = ({
           <div>
             <span className="text-[10px] text-slate-500 block">Status da Origem:</span>
             <span className="font-medium text-slate-800">
-              {isManualEdit ? 'Editado manualmente pelo servidor' : captureTimestamp ? 'Direto do sensor do dispositivo' : 'Pendente de preenchimento'}
+              {isManualEdit ? 'Digitado / editado manualmente' : captureTimestamp ? 'Direto do sensor do dispositivo' : 'Pendente de preenchimento'}
             </span>
           </div>
         </div>

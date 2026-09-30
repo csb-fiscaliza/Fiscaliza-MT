@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { BASINS_MT, MUNICIPALITIES_MT } from '../data/damComponents';
 import { DamType, InspectionData, SpillwayType } from '../types/inspection';
+import { formatGmsString } from '../utils/geoCoordinates';
 
 interface Props {
   data: InspectionData;
@@ -93,8 +94,8 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
 
     navigator.geolocation.getCurrentPosition(
       position => {
-        const lat = position.coords.latitude.toFixed(6);
-        const lng = position.coords.longitude.toFixed(6);
+        const lat = formatGmsString(position.coords.latitude, true, false);
+        const lng = formatGmsString(position.coords.longitude, false, false);
         const acc = position.coords.accuracy;
 
         onChange(prev => ({
@@ -113,7 +114,7 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
         setGpsLoading(false);
         setGpsStatus({
           type: 'success',
-          message: `Coordenadas capturadas com sucesso! Precisão: ±${acc.toFixed(1)} metros.`
+          message: `Coordenadas capturadas em GMS (${lat}, ${lng})! Precisão: ±${acc.toFixed(1)} metros.`
         });
       },
       error => {
@@ -273,11 +274,11 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Latitude (Graus Decimais)
+                Latitude em GMS (xxºxx'xx,xx")
               </label>
               <input
                 type="text"
-                placeholder="ex: -15.598900"
+                placeholder="ex: 16º15'26,64&quot;"
                 value={d.coordinates.latitude}
                 onChange={e => updateCoordinates('latitude', e.target.value)}
                 className="w-full text-xs px-3 py-2 border border-slate-300 rounded font-mono bg-slate-50/50"
@@ -286,11 +287,11 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Longitude (Graus Decimais)
+                Longitude em GMS (xxºxx'xx,xx")
               </label>
               <input
                 type="text"
-                placeholder="ex: -56.094900"
+                placeholder="ex: 56º37'18,48&quot;"
                 value={d.coordinates.longitude}
                 onChange={e => updateCoordinates('longitude', e.target.value)}
                 className="w-full text-xs px-3 py-2 border border-slate-300 rounded font-mono bg-slate-50/50"

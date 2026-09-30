@@ -26,6 +26,7 @@ import {
   deletePhotoBlob, 
   uploadPhotoToRemoteStorage 
 } from '../services/photoStorage';
+import { formatGmsString } from '../utils/geoCoordinates';
 
 interface Props {
   data: InspectionData;
@@ -570,7 +571,7 @@ export const PhotoManagerStep: React.FC<Props> = ({
                         <div className="flex items-center gap-1 text-slate-500">
                           <MapPin className="w-3 h-3 text-emerald-600" />
                           <span className="font-mono">
-                            {photo.coordenadas.latitude}, {photo.coordenadas.longitude}
+                            {formatGmsString(photo.coordenadas.latitude, true)}, {formatGmsString(photo.coordenadas.longitude, false)}
                           </span>
                         </div>
                       )}
@@ -612,7 +613,7 @@ export const PhotoManagerStep: React.FC<Props> = ({
               <span>Data/Hora: {zoomPhoto.timestampInclusao}</span>
               {zoomPhoto.coordenadas && (
                 <span>
-                  Coordenadas: {zoomPhoto.coordenadas.latitude}, {zoomPhoto.coordenadas.longitude}
+                  Coordenadas: {formatGmsString(zoomPhoto.coordenadas.latitude, true)}, {formatGmsString(zoomPhoto.coordenadas.longitude, false)}
                   {zoomPhoto.coordenadas.acuraciaMetros ? ` (±${zoomPhoto.coordenadas.acuraciaMetros}m)` : ''}
                 </span>
               )}

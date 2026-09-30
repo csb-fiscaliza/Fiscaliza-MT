@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { generateRelatorioInspecaoData, RelatorioInspecaoGeneratedStructure } from '../utils/relatorioInspecaoGenerator';
+import { formatGmsString } from '../utils/geoCoordinates';
 
 interface Props {
   data: InspectionData;
@@ -397,7 +398,7 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
                           <div className="absolute top-1 right-1 bg-black/75 text-white text-[9px] p-1.5 rounded font-mono leading-tight text-right backdrop-blur-xs">
                             <div>{foto.timestamp ? new Date(foto.timestamp).toLocaleString('pt-BR') : report.dataVistoriaFormatada}</div>
                             {foto.latitude && foto.longitude ? (
-                              <div>{foto.latitude.toFixed(5)}°, {foto.longitude.toFixed(5)}°</div>
+                              <div>{formatGmsString(foto.latitude, true)}, {formatGmsString(foto.longitude, false)}</div>
                             ) : null}
                             <div>{data.damIdentification.municipality || 'MT'}</div>
                           </div>

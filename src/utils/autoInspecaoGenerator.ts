@@ -101,10 +101,8 @@ export function generateAutoInspecaoData(
   const c = data.conclusions;
   const m = d.estimatedDimensions;
 
-  const latNum = d.coordinates.latitude ? parseFloat(d.coordinates.latitude) : null;
-  const lonNum = d.coordinates.longitude ? parseFloat(d.coordinates.longitude) : null;
-  const latGms = formatGmsString(latNum, true);
-  const lonGms = formatGmsString(lonNum, false);
+  const latGms = formatGmsString(d.coordinates.latitude, true, false);
+  const lonGms = formatGmsString(d.coordinates.longitude, false, false);
 
   const dataFormatada = g.inspectionDate
     ? new Date(g.inspectionDate + 'T00:00:00').toLocaleDateString('pt-BR')
@@ -249,8 +247,8 @@ LOCAL DA OCORRÊNCIA
 NOME FANTASIA: ${d.damName || d.propertyOrBusinessName || 'Barramento Vistoriado'}
 ATIVIDADE: Barragem de acumulação de água para usos múltiplos
 COORDENADAS GEOGRÁFICAS (SIRGAS 2000):
-  LATITUDE ( S ): ${latGms} [Decimal: ${d.coordinates.latitude || 'N/I'}]
-  LONGITUDE ( W ): ${lonGms} [Decimal: ${d.coordinates.longitude || 'N/I'}]
+  LATITUDE ( S ): ${latGms || 'N/I'}
+  LONGITUDE ( W ): ${lonGms || 'N/I'}
 CURSO D'ÁGUA BARRADO: ${d.waterCourse || 'Não informado'}
 MUNICÍPIO: ${d.municipality || 'MT'} – MT
 Nº DO PROCESSO: ${g.recordNumber || 'Não informado'}
@@ -357,8 +355,8 @@ Página 1 de 1 • SIGA AUTUAÇÃO • SEMA-MT`;
       datum: d.coordinates.datum || 'SIRGAS 2000',
       latitudeGms: latGms,
       longitudeGms: lonGms,
-      latitudeDecimal: d.coordinates.latitude || 'N/I',
-      longitudeDecimal: d.coordinates.longitude || 'N/I',
+      latitudeDecimal: latGms || d.coordinates.latitude || 'N/I',
+      longitudeDecimal: lonGms || d.coordinates.longitude || 'N/I',
       enderecoEmpreendimento: 'Zona Rural',
       areaEmpreendimento: m.reservoirAreaHectares ? `${m.reservoirAreaHectares} ha` : 'Não informada',
       uf: 'MT',

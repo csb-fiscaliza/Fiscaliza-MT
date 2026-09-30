@@ -9,7 +9,7 @@
 
 import { InspectionData, InspectionPhoto } from '../types/inspection';
 import { DAM_COMPONENTS } from '../data/damComponents';
-import { decimalToGms } from './notificacaoGenerator';
+import { formatGmsString } from './geoCoordinates';
 
 export interface AnomaliaValidadaReportItem {
   numero: number;
@@ -126,15 +126,12 @@ export function generateRelatorioInspecaoData(data: InspectionData): RelatorioIn
     ? (g.recordNumber.startsWith('REL-') ? g.recordNumber : `REL-${g.recordNumber}`)
     : '0000041592';
 
-  // 1. Coordenadas
-  const latNum = parseFloat(d.coordinates.latitude);
-  const lonNum = parseFloat(d.coordinates.longitude);
-  const hasCoords = !isNaN(latNum) && !isNaN(lonNum);
-
-  const latGms = hasCoords ? decimalToGms(latNum, true) : '';
-  const lonGms = hasCoords ? decimalToGms(lonNum, false) : '';
+  // 1. Coordenadas em formato GMS (xxºxx'xx,xx")
+  const latGms = formatGmsString(d.coordinates.latitude, true, false);
+  const lonGms = formatGmsString(d.coordinates.longitude, false, false);
+  const hasCoords = !!(latGms && lonGms);
   const coordenadasTexto = hasCoords 
-    ? `${latGms} ${lonGms}.` 
+    ? `${latGms} e ${lonGms} (${d.coordinates.datum || 'SIRGAS 2000'}).` 
     : (d.coordinates.latitude ? `${d.coordinates.latitude} ${d.coordinates.longitude}` : '');
 
   // 2. Equipe Técnica
@@ -402,8 +399,8 @@ Assim, o empreendedor deverá realizar o monitoramento contínuo da estabilizaç
     nomeFantasia: d.damName || d.propertyOrBusinessName || 'Barramento Vistoriado',
     atividade: 'Barragem de acumulação de água para usos múltiplos',
     coordenadasDatum: 'SIRGAS 2000',
-    latitudeDecimal: d.coordinates.latitude || 'Não informada',
-    longitudeDecimal: d.coordinates.longitude || 'Não informada',
+    latitudeDecimal: latGms || d.coordinates.latitude || 'Não informada',
+    longitudeDecimal: lonGms || d.coordinates.longitude || 'Não informada',
     enderecoEmpreendimento: notif.localOcorrencia?.enderecoEmpreendimento || (d.waterCourse ? `Curso Hídrico: ${d.waterCourse}` : 'Área rural'),
     areaEmpreendimento: notif.localOcorrencia?.areaEmpreendimento || (dim.reservoirAreaHectares ? `${dim.reservoirAreaHectares} ha` : 'Não informada'),
     numeroProcesso: notif.processoNumero || g.recordNumber || 'Processo SEMA',

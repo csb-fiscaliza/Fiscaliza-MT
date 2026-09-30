@@ -26,6 +26,7 @@ import {
 import { InspectionData } from '../types/inspection';
 import { exportInspectionToJson } from '../services/storage';
 import { exportAnonymizedJsonFile } from '../utils/anonymizer';
+import { formatGmsString } from '../utils/geoCoordinates';
 
 interface Props {
   inspection: InspectionData | null;
@@ -183,7 +184,7 @@ export const InspectionDetailModal: React.FC<Props> = ({
                     <span>Localização Geográfica & Equipe</span>
                   </h3>
                   <div className="space-y-1 text-slate-700">
-                    <p><strong>Coordenadas:</strong> {d.coordinates.latitude ? `${d.coordinates.latitude}, ${d.coordinates.longitude} (${d.coordinates.datum || 'SIRGAS 2000'})` : 'Não capturadas'}</p>
+                    <p><strong>Coordenadas:</strong> {d.coordinates.latitude ? `${formatGmsString(d.coordinates.latitude, true)}, ${formatGmsString(d.coordinates.longitude, false)} (${d.coordinates.datum || 'SIRGAS 2000'})` : 'Não capturadas'}</p>
                     <p><strong>Data da Vistoria:</strong> {g.inspectionDate ? new Date(g.inspectionDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Não informada'}</p>
                     <p><strong>Horário:</strong> {g.startTime || '--:--'} às {g.endTime || '--:--'}</p>
                     <p><strong>Condição Climática:</strong> {g.weather || 'Normal'}</p>
@@ -302,7 +303,7 @@ export const InspectionDetailModal: React.FC<Props> = ({
                         <p className="text-[11px] text-slate-600 line-clamp-2">{foto.caption || foto.locationDescription || 'Sem legenda'}</p>
                         {foto.latitude && foto.longitude && (
                           <span className="text-[10px] text-slate-400 font-mono block">
-                            [{foto.latitude.toFixed(5)}, {foto.longitude.toFixed(5)}]
+                            [{formatGmsString(foto.latitude, true)}, {formatGmsString(foto.longitude, false)}]
                           </span>
                         )}
                       </div>

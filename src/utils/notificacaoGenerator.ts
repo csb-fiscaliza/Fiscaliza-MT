@@ -5,6 +5,7 @@
 
 import { InspectionData, NotificationDetailsState, NotificationLegalReference } from '../types/inspection';
 import { NOTIFICATION_TEMPLATES } from '../config/notificationTemplates';
+import { formatGmsString } from './geoCoordinates';
 
 export interface NotificacaoGeneratedStructure {
   numeroNotificacao: string;
@@ -70,15 +71,9 @@ export interface NotificacaoGeneratedStructure {
   textoCompletoFormatado: string;
 }
 
-// Converte coordenadas decimais em GMS (Graus, Minutos, Segundos)
-export function decimalToGms(deg: number, isLat: boolean): string {
-  const absolute = Math.abs(deg);
-  const degrees = Math.floor(absolute);
-  const minutesNotTruncated = (absolute - degrees) * 60;
-  const minutes = Math.floor(minutesNotTruncated);
-  const seconds = ((minutesNotTruncated - minutes) * 60).toFixed(1);
-  const direction = isLat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
-  return `${degrees}°${minutes}'${seconds}"${direction}`;
+// Converte coordenadas em GMS no formato oficial: xxºxx'xx,xx"
+export function decimalToGms(deg: number | string, isLat: boolean): string {
+  return formatGmsString(deg, isLat, false);
 }
 
 export function generateNotificacaoData(data: InspectionData): NotificacaoGeneratedStructure {
@@ -124,14 +119,14 @@ export function generateNotificacaoData(data: InspectionData): NotificacaoGenera
     || (d.waterCourse ? `Curso Hídrico: ${d.waterCourse}` : '');
   if (!localEndereco) camposPendentes.push('Endereço físico / Acesso ao empreendimento');
 
-  const latNum = parseFloat(d.coordinates.latitude);
-  const lonNum = parseFloat(d.coordinates.longitude);
-  const hasCoords = !isNaN(latNum) && !isNaN(lonNum);
+  const latGms = formatGmsString(d.coordinates.latitude, true, false);
+  const lonGms = formatGmsString(d.coordinates.longitude, false, false);
+  const hasCoords = !!(latGms && lonGms);
 
-  const latitudeDecimal = hasCoords ? latNum.toFixed(6) : (d.coordinates.latitude || 'Não informada');
-  const longitudeDecimal = hasCoords ? lonNum.toFixed(6) : (d.coordinates.longitude || 'Não informada');
+  const latitudeGmsFormatada = hasCoords ? latGms : (d.coordinates.latitude || 'Não informada');
+  const longitudeGmsFormatada = hasCoords ? lonGms : (d.coordinates.longitude || 'Não informada');
   const coordenadasGms = hasCoords 
-    ? `${decimalToGms(latNum, true)} e ${decimalToGms(lonNum, false)}` 
+    ? `${latGms} e ${lonGms}` 
     : 'Coordenadas não informadas em campo';
   if (!hasCoords) camposPendentes.push('Coordenadas geográficas da barragem');
 
@@ -229,7 +224,7 @@ TELEFONE: ${destTelefone || 'Não informado'}
 NOME FANTASIA: ${localNome || '[PENDENTE DE REVISÃO]'}
 ATIVIDADE: ${n.localOcorrencia?.atividade || 'Barragem de acumulação de água para usos múltiplos'}
 COORDENADAS GEOGRÁFICAS (SIRGAS 2000):
-LATITUDE: ${latitudeDecimal} (S) | LONGITUDE: ${longitudeDecimal} (W)
+LATITUDE: ${latitudeGmsFormatada} (S) | LONGITUDE: ${longitudeGmsFormatada} (W)
 COORDENADAS GMS: ${coordenadasGms}
 ENDEREÇO DO EMPREENDIMENTO: ${localEndereco || '[PENDENTE DE REVISÃO]'}
 ÁREA DO EMPREENDIMENTO: ${n.localOcorrencia?.areaEmpreendimento || 'Não informada'}
@@ -299,8 +294,8 @@ ASSINATURA: _________________________________________________
       nomeFantasia: localNome || '',
       atividade: n.localOcorrencia?.atividade || 'Barragem',
       coordenadasDatum: 'SIRGAS 2000',
-      latitudeDecimal,
-      longitudeDecimal,
+      latitudeDecimal: latitudeGmsFormatada,
+      longitudeDecimal: longitudeGmsFormatada,
       coordenadasGms,
       enderecoEmpreendimento: localEndereco || '',
       areaEmpreendimento: n.localOcorrencia?.areaEmpreendimento || '',

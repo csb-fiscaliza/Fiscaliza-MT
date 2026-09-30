@@ -29,6 +29,7 @@ import {
 } from '../types/inspection';
 import { EvaluationItemCard } from './EvaluationItemCard';
 import { LocationCaptureWidget } from './LocationCaptureWidget';
+import { formatGmsString } from '../utils/geoCoordinates';
 
 interface Props {
   data: InspectionData;
@@ -105,8 +106,8 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     setGpsLoading(true);
     navigator.geolocation.getCurrentPosition(
       pos => {
-        const lat = pos.coords.latitude.toFixed(6);
-        const lng = pos.coords.longitude.toFixed(6);
+        const lat = formatGmsString(pos.coords.latitude, true, false);
+        const lng = formatGmsString(pos.coords.longitude, false, false);
         onChange(prev => ({
           ...prev,
           damIdentification: {
