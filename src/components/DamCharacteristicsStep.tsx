@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { BASINS_MT, MUNICIPALITIES_MT } from '../data/damComponents';
 import { DamType, InspectionData, SpillwayType } from '../types/inspection';
-import { formatGmsString } from '../utils/geoCoordinates';
+import { formatGmsString, validateGms, maskGms } from '../utils/geoCoordinates';
 
 interface Props {
   data: InspectionData;
@@ -30,6 +30,8 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
     type: 'idle',
     message: ''
   });
+  const [latError, setLatError] = useState<string | null>(null);
+  const [lonError, setLonError] = useState<string | null>(null);
 
   const updateDam = (field: string, value: any) => {
     onChange(prev => ({
@@ -52,6 +54,54 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
         }
       }
     }));
+  };
+
+  const handleLatChange = (raw: string) => {
+    const masked = maskGms(raw);
+    setLatError(null);
+    updateCoordinates('latitude', masked);
+  };
+
+  const handleLatBlur = () => {
+    const current = d.coordinates.latitude;
+    if (!current || !current.trim()) {
+      setLatError(null);
+      return;
+    }
+    const formatted = formatGmsString(current, true, false);
+    const validation = validateGms(formatted, true);
+    if (!validation.isValid) {
+      setLatError(validation.error || 'Latitude inválida');
+    } else {
+      setLatError(null);
+      if (formatted !== current) {
+        updateCoordinates('latitude', formatted);
+      }
+    }
+  };
+
+  const handleLonChange = (raw: string) => {
+    const masked = maskGms(raw);
+    setLonError(null);
+    updateCoordinates('longitude', masked);
+  };
+
+  const handleLonBlur = () => {
+    const current = d.coordinates.longitude;
+    if (!current || !current.trim()) {
+      setLonError(null);
+      return;
+    }
+    const formatted = formatGmsString(current, false, false);
+    const validation = validateGms(formatted, false);
+    if (!validation.isValid) {
+      setLonError(validation.error || 'Longitude inválida');
+    } else {
+      setLonError(null);
+      if (formatted !== current) {
+        updateCoordinates('longitude', formatted);
+      }
+    }
   };
 
   const updateDimensions = (field: string, value: string) => {
@@ -280,9 +330,20 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
                 type="text"
                 placeholder="ex: 16º15'26,64&quot;"
                 value={d.coordinates.latitude}
-                onChange={e => updateCoordinates('latitude', e.target.value)}
-                className="w-full text-xs px-3 py-2 border border-slate-300 rounded font-mono bg-slate-50/50"
+                onChange={e => handleLatChange(e.target.value)}
+                onBlur={handleLatBlur}
+                className={`w-full text-xs px-3 py-2 border rounded font-mono ${
+                  latError 
+                    ? 'border-rose-400 bg-rose-50/50 text-rose-900 focus:ring-1 focus:ring-rose-500' 
+                    : 'border-slate-300 bg-slate-50/50 focus:bg-white'
+                }`}
               />
+              {latError && (
+                <span className="text-[10px] text-rose-600 font-medium mt-0.5 block flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  {latError}
+                </span>
+              )}
             </div>
 
             <div>
@@ -293,9 +354,20 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
                 type="text"
                 placeholder="ex: 56º37'18,48&quot;"
                 value={d.coordinates.longitude}
-                onChange={e => updateCoordinates('longitude', e.target.value)}
-                className="w-full text-xs px-3 py-2 border border-slate-300 rounded font-mono bg-slate-50/50"
+                onChange={e => handleLonChange(e.target.value)}
+                onBlur={handleLonBlur}
+                className={`w-full text-xs px-3 py-2 border rounded font-mono ${
+                  lonError 
+                    ? 'border-rose-400 bg-rose-50/50 text-rose-900 focus:ring-1 focus:ring-rose-500' 
+                    : 'border-slate-300 bg-slate-50/50 focus:bg-white'
+                }`}
               />
+              {lonError && (
+                <span className="text-[10px] text-rose-600 font-medium mt-0.5 block flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  {lonError}
+                </span>
+              )}
             </div>
 
             <div>

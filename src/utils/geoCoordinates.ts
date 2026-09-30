@@ -150,3 +150,85 @@ export function gmsToDecimal(graus: number, minutos: number, segundos: number, h
   const decimal = Math.abs(graus) + (minutos / 60) + (segundos / 3600);
   return (hemisferio === 'S' || hemisferio === 'W') ? -decimal : decimal;
 }
+
+/**
+ * Validação rigorosa de coordenadas geográficas no padrão GMS (xxºxx'xx,xx")
+ */
+export function validateGms(
+  input: string | null | undefined,
+  isLatitude: boolean
+): { isValid: boolean; error?: string } {
+  if (!input || !input.trim()) {
+    return { isValid: false, error: 'Coordenada obrigatória' };
+  }
+
+  const clean = input.trim();
+
+  // Se for decimal direto (ex: -16.2574)
+  const directDec = parseFloat(clean.replace(',', '.'));
+  if (!isNaN(directDec) && !clean.includes('º') && !clean.includes('°') && !clean.includes("'")) {
+    const max = isLatitude ? 90 : 180;
+    if (Math.abs(directDec) > max) {
+      return { isValid: false, error: `Valor decimal fora do limite (-${max} a ${max})` };
+    }
+    return { isValid: true };
+  }
+
+  // Regex para formato oficial xxºxx'xx,xx" (suporta variação de aspas e hemisfério opcional)
+  const regex = /^(\d{1,3})[º°\s](\d{1,2})['′\s](\d{1,2}(?:[.,]\d{1,2})?)[″"\s]*([NSEWnsew])?$/;
+  const match = clean.match(regex);
+
+  if (!match) {
+    return { isValid: false, error: 'Formato inválido. Utilize o padrão xxºxx\'xx,xx"' };
+  }
+
+  const graus = parseInt(match[1], 10);
+  const minutos = parseInt(match[2], 10);
+  const segundos = parseFloat(match[3].replace(',', '.'));
+
+  const maxGraus = isLatitude ? 90 : 180;
+  if (graus > maxGraus || graus < 0) {
+    return { isValid: false, error: `Graus devem estar entre 0 e ${maxGraus}` };
+  }
+  if (minutos >= 60 || minutos < 0) {
+    return { isValid: false, error: 'Minutos devem estar entre 0 e 59' };
+  }
+  if (segundos >= 60 || segundos < 0) {
+    return { isValid: false, error: 'Segundos devem estar entre 0 e 59,99' };
+  }
+
+  return { isValid: true };
+}
+
+/**
+ * Aplica máscara de digitação interativa para coordenadas no padrão GMS: xxºxx'xx,xx"
+ */
+export function maskGms(val: string): string {
+  if (!val) return '';
+
+  // Se já contém separadores colados ou digitados manualmente, preserva para formatação no blur
+  if (val.includes('º') || val.includes('°') || val.includes("'") || val.includes('"')) {
+    return val;
+  }
+
+  // Se for sinal negativo ou decimal digitado diretamente
+  if (val.startsWith('-') || val.includes('.')) {
+    return val;
+  }
+
+  // Remove caracteres não numéricos
+  const digits = val.replace(/\D/g, '').slice(0, 8);
+  if (!digits) return '';
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}º${digits.slice(2)}`;
+  }
+  if (digits.length <= 6) {
+    return `${digits.slice(0, 2)}º${digits.slice(2, 4)}'${digits.slice(4)}`;
+  }
+  return `${digits.slice(0, 2)}º${digits.slice(2, 4)}'${digits.slice(4, 6)},${digits.slice(6, 8)}"`;
+}
+

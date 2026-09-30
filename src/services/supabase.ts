@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { VistoriaAggregate, ItemAvaliadoEntity, DocumentoGeradoEntity } from '../types/inspection';
-import { parseGmsToDecimal } from '../utils/geoCoordinates';
+import { parseGmsToDecimal, formatGmsString } from '../utils/geoCoordinates';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -74,6 +74,8 @@ export async function syncVistoriaToSupabase(vistoria: VistoriaAggregate): Promi
       curso_dagua: toNullableString(vistoria.barragem.cursoDagua),
       latitude_decimal: parseGmsToDecimal(vistoria.barragem.coordenadas.latitude, true),
       longitude_decimal: parseGmsToDecimal(vistoria.barragem.coordenadas.longitude, false),
+      latitude_gms: formatGmsString(vistoria.barragem.coordenadas.latitude, true, false) || null,
+      longitude_gms: formatGmsString(vistoria.barragem.coordenadas.longitude, false, false) || null,
       datum: vistoria.barragem.coordenadas.datum || 'SIRGAS 2000',
       cota_coroamento_metros: toNullableNumber(vistoria.barragem.cotaCoroamentoMetros),
       ano_inicio_obra: toNullableNumber(vistoria.barragem.anoInicioObra),

@@ -16,7 +16,7 @@ import {
   MapPin,
   Sparkles
 } from 'lucide-react';
-import { formatGmsString, parseGmsToDecimal, decimalToGms } from '../utils/geoCoordinates';
+import { formatGmsString, parseGmsToDecimal, decimalToGms, validateGms, maskGms } from '../utils/geoCoordinates';
 
 interface Props {
   latitude: string;
@@ -51,6 +51,8 @@ export const LocationCaptureWidget: React.FC<Props> = ({
     type: 'idle',
     text: ''
   });
+  const [latError, setLatError] = useState<string | null>(null);
+  const [lonError, setLonError] = useState<string | null>(null);
 
   // Captura direta via sensor GPS do aparelho e conversão imediata para GMS
   const handleCaptureGps = () => {
@@ -110,8 +112,10 @@ export const LocationCaptureWidget: React.FC<Props> = ({
   };
 
   const handleManualLatChange = (val: string) => {
+    const masked = maskGms(val);
+    setLatError(null);
     onChange({
-      latitude: val,
+      latitude: masked,
       longitude,
       accuracyMeters: undefined,
       altitudeMeters,
@@ -120,15 +124,65 @@ export const LocationCaptureWidget: React.FC<Props> = ({
     });
   };
 
+  const handleLatBlur = () => {
+    if (!latitude || !latitude.trim()) {
+      setLatError(null);
+      return;
+    }
+    const formatted = formatGmsString(latitude, true, false);
+    const validation = validateGms(formatted, true);
+    if (!validation.isValid) {
+      setLatError(validation.error || 'Latitude inválida');
+    } else {
+      setLatError(null);
+      if (formatted !== latitude) {
+        onChange({
+          latitude: formatted,
+          longitude,
+          accuracyMeters: undefined,
+          altitudeMeters,
+          captureTimestamp,
+          isManualEdit: true
+        });
+      }
+    }
+  };
+
   const handleManualLonChange = (val: string) => {
+    const masked = maskGms(val);
+    setLonError(null);
     onChange({
       latitude,
-      longitude: val,
+      longitude: masked,
       accuracyMeters: undefined,
       altitudeMeters,
       captureTimestamp,
       isManualEdit: true
     });
+  };
+
+  const handleLonBlur = () => {
+    if (!longitude || !longitude.trim()) {
+      setLonError(null);
+      return;
+    }
+    const formatted = formatGmsString(longitude, false, false);
+    const validation = validateGms(formatted, false);
+    if (!validation.isValid) {
+      setLonError(validation.error || 'Longitude inválida');
+    } else {
+      setLonError(null);
+      if (formatted !== longitude) {
+        onChange({
+          latitude,
+          longitude: formatted,
+          accuracyMeters: undefined,
+          altitudeMeters,
+          captureTimestamp,
+          isManualEdit: true
+        });
+      }
+    }
   };
 
   const handleNormalizeGms = () => {
@@ -211,11 +265,23 @@ export const LocationCaptureWidget: React.FC<Props> = ({
             placeholder={`ex: 16º15'26,64"`}
             value={latitude}
             onChange={e => handleManualLatChange(e.target.value)}
-            className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+            onBlur={handleLatBlur}
+            className={`w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg font-mono focus:bg-white focus:ring-2 focus:outline-none ${
+              latError 
+                ? 'border-rose-400 bg-rose-50/50 focus:ring-rose-500 text-rose-900' 
+                : 'border-slate-300 bg-slate-50 focus:ring-emerald-500'
+            }`}
           />
-          <span className="text-[10px] text-slate-500 mt-0.5 block">
-            Exemplo: 16º15'26,64"
-          </span>
+          {latError ? (
+            <span className="text-[10px] text-rose-600 font-medium mt-0.5 block flex items-center gap-1">
+              <AlertCircle className="w-3 h-3 shrink-0" />
+              {latError}
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-500 mt-0.5 block">
+              Exemplo: 16º15'26,64"
+            </span>
+          )}
         </div>
 
         <div>
@@ -227,11 +293,23 @@ export const LocationCaptureWidget: React.FC<Props> = ({
             placeholder={`ex: 56º37'18,48"`}
             value={longitude}
             onChange={e => handleManualLonChange(e.target.value)}
-            className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-mono focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+            onBlur={handleLonBlur}
+            className={`w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg font-mono focus:bg-white focus:ring-2 focus:outline-none ${
+              lonError 
+                ? 'border-rose-400 bg-rose-50/50 focus:ring-rose-500 text-rose-900' 
+                : 'border-slate-300 bg-slate-50 focus:ring-emerald-500'
+            }`}
           />
-          <span className="text-[10px] text-slate-500 mt-0.5 block">
-            Exemplo: 56º37'18,48"
-          </span>
+          {lonError ? (
+            <span className="text-[10px] text-rose-600 font-medium mt-0.5 block flex items-center gap-1">
+              <AlertCircle className="w-3 h-3 shrink-0" />
+              {lonError}
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-500 mt-0.5 block">
+              Exemplo: 56º37'18,48"
+            </span>
+          )}
         </div>
 
         <div>
