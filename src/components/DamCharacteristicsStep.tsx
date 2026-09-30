@@ -56,6 +56,29 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
     }));
   };
 
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    field: 'latitude' | 'longitude'
+  ) => {
+    if (e.key === 'Backspace') {
+      const input = e.currentTarget;
+      const { selectionStart, selectionEnd } = input;
+      const currentValue = d.coordinates[field] || '';
+      if (selectionStart !== null && selectionStart === selectionEnd && selectionStart > 0) {
+        const charBefore = currentValue[selectionStart - 1];
+        if (['"', ',', "'", 'º', '°'].includes(charBefore)) {
+          e.preventDefault();
+          const newVal = currentValue.slice(0, selectionStart - 2) + currentValue.slice(selectionStart);
+          if (field === 'latitude') {
+            handleLatChange(newVal);
+          } else {
+            handleLonChange(newVal);
+          }
+        }
+      }
+    }
+  };
+
   const handleLatChange = (raw: string) => {
     const masked = maskGms(raw);
     setLatError(null);
@@ -331,6 +354,7 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
                 placeholder="ex: 16º15'26,64&quot;"
                 value={d.coordinates.latitude}
                 onChange={e => handleLatChange(e.target.value)}
+                onKeyDown={e => handleKeyDown(e, 'latitude')}
                 onBlur={handleLatBlur}
                 className={`w-full text-xs px-3 py-2 border rounded font-mono ${
                   latError 
@@ -355,6 +379,7 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
                 placeholder="ex: 56º37'18,48&quot;"
                 value={d.coordinates.longitude}
                 onChange={e => handleLonChange(e.target.value)}
+                onKeyDown={e => handleKeyDown(e, 'longitude')}
                 onBlur={handleLonBlur}
                 className={`w-full text-xs px-3 py-2 border rounded font-mono ${
                   lonError 

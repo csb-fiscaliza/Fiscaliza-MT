@@ -111,6 +111,25 @@ export const LocationCaptureWidget: React.FC<Props> = ({
     );
   };
 
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    currentValue: string,
+    changeHandler: (val: string) => void
+  ) => {
+    if (e.key === 'Backspace') {
+      const input = e.currentTarget;
+      const { selectionStart, selectionEnd } = input;
+      if (selectionStart !== null && selectionStart === selectionEnd && selectionStart > 0) {
+        const charBefore = currentValue[selectionStart - 1];
+        if (['"', ',', "'", 'º', '°'].includes(charBefore)) {
+          e.preventDefault();
+          const newVal = currentValue.slice(0, selectionStart - 2) + currentValue.slice(selectionStart);
+          changeHandler(newVal);
+        }
+      }
+    }
+  };
+
   const handleManualLatChange = (val: string) => {
     const masked = maskGms(val);
     setLatError(null);
@@ -265,6 +284,7 @@ export const LocationCaptureWidget: React.FC<Props> = ({
             placeholder={`ex: 16º15'26,64"`}
             value={latitude}
             onChange={e => handleManualLatChange(e.target.value)}
+            onKeyDown={e => handleKeyDown(e, latitude, handleManualLatChange)}
             onBlur={handleLatBlur}
             className={`w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg font-mono focus:bg-white focus:ring-2 focus:outline-none ${
               latError 
@@ -293,6 +313,7 @@ export const LocationCaptureWidget: React.FC<Props> = ({
             placeholder={`ex: 56º37'18,48"`}
             value={longitude}
             onChange={e => handleManualLonChange(e.target.value)}
+            onKeyDown={e => handleKeyDown(e, longitude, handleManualLonChange)}
             onBlur={handleLonBlur}
             className={`w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg font-mono focus:bg-white focus:ring-2 focus:outline-none ${
               lonError 
