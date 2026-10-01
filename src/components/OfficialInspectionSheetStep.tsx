@@ -31,6 +31,7 @@ import { EvaluationItemCard } from './EvaluationItemCard';
 import { LocationCaptureWidget } from './LocationCaptureWidget';
 import { ComponentPhotoUploader } from './ComponentPhotoUploader';
 import { GeneralPhotoAttachmentSection } from './GeneralPhotoAttachmentSection';
+import { FiscalizaLogo } from './FiscalizaLogo';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionPhoto } from '../types/inspection';
 
@@ -146,9 +147,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* Banner de Identificação da Ficha Aprovada */}
       <div className="bg-slate-900 text-white rounded-xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-600 flex items-center justify-center font-bold text-white">
-            <FileSpreadsheet className="w-6 h-6" />
-          </div>
+          <FiscalizaLogo size="md" className="shadow-sm shrink-0" />
           <div>
             <h1 className="text-sm sm:text-base font-extrabold tracking-tight">
               Ficha de Inspeção para Segurança de Barragens

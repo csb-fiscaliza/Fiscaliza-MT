@@ -15,6 +15,7 @@ import { ConclusionsStep } from './components/ConclusionsStep';
 import { DocumentReviewStep } from './components/DocumentReviewStep';
 import { DatabaseModuleStep } from './components/DatabaseModuleStep';
 import { OperationalReviewModal } from './components/OperationalReviewModal';
+import { OfficialFooter } from './components/OfficialFooter';
 import { InspectionData } from './types/inspection';
 import { 
   WifiOff 
@@ -245,6 +246,7 @@ function AppContent() {
             onNewInspection={handleNewInspection}
             onLoadSample={handleLoadSample}
             onSelectAndEdit={handleSelectAndEdit}
+            onDeleteInspection={handleDeleteInspection}
             isOnline={isOnline}
             lastSavedAt={lastSavedAt}
           />
@@ -315,14 +317,8 @@ function AppContent() {
         )}
       </main>
 
-      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 py-4 px-6 text-center text-xs text-slate-500 dark:text-slate-400 print:hidden hidden sm:block transition-colors">
-        <p className="font-semibold text-slate-700 dark:text-slate-200">
-          Fiscaliza – Etapa de Campo CSB/SEMA-MT
-        </p>
-        <p className="mt-0.5 text-slate-500 dark:text-slate-400">
-          Superintendência de Recursos Hídricos • Coordenadoria de Segurança de Barragens • Governo do Estado de Mato Grosso
-        </p>
-      </footer>
+      {/* Rodapé Oficial Fiscaliza MT de Alta Disponibilidade */}
+      <OfficialFooter />
 
       {/* Modal de Auditoria e Governança CSB/SEMA-MT */}
       <OperationalReviewModal

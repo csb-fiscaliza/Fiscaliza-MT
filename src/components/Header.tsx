@@ -26,6 +26,7 @@ import {
 import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionData } from '../types/inspection';
 import { ThemeToggle } from './ThemeToggle';
+import { FiscalizaLogo } from './FiscalizaLogo';
 
 interface HeaderProps {
   currentInspection: InspectionData;
@@ -81,13 +82,11 @@ export const Header: React.FC<HeaderProps> = ({
           className="flex items-center gap-3 cursor-pointer group"
           title="Ir para a Página Inicial / Painel de Controle"
         >
-          <div className="w-10 h-10 rounded-xl bg-emerald-600 group-hover:bg-emerald-500 flex items-center justify-center font-bold text-white shadow-sm ring-2 ring-emerald-500/20 dark:ring-emerald-400/30 transition">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
+          <FiscalizaLogo size="md" className="group-hover:scale-105 transition-transform" />
           <div>
             <div className="flex items-center gap-2">
               <span className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition">
-                Fiscaliza
+                Fiscaliza MT
               </span>
               <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700/50">
                 CSB / SEMA-MT
@@ -109,7 +108,31 @@ export const Header: React.FC<HeaderProps> = ({
             <ThemeToggle />
           </div>
 
-          {/* Botão para Voltar ao Painel (visível quando estiver dentro da ficha preenchendo) */}
+          {/* Atalho Direto para Banco de Dados */}
+          <button
+            type="button"
+            onClick={() => setActiveStep(6)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold text-xs transition cursor-pointer border ${
+              activeStep === 6
+                ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+            }`}
+            title="Acessar Banco de Dados de Barragens Inspecionadas"
+          >
+            <Database className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>Banco de Dados</span>
+            {allInspections.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold border ${
+                activeStep === 6
+                  ? 'bg-white/20 text-white border-white/30'
+                  : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+              }`}>
+                {allInspections.length}
+              </span>
+            )}
+          </button>
+
+          {/* Botão para Voltar ao Painel (visível quando não estiver no painel inicial) */}
           {activeStep !== 0 && (
             <button
               type="button"

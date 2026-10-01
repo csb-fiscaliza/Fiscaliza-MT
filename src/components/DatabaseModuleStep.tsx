@@ -504,29 +504,29 @@ export const DatabaseModuleStep: React.FC<Props> = ({
       {/* Modal de Confirmação de Exclusão */}
       {inspectionToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-5 space-y-4">
-            <div className="flex items-center gap-3 text-rose-700">
-              <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5 text-rose-600" />
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 text-slate-800 dark:text-slate-100">
+            <div className="flex items-center gap-3 text-rose-700 dark:text-rose-400">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-950/60 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
                   Confirmar Exclusão de Vistoria
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Esta ação removerá o registro do banco de dados local.
                 </p>
               </div>
             </div>
 
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
+            <div className="bg-slate-50 dark:bg-slate-950/80 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-1">
               <p><strong>Barragem:</strong> {inspectionToDelete.damIdentification.damName || 'Sem nome'}</p>
               <p><strong>Município:</strong> {inspectionToDelete.damIdentification.municipality || 'MT'}</p>
               <p><strong>Data:</strong> {inspectionToDelete.generalInfo.inspectionDate || 'Não informada'}</p>
               <p><strong>Fotos anexadas:</strong> {inspectionToDelete.photos.length}</p>
             </div>
 
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-600 dark:text-slate-400">
               Tem certeza que deseja excluir esta vistoria? Caso necessite, baixe previamente o backup JSON.
             </p>
 
@@ -534,7 +534,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setInspectionToDelete(null)}
-                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-100 transition cursor-pointer"
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
               >
                 Cancelar
               </button>
