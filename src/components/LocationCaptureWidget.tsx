@@ -227,16 +227,16 @@ export const LocationCaptureWidget: React.FC<Props> = ({
   const lonGmsFormatado = longitude ? formatGmsString(longitude, false, false) : 'Pendente de preenchimento';
 
   return (
-    <div className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-white shadow-xs space-y-4">
+    <div className="p-4 sm:p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-4 transition-colors">
       {/* Cabeçalho do Bloco */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
         <div className="flex items-center gap-2">
-          <Compass className="w-5 h-5 text-emerald-600" />
+          <Compass className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
           <div>
-            <h3 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wide">
+            <h3 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
               Coordenadas Geográficas em Formato GMS (Datum {datum || 'SIRGAS 2000'})
             </h3>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Padrão obrigatório SEMA-MT: Graus, Minutos e Segundos (ex: 16º15'26,64" S)
             </p>
           </div>
@@ -276,8 +276,8 @@ export const LocationCaptureWidget: React.FC<Props> = ({
       {/* Grid de Campos em Formato GMS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
         <div>
-          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-            Latitude em GMS <span className="text-emerald-700 font-bold">(xxºxx'xx,xx")</span>
+          <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Latitude em GMS <span className="text-emerald-700 dark:text-emerald-400 font-bold">(xxºxx'xx,xx")</span>
           </label>
           <input
             type="text"
@@ -286,27 +286,27 @@ export const LocationCaptureWidget: React.FC<Props> = ({
             onChange={e => handleManualLatChange(e.target.value)}
             onKeyDown={e => handleKeyDown(e, latitude, handleManualLatChange)}
             onBlur={handleLatBlur}
-            className={`w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg font-mono focus:bg-white focus:ring-2 focus:outline-none ${
+            className={`w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg font-mono focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:outline-none ${
               latError 
-                ? 'border-rose-400 bg-rose-50/50 focus:ring-rose-500 text-rose-900' 
-                : 'border-slate-300 bg-slate-50 focus:ring-emerald-500'
+                ? 'border-rose-400 bg-rose-50/50 focus:ring-rose-500 text-rose-900 dark:text-rose-100' 
+                : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-100 focus:ring-emerald-500'
             }`}
           />
           {latError ? (
-            <span className="text-[10px] text-rose-600 font-medium mt-0.5 block flex items-center gap-1">
+            <span className="text-[10px] text-rose-600 dark:text-rose-400 font-medium mt-0.5 block flex items-center gap-1">
               <AlertCircle className="w-3 h-3 shrink-0" />
               {latError}
             </span>
           ) : (
-            <span className="text-[10px] text-slate-500 mt-0.5 block">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 block">
               Exemplo: 16º15'26,64"
             </span>
           )}
         </div>
 
         <div>
-          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-            Longitude em GMS <span className="text-emerald-700 font-bold">(xxºxx'xx,xx")</span>
+          <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Longitude em GMS <span className="text-emerald-700 dark:text-emerald-400 font-bold">(xxºxx'xx,xx")</span>
           </label>
           <input
             type="text"
@@ -315,19 +315,19 @@ export const LocationCaptureWidget: React.FC<Props> = ({
             onChange={e => handleManualLonChange(e.target.value)}
             onKeyDown={e => handleKeyDown(e, longitude, handleManualLonChange)}
             onBlur={handleLonBlur}
-            className={`w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg font-mono focus:bg-white focus:ring-2 focus:outline-none ${
+            className={`w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg font-mono focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:outline-none ${
               lonError 
-                ? 'border-rose-400 bg-rose-50/50 focus:ring-rose-500 text-rose-900' 
-                : 'border-slate-300 bg-slate-50 focus:ring-emerald-500'
+                ? 'border-rose-400 bg-rose-50/50 focus:ring-rose-500 text-rose-900 dark:text-rose-100' 
+                : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-100 focus:ring-emerald-500'
             }`}
           />
           {lonError ? (
-            <span className="text-[10px] text-rose-600 font-medium mt-0.5 block flex items-center gap-1">
+            <span className="text-[10px] text-rose-600 dark:text-rose-400 font-medium mt-0.5 block flex items-center gap-1">
               <AlertCircle className="w-3 h-3 shrink-0" />
               {lonError}
             </span>
           ) : (
-            <span className="text-[10px] text-slate-500 mt-0.5 block">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 block">
               Exemplo: 56º37'18,48"
             </span>
           )}

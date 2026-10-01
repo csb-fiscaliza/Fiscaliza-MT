@@ -138,7 +138,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto max-h-[92vh] flex flex-col">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-auto max-h-[92vh] flex flex-col text-slate-900 dark:text-slate-100 transition-colors">
         {/* Top Header */}
         <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -165,14 +165,14 @@ export const OperationalReviewModal: React.FC<Props> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="bg-slate-100 border-b border-slate-200 px-4 py-2 flex items-center gap-1.5 overflow-x-auto shrink-0">
+        <div className="bg-slate-100 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 px-4 py-2 flex items-center gap-1.5 overflow-x-auto shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('prioridades')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'prioridades'
                 ? 'bg-emerald-700 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
             }`}
           >
             <ListChecks className="w-3.5 h-3.5" />
@@ -185,7 +185,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'lgpd'
                 ? 'bg-emerald-700 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
@@ -201,7 +201,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'seguranca'
                 ? 'bg-emerald-700 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
             }`}
           >
             <Lock className="w-3.5 h-3.5" />
@@ -214,7 +214,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'pendencias'
                 ? 'bg-emerald-700 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
             }`}
           >
             <FileText className="w-3.5 h-3.5" />

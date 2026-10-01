@@ -313,21 +313,21 @@ export const PhotoManagerStep: React.FC<Props> = ({
   return (
     <div className="space-y-6 pb-20 sm:pb-12">
       {/* Banner Superior com Status de Sincronização */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-xs flex flex-wrap items-center justify-between gap-3 transition-colors">
         <div>
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center gap-2">
-            <Camera className="w-5 h-5 text-emerald-600" />
+          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2">
+            <Camera className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             <span>Registro Fotográfico de Campo</span>
           </h2>
-          <p className="text-xs text-slate-600 mt-1">
+          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
             Armazenamento otimizado offline (IndexedDB). As imagens são associadas ao componente e item inspecionado.
           </p>
         </div>
 
         {pendingCount > 0 ? (
           <div className="flex items-center gap-2">
-            <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 text-xs font-semibold flex items-center gap-1.5">
-              <CloudOff className="w-4 h-4 text-amber-700" />
+            <span className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-semibold flex items-center gap-1.5">
+              <CloudOff className="w-4 h-4 text-amber-700 dark:text-amber-400" />
               <span>{pendingCount} pendente(s) de envio remoto</span>
             </span>
             <button
@@ -341,23 +341,23 @@ export const PhotoManagerStep: React.FC<Props> = ({
             </button>
           </div>
         ) : (
-          <span className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold flex items-center gap-1.5">
-            <CloudCheck className="w-4 h-4 text-emerald-600" />
+          <span className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold flex items-center gap-1.5">
+            <CloudCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span>Todas as fotos sincronizadas</span>
           </span>
         )}
       </div>
 
       {/* Bloco de Captura e Associação */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
-        <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-          <Plus className="w-4 h-4 text-emerald-600" />
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-xs space-y-4 transition-colors">
+        <h3 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+          <Plus className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           <span>Nova Captura Fotográfica</span>
         </h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Componente Associado *
             </label>
             <select
@@ -366,7 +366,7 @@ export const PhotoManagerStep: React.FC<Props> = ({
                 setSelectedComponentId(e.target.value);
                 setSelectedItemId('');
               }}
-              className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50"
+              className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950/70 text-slate-800 dark:text-slate-100"
             >
               {DAM_COMPONENTS.map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
@@ -375,13 +375,13 @@ export const PhotoManagerStep: React.FC<Props> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Item / Anomalia Específica (Opcional)
             </label>
             <select
               value={selectedItemId}
               onChange={e => setSelectedItemId(e.target.value)}
-              className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50"
+              className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950/70 text-slate-800 dark:text-slate-100"
             >
               <option value="">Visão Geral do Componente</option>
               {activeCompDef.commonAnomalies.map(a => (
@@ -391,7 +391,7 @@ export const PhotoManagerStep: React.FC<Props> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Descrição / Observação da Foto (Opcional)
             </label>
             <input
@@ -399,13 +399,13 @@ export const PhotoManagerStep: React.FC<Props> = ({
               placeholder="ex: Fissura de 2cm na crista; canal com troncos..."
               value={caption}
               onChange={e => setCaption(e.target.value)}
-              className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50"
+              className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950/70 text-slate-800 dark:text-slate-100"
             />
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={includeGpsOnPhoto}
@@ -438,9 +438,9 @@ export const PhotoManagerStep: React.FC<Props> = ({
               type="button"
               onClick={() => galleryInputRef.current?.click()}
               disabled={isProcessing}
-              className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-300 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs border border-slate-300 dark:border-slate-700 flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
-              <Upload className="w-4 h-4 text-slate-600" />
+              <Upload className="w-4 h-4 text-slate-600 dark:text-slate-400" />
               <span>Galeria / Arquivos</span>
             </button>
             <input
@@ -455,28 +455,28 @@ export const PhotoManagerStep: React.FC<Props> = ({
         </div>
 
         {isProcessing && (
-          <p className="text-xs text-emerald-700 font-semibold animate-pulse">
+          <p className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold animate-pulse">
             Otimizando e salvando arquivo com segurança no dispositivo...
           </p>
         )}
       </div>
 
       {/* Galeria de Fotos com Filtro */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-xs space-y-4 transition-colors">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
           <div className="flex items-center gap-2">
-            <ImageIcon className="w-4 h-4 text-emerald-600" />
-            <h3 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wide">
+            <ImageIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <h3 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
               Registros Fotográficos Armazenados ({photoRecords.length})
             </h3>
           </div>
 
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-500 font-semibold">Filtrar:</span>
+            <span className="text-slate-500 dark:text-slate-400 font-semibold">Filtrar:</span>
             <select
               value={filterComponent}
               onChange={e => setFilterComponent(e.target.value)}
-              className="text-xs min-h-[38px] px-2.5 py-1 border border-slate-300 rounded-lg bg-slate-50"
+              className="text-xs min-h-[38px] px-2.5 py-1 border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100"
             >
               <option value="todos">Todos os Componentes ({photoRecords.length})</option>
               {DAM_COMPONENTS.map(c => {
@@ -504,9 +504,9 @@ export const PhotoManagerStep: React.FC<Props> = ({
               return (
                 <div
                   key={photo.id}
-                  className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-xs flex flex-col group"
+                  className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900 shadow-xs flex flex-col group transition-colors"
                 >
-                  <div className="relative aspect-4/3 bg-slate-100 overflow-hidden cursor-pointer">
+                  <div className="relative aspect-4/3 bg-slate-100 dark:bg-slate-950 overflow-hidden cursor-pointer">
                     {previewSrc ? (
                       <img
                         src={previewSrc}
@@ -549,20 +549,20 @@ export const PhotoManagerStep: React.FC<Props> = ({
 
                   <div className="p-3 text-xs flex-1 flex flex-col justify-between space-y-2">
                     <div>
-                      <span className="font-bold text-emerald-800 text-[11px] block truncate">
+                      <span className="font-bold text-emerald-800 dark:text-emerald-400 text-[11px] block truncate">
                         {photo.componenteNome}
                       </span>
                       {photo.itemRotulo && (
-                        <span className="text-[10px] text-slate-500 font-semibold block truncate">
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block truncate">
                           Item: {photo.itemRotulo}
                         </span>
                       )}
-                      <p className="text-slate-700 mt-1 line-clamp-2 text-[11px]">
+                      <p className="text-slate-700 dark:text-slate-300 mt-1 line-clamp-2 text-[11px]">
                         {photo.descricao || 'Sem descrição complementar'}
                       </p>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-100 text-[10px] text-slate-400 space-y-0.5">
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 dark:text-slate-500 space-y-0.5">
                       <div className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         <span>{photo.timestampInclusao}</span>
@@ -623,11 +623,11 @@ export const PhotoManagerStep: React.FC<Props> = ({
       )}
 
       {/* Navegação Inferior */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 px-4 py-3 flex items-center justify-between shadow-lg sm:static sm:bg-transparent sm:border-0 sm:shadow-none sm:px-0 sm:pt-4">
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between shadow-lg sm:static sm:bg-transparent sm:border-0 sm:shadow-none sm:px-0 sm:pt-4 transition-colors">
         <button
           type="button"
           onClick={onPrev}
-          className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs sm:text-sm font-semibold transition cursor-pointer"
+          className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs sm:text-sm font-semibold transition cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Voltar</span>

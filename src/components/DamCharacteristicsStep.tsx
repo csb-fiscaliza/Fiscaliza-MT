@@ -213,10 +213,10 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
   return (
     <div className="space-y-6">
       {/* Card 1: Identificação do Empreendimento e Localização */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <MapPin className="w-4 h-4 text-emerald-600" />
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 p-5 space-y-4 transition-colors">
+        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <MapPin className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
             2.1 Identificação do Barramento e Propriedade
           </h2>
         </div>
@@ -346,7 +346,7 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
                 Latitude em GMS (xxºxx'xx,xx")
               </label>
               <input
@@ -358,12 +358,12 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
                 onBlur={handleLatBlur}
                 className={`w-full text-xs px-3 py-2 border rounded font-mono ${
                   latError 
-                    ? 'border-rose-400 bg-rose-50/50 text-rose-900 focus:ring-1 focus:ring-rose-500' 
-                    : 'border-slate-300 bg-slate-50/50 focus:bg-white'
+                    ? 'border-rose-400 bg-rose-50/50 text-rose-900 dark:text-rose-100 focus:ring-1 focus:ring-rose-500' 
+                    : 'border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-800'
                 }`}
               />
               {latError && (
-                <span className="text-[10px] text-rose-600 font-medium mt-0.5 block flex items-center gap-1">
+                <span className="text-[10px] text-rose-600 dark:text-rose-400 font-medium mt-0.5 block flex items-center gap-1">
                   <AlertCircle className="w-3 h-3 shrink-0" />
                   {latError}
                 </span>
@@ -371,7 +371,7 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
                 Longitude em GMS (xxºxx'xx,xx")
               </label>
               <input
@@ -383,12 +383,12 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
                 onBlur={handleLonBlur}
                 className={`w-full text-xs px-3 py-2 border rounded font-mono ${
                   lonError 
-                    ? 'border-rose-400 bg-rose-50/50 text-rose-900 focus:ring-1 focus:ring-rose-500' 
-                    : 'border-slate-300 bg-slate-50/50 focus:bg-white'
+                    ? 'border-rose-400 bg-rose-50/50 text-rose-900 dark:text-rose-100 focus:ring-1 focus:ring-rose-500' 
+                    : 'border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-800'
                 }`}
               />
               {lonError && (
-                <span className="text-[10px] text-rose-600 font-medium mt-0.5 block flex items-center gap-1">
+                <span className="text-[10px] text-rose-600 dark:text-rose-400 font-medium mt-0.5 block flex items-center gap-1">
                   <AlertCircle className="w-3 h-3 shrink-0" />
                   {lonError}
                 </span>
@@ -412,10 +412,10 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
       </div>
 
       {/* Card 2: Tipologia Construtiva e Dimensões Estimadas */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <Layers className="w-4 h-4 text-emerald-600" />
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 p-5 space-y-4 transition-colors">
+        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <Layers className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
             2.2 Tipologia Construtiva e Extravasor
           </h2>
         </div>
@@ -552,10 +552,10 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
       </div>
 
       {/* Card 3: Regularidade Ambiental e Outorga Declaradas */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <FileCheck2 className="w-4 h-4 text-emerald-600" />
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 p-5 space-y-4 transition-colors">
+        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <FileCheck2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
             2.3 Regularidade Ambiental Informada no Local
           </h2>
         </div>
@@ -636,7 +636,7 @@ export const DamCharacteristicsStep: React.FC<Props> = ({ data, onChange, onNext
         <button
           type="button"
           onClick={onPrev}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs sm:text-sm font-semibold transition cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs sm:text-sm font-semibold transition cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Voltar: Equipe & Vistoria</span>

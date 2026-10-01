@@ -19,6 +19,7 @@ import { InspectionData } from './types/inspection';
 import { 
   WifiOff 
 } from 'lucide-react';
+import { ThemeProvider } from './context/ThemeContext';
 import { 
   createEmptyInspection, 
   createSampleInspection, 
@@ -31,6 +32,14 @@ import {
 } from './services/storage';
 
 export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  );
+}
+
+function AppContent() {
   const [inspections, setInspections] = useState<InspectionData[]>([]);
   const [currentInspection, setCurrentInspection] = useState<InspectionData>(createEmptyInspection());
   // activeStep 0 = Painel de Controle (Página Inicial)
@@ -193,7 +202,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Alerta de Modo Offline */}
       {!isOnline && (
         <div className="bg-amber-600 text-amber-50 px-3 py-1.5 text-xs font-semibold flex items-center justify-between shadow-xs print:hidden z-50">
@@ -306,11 +315,11 @@ export default function App() {
         )}
       </main>
 
-      <footer className="bg-white border-t border-slate-200 py-4 px-6 text-center text-xs text-slate-500 print:hidden hidden sm:block">
-        <p className="font-semibold text-slate-700">
+      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 py-4 px-6 text-center text-xs text-slate-500 dark:text-slate-400 print:hidden hidden sm:block transition-colors">
+        <p className="font-semibold text-slate-700 dark:text-slate-200">
           Fiscaliza – Etapa de Campo CSB/SEMA-MT
         </p>
-        <p className="mt-0.5 text-slate-500">
+        <p className="mt-0.5 text-slate-500 dark:text-slate-400">
           Superintendência de Recursos Hídricos • Coordenadoria de Segurança de Barragens • Governo do Estado de Mato Grosso
         </p>
       </footer>

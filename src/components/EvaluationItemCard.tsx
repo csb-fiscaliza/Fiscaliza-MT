@@ -96,13 +96,13 @@ export const EvaluationItemCard: React.FC<Props> = ({
   ];
 
   return (
-    <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200/90 bg-white shadow-xs space-y-3 transition-colors">
+    <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3 transition-colors">
       <div className="flex flex-wrap items-baseline justify-between gap-1.5">
-        <span className="text-xs sm:text-sm font-bold text-slate-800 leading-snug">
+        <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug">
           {itemLabel}
         </span>
         {currentResponse === 'sem_informacao' && (
-          <span className="text-[10px] text-slate-400 italic">Pendente de avaliação</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">Pendente de avaliação</span>
         )}
       </div>
 
@@ -118,7 +118,7 @@ export const EvaluationItemCard: React.FC<Props> = ({
               className={`min-h-[44px] py-2 px-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 text-center transition cursor-pointer select-none ${
                 isSelected
                   ? opt.activeClass
-                  : 'bg-slate-50/80 text-slate-700 border-slate-200 hover:bg-slate-100 active:bg-slate-200'
+                  : 'bg-slate-50/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-slate-200'
               }`}
             >
               {opt.icon}
@@ -130,9 +130,9 @@ export const EvaluationItemCard: React.FC<Props> = ({
 
       {/* Conditional: Se "Sim" e requer localização */}
       {currentResponse === 'sim' && showLocationOnYes && (
-        <div className="pt-2 border-t border-slate-100 flex flex-col gap-1">
-          <label className="text-[11px] font-semibold text-rose-800 flex items-center gap-1">
-            <MapPin className="w-3 h-3 text-rose-600" />
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-rose-700 dark:text-rose-400 flex items-center gap-1">
+            <MapPin className="w-3 h-3 text-rose-600 dark:text-rose-400" />
             <span>Localização da anomalia constatada:</span>
           </label>
           <input
@@ -140,21 +140,21 @@ export const EvaluationItemCard: React.FC<Props> = ({
             value={value?.localizacaoDetalhe || ''}
             onChange={e => updateField('localizacaoDetalhe', e.target.value)}
             placeholder="ex: Terço superior próximo ao vertedouro, margem esquerda..."
-            className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-rose-50/30 focus:ring-1 focus:ring-rose-500 focus:outline-none"
+            className="w-full text-xs p-2.5 rounded-lg border border-rose-300 dark:border-rose-900/60 bg-rose-50/40 dark:bg-rose-950/30 text-slate-800 dark:text-slate-100 focus:ring-1 focus:ring-rose-500 focus:outline-none"
           />
         </div>
       )}
 
       {/* Conditional: Se "Sim" e requer estado de conservação */}
       {currentResponse === 'sim' && showConservationOnYes && (
-        <div className="pt-2 border-t border-slate-100 flex flex-col gap-1">
-          <label className="text-[11px] font-semibold text-slate-700">
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
             Estado de conservação do dispositivo:
           </label>
           <select
             value={value?.estadoConservacao || ''}
             onChange={e => updateField('estadoConservacao', (e.target.value as ConservationState) || null)}
-            className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-slate-50"
+            className="w-full text-xs p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100"
           >
             <option value="">Selecione o estado...</option>
             <option value="bom">Bom (Funcional e íntegro)</option>
@@ -167,9 +167,9 @@ export const EvaluationItemCard: React.FC<Props> = ({
 
       {/* Conditional: Se "Impossível observar", exige/permite o motivo do impedimento */}
       {currentResponse === 'impossivel_observar' && (
-        <div className="pt-2 border-t border-amber-100 flex flex-col gap-1 bg-amber-50/50 p-2.5 rounded-lg border border-amber-200">
-          <label className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
-            <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
+        <div className="pt-2 border-t border-amber-100 dark:border-amber-900/40 flex flex-col gap-1 bg-amber-50/50 dark:bg-amber-950/30 p-2.5 rounded-lg border border-amber-200 dark:border-amber-800/50">
+          <label className="text-[11px] font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1">
+            <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
             <span>Motivo que impediu a observação deste item:</span>
           </label>
           <input
@@ -177,7 +177,7 @@ export const EvaluationItemCard: React.FC<Props> = ({
             value={value?.observacaoComplementar || ''}
             onChange={e => updateField('observacaoComplementar', e.target.value)}
             placeholder="ex: Cobertura vegetal espessa impenetrável; nível d'água cobrindo a estrutura; ausência de acesso seguro..."
-            className="w-full text-xs p-2 rounded-lg border border-amber-300 bg-white focus:ring-1 focus:ring-amber-500 focus:outline-none"
+            className="w-full text-xs p-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-1 focus:ring-amber-500 focus:outline-none"
           />
         </div>
       )}
@@ -190,7 +190,7 @@ export const EvaluationItemCard: React.FC<Props> = ({
             value={value?.observacaoComplementar || ''}
             onChange={e => updateField('observacaoComplementar', e.target.value)}
             placeholder="Observações complementares deste item (opcional)..."
-            className="w-full text-[11px] px-2.5 py-1.5 rounded border border-slate-200 bg-slate-50/50 text-slate-700 focus:bg-white focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full text-[11px] px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950/50 text-slate-700 dark:text-slate-200 focus:bg-white dark:focus:bg-slate-900 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
           />
         </div>
       )}

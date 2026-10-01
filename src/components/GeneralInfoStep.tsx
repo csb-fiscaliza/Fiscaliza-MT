@@ -107,10 +107,10 @@ export const GeneralInfoStep: React.FC<Props> = ({ data, onChange, onNext }) => 
       </div>
 
       {/* Card 1: Dados do Registro e Horário */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <Calendar className="w-4 h-4 text-emerald-600" />
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 p-5 space-y-4 transition-colors">
+        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
             1.1 Dados da Fiscalização e Momento da Vistoria
           </h2>
         </div>
@@ -189,18 +189,18 @@ export const GeneralInfoStep: React.FC<Props> = ({ data, onChange, onNext }) => 
       </div>
 
       {/* Card 2: Equipe de Fiscalização */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 p-5 space-y-4 transition-colors">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
           <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-emerald-600" />
-            <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+            <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
               1.2 Equipe de Servidores Fiscalizadores
             </h2>
           </div>
           <button
             type="button"
             onClick={addInspector}
-            className="flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md transition cursor-pointer"
+            className="flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:text-emerald-800 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-800 transition cursor-pointer"
           >
             <UserPlus className="w-3.5 h-3.5" />
             Adicionar Servidor
@@ -269,10 +269,10 @@ export const GeneralInfoStep: React.FC<Props> = ({ data, onChange, onNext }) => 
       </div>
 
       {/* Card 3: Acompanhamento da Vistoria */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <UserCheck className="w-4 h-4 text-emerald-600" />
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 p-5 space-y-4 transition-colors">
+        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
             1.3 Acompanhante / Representante no Local
           </h2>
         </div>

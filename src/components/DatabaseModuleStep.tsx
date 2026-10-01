@@ -140,17 +140,17 @@ export const DatabaseModuleStep: React.FC<Props> = ({
   return (
     <div className="space-y-6">
       {/* Header do Módulo de Banco de Dados */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-xs transition-colors">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center font-bold text-white shadow-xs">
               <Database className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">
+              <h1 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white leading-tight">
                 Banco de Dados de Vistorias de Segurança (CSB/SEMA-MT)
               </h1>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Repositório corporativo e local de inspeções de barragens de usos múltiplos no Estado de Mato Grosso
               </p>
             </div>
@@ -169,17 +169,17 @@ export const DatabaseModuleStep: React.FC<Props> = ({
             <button
               type="button"
               onClick={onLoadSample}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-300 text-xs font-semibold transition cursor-pointer"
               title="Carregar exemplo didático para testes"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
               <span>Exemplo Teste</span>
             </button>
 
             <button
               type="button"
               onClick={onGoToSheet}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-semibold transition cursor-pointer shadow-xs"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white text-xs font-semibold transition cursor-pointer shadow-xs"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
               <span>Ir para Ficha Ativa</span>
@@ -189,42 +189,42 @@ export const DatabaseModuleStep: React.FC<Props> = ({
 
         {/* Resumo Estatístico do Repositório */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4">
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-0.5">
-            <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block">Total de Vistorias</span>
+          <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-0.5 transition-colors">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">Total de Vistorias</span>
             <div className="flex items-baseline gap-2">
-              <span className="text-xl sm:text-2xl font-black text-slate-900">{totalCount}</span>
-              <span className="text-[11px] text-slate-500 font-medium">cadastradas</span>
+              <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums">{totalCount}</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">cadastradas</span>
             </div>
           </div>
 
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-0.5">
-            <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block">Barragens c/ Alerta/Crítico</span>
+          <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-0.5 transition-colors">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">Barragens c/ Alerta/Crítico</span>
             <div className="flex items-baseline gap-2">
-              <span className="text-xl sm:text-2xl font-black text-rose-600">{criticalDamsCount}</span>
-              <span className="text-[11px] text-rose-700 font-medium">requerem atenção</span>
+              <span className="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400 tabular-nums">{criticalDamsCount}</span>
+              <span className="text-[11px] text-rose-700 dark:text-rose-400 font-medium">requerem atenção</span>
             </div>
           </div>
 
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-0.5">
-            <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block">Registros Fotográficos</span>
+          <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-0.5 transition-colors">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">Registros Fotográficos</span>
             <div className="flex items-baseline gap-2">
-              <span className="text-xl sm:text-2xl font-black text-slate-900">{totalPhotosCount}</span>
-              <span className="text-[11px] text-slate-500 font-medium">fotos técnicas</span>
+              <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums">{totalPhotosCount}</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">fotos técnicas</span>
             </div>
           </div>
 
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-0.5">
-            <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider block">Notificações SIGA</span>
+          <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-0.5 transition-colors">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">Notificações SIGA</span>
             <div className="flex items-baseline gap-2">
-              <span className="text-xl sm:text-2xl font-black text-amber-600">{notificationsCount}</span>
-              <span className="text-[11px] text-amber-700 font-medium">ativas vinculadas</span>
+              <span className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums">{notificationsCount}</span>
+              <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">ativas vinculadas</span>
             </div>
           </div>
         </div>
       </div>
 
       {/* Barra de Filtros e Busca */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-xs space-y-3">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-4 shadow-xs space-y-3 transition-colors">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Campo de Busca Textual */}
           <div className="relative flex-1 min-w-[240px]">
@@ -234,13 +234,13 @@ export const DatabaseModuleStep: React.FC<Props> = ({
               placeholder="Buscar por barragem, município, bacia, proprietário ou fiscal..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-slate-900 transition"
             />
             {searchTerm && (
               <button
                 type="button"
                 onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
               >
                 Limpar
               </button>
@@ -250,11 +250,11 @@ export const DatabaseModuleStep: React.FC<Props> = ({
           {/* Ordenação */}
           <div className="flex items-center gap-1.5 text-xs">
             <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-slate-500 font-medium hidden sm:inline">Ordenar:</span>
+            <span className="text-slate-500 dark:text-slate-400 font-medium hidden sm:inline">Ordenar:</span>
             <select
               value={sortBy}
               onChange={e => setSortBy(e.target.value as any)}
-              className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
               <option value="recent">Mais Recentes</option>
               <option value="oldest">Mais Antigas</option>
@@ -265,8 +265,8 @@ export const DatabaseModuleStep: React.FC<Props> = ({
         </div>
 
         {/* Filtros por Categoria */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
-          <div className="flex items-center gap-1 text-slate-500 font-semibold mr-1">
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div className="flex items-center gap-1 text-slate-500 dark:text-slate-400 font-semibold mr-1">
             <Filter className="w-3.5 h-3.5" />
             <span>Filtros:</span>
           </div>
@@ -275,7 +275,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
           <select
             value={filterCondition}
             onChange={e => setFilterCondition(e.target.value as any)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 focus:outline-none"
+            className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-700 dark:text-slate-200 focus:outline-none"
           >
             <option value="all">Todas as Condições</option>
             <option value="critico">Com Anomalia Crítica</option>
@@ -287,7 +287,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value as any)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 focus:outline-none"
+            className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-700 dark:text-slate-200 focus:outline-none"
           >
             <option value="all">Todos os Status</option>
             <option value="draft">Rascunhos</option>
@@ -298,7 +298,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
           <select
             value={filterNotification}
             onChange={e => setFilterNotification(e.target.value as any)}
-            className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 focus:outline-none"
+            className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-700 dark:text-slate-200 focus:outline-none"
           >
             <option value="all">Todas as Vistorias</option>
             <option value="with_notif">Com Notificação Técnica</option>
@@ -314,7 +314,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                 setFilterStatus('all');
                 setFilterNotification('all');
               }}
-              className="text-[11px] text-emerald-700 font-semibold hover:underline ml-auto cursor-pointer"
+              className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold hover:underline ml-auto cursor-pointer"
             >
               Resetar Filtros
             </button>
@@ -342,49 +342,45 @@ export const DatabaseModuleStep: React.FC<Props> = ({
               return (
                 <div 
                   key={insp.id}
-                  className={`bg-white rounded-2xl border transition-all duration-200 overflow-hidden shadow-2xs hover:shadow-md ${
+                  className={`bg-white dark:bg-slate-900 rounded-2xl border transition-all duration-200 overflow-hidden shadow-2xs hover:shadow-md ${
                     isActive 
                       ? 'border-emerald-500 ring-2 ring-emerald-500/20' 
-                      : 'border-slate-200 hover:border-slate-300'
+                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                   }`}
                 >
                   <div className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     {/* Informações Principais da Vistoria */}
                     <div className="space-y-2 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
+                        <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-tight">
                           {d.damName || d.propertyOrBusinessName || 'Vistoria sem denominação'}
                         </h3>
 
                         {isActive && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                            Ativa em Edição
+                          <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                            · Ativa em Edição
                           </span>
                         )}
 
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          insp.isDraft 
-                            ? 'bg-amber-100 text-amber-800 border border-amber-300' 
-                            : 'bg-slate-100 text-slate-700 border border-slate-300'
-                        }`}>
-                          {insp.isDraft ? 'Rascunho' : 'Finalizada'}
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                          · {insp.isDraft ? 'Rascunho' : 'Finalizada'}
                         </span>
 
                         {c.requiresNotification && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
-                            <Bell className="w-3 h-3 text-amber-700" />
+                          <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                            <Bell className="w-3 h-3" />
                             <span>Notificação SIGA</span>
                           </span>
                         )}
                       </div>
 
                       {/* Metadados geográficos e administrativos */}
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
                         <span className="flex items-center gap-1">
                           <MapPin className="w-3.5 h-3.5 text-slate-400" />
                           <span>{d.municipality || 'Mato Grosso'}/MT</span>
                           {d.propertyOrBusinessName && d.damName && (
-                            <span className="text-slate-400">• {d.propertyOrBusinessName}</span>
+                            <span className="text-slate-400 dark:text-slate-500">· {d.propertyOrBusinessName}</span>
                           )}
                         </span>
 
@@ -399,7 +395,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                         </span>
 
                         {g.inspectors && g.inspectors[0]?.name && (
-                          <span className="text-slate-500 hidden sm:inline">
+                          <span className="text-slate-500 dark:text-slate-400 hidden sm:inline">
                             Fiscal: {g.inspectors[0].name}
                           </span>
                         )}
@@ -408,18 +404,18 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                       {/* Quadro de Condição dos Componentes */}
                       <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
                         {criticalCount > 0 ? (
-                          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-rose-50 text-rose-800 font-semibold border border-rose-200">
-                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 font-semibold border border-rose-200 dark:border-rose-900/40">
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                             <span>{criticalCount} componente(s) crítico(s)</span>
                           </span>
                         ) : alertCount > 0 ? (
-                          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-semibold border border-amber-200 dark:border-amber-900/40">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                             <span>{alertCount} componente(s) em atenção</span>
                           </span>
                         ) : (
-                          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-medium border border-emerald-200">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-medium border border-emerald-200 dark:border-emerald-900/40">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                             <span>Componentes em condição adequada</span>
                           </span>
                         )}
@@ -427,15 +423,15 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                     </div>
 
                     {/* Botões de Ação Direta: Visualizar, Editar, Excluir */}
-                    <div className="flex items-center flex-wrap md:flex-col lg:flex-row gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
+                    <div className="flex items-center flex-wrap md:flex-col lg:flex-row gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
                       {/* Visualizar */}
                       <button
                         type="button"
                         onClick={() => handleOpenDetail(insp)}
-                        className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
                         title="Visualizar resumo completo da vistoria"
                       >
-                        <Eye className="w-3.5 h-3.5 text-slate-600" />
+                        <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                         <span>Visualizar</span>
                       </button>
 
@@ -443,7 +439,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => onSelectAndEdit(insp.id)}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
                         title="Carregar para edição na Ficha de Inspeção"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
@@ -454,7 +450,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => setInspectionToDelete(insp)}
-                        className="p-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition cursor-pointer"
+                        className="p-1.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-400 transition cursor-pointer"
                         title="Excluir esta vistoria"
                       >
                         <Trash2 className="w-4 h-4" />

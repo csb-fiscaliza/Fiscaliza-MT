@@ -94,16 +94,16 @@ export const ConclusionsStep: React.FC<Props> = ({ data, onChange, onNext, onPre
       </div>
 
       {/* Card 1: Parecer Técnico Fático e Recomendações */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <ClipboardCheck className="w-4 h-4 text-emerald-600" />
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-4 transition-colors">
+        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <ClipboardCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
             5.1 Síntese Fática e Recomendações do Servidor
           </h2>
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">
+          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
             Síntese das Constatações da Vistoria de Campo:
           </label>
           <textarea
@@ -111,13 +111,13 @@ export const ConclusionsStep: React.FC<Props> = ({ data, onChange, onNext, onPre
             placeholder="Descreva o panorama geral das condições de segurança e conservação do barramento observadas pela equipe durante a vistoria..."
             value={c.generalFindings}
             onChange={e => updateConclusions('generalFindings', e.target.value)}
-            className="w-full text-xs sm:text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40"
+            className="w-full text-xs sm:text-sm p-3 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40 dark:bg-slate-950/70 text-slate-800 dark:text-slate-100"
           />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
               Medidas Imediatas de Segurança Orientadas no Local:
             </label>
             <textarea
@@ -125,12 +125,12 @@ export const ConclusionsStep: React.FC<Props> = ({ data, onChange, onNext, onPre
               placeholder="ex: Desobstrução imediata do vertedouro; cessar tráfego de maquinário na crista; rebaixamento de nível caso haja risco de galgamento..."
               value={c.immediateSafetyMeasures}
               onChange={e => updateConclusions('immediateSafetyMeasures', e.target.value)}
-              className="w-full text-xs sm:text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40"
+              className="w-full text-xs sm:text-sm p-3 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40 dark:bg-slate-950/70 text-slate-800 dark:text-slate-100"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
               Recomendações Técnicas ao Responsável pelo Empreendimento:
             </label>
             <textarea
@@ -138,36 +138,36 @@ export const ConclusionsStep: React.FC<Props> = ({ data, onChange, onNext, onPre
               placeholder="ex: Contratação de responsável técnico habilitado para emissão de laudo de estabilidade; protocolo de processo de outorga junto à SEMA-MT..."
               value={c.recommendationsToOwner}
               onChange={e => updateConclusions('recommendationsToOwner', e.target.value)}
-              className="w-full text-xs sm:text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40"
+              className="w-full text-xs sm:text-sm p-3 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40 dark:bg-slate-950/70 text-slate-800 dark:text-slate-100"
             />
           </div>
         </div>
       </div>
 
       {/* Card 2: Decisão sobre Emissão da Notificação Técnica */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <BellRing className="w-4 h-4 text-emerald-600" />
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-4 transition-colors">
+        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <BellRing className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
             5.2 Necessidade de Emissão de Notificação Técnica
           </h2>
         </div>
 
         {/* Toggle Box */}
-        <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 space-y-3">
           <div className="flex items-start gap-3">
             <input
               type="checkbox"
               id="chkNotification"
               checked={c.requiresNotification}
               onChange={e => updateConclusions('requiresNotification', e.target.checked)}
-              className="mt-1 w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+              className="mt-1 w-5 h-5 text-emerald-600 rounded border-slate-300 dark:border-slate-700 focus:ring-emerald-500 cursor-pointer"
             />
             <label htmlFor="chkNotification" className="cursor-pointer">
-              <span className="font-bold text-sm text-slate-800 block">
+              <span className="font-bold text-sm text-slate-800 dark:text-slate-100 block">
                 Emitir Minuta de Notificação Técnica formal ao responsável
               </span>
-              <span className="text-xs text-slate-600 block mt-0.5">
+              <span className="text-xs text-slate-600 dark:text-slate-400 block mt-0.5">
                 Marque apenas quando as anomalias, ausência de outorga ou pendências de manutenção exigirem fixação de prazo formal e comprovação perante a SEMA-MT.
               </span>
             </label>
@@ -381,7 +381,7 @@ export const ConclusionsStep: React.FC<Props> = ({ data, onChange, onNext, onPre
         <button
           type="button"
           onClick={onPrev}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs sm:text-sm font-semibold transition cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs sm:text-sm font-semibold transition cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Voltar: Fotos de Campo</span>
