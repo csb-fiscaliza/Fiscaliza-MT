@@ -301,6 +301,48 @@ III. A manutenção deve ser pautada nos preceitos da Cartilha de Ações de Man
     demandedActions: '1) Proceder à limpeza e desobstrução completa da calha do extravasor de cheias;\n2) Efetuar a erradicação dos formigueiros no talude de jusante com recomposição do solo;\n3) Apresentar laudo técnico circunstanciado assinado por engenheiro habilitado com respectiva ART.'
   };
 
+  base.photos = [
+    {
+      id: 'foto-amostra-crista',
+      dataUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="%23475569"/><rect y="240" width="640" height="240" fill="%23334155"/><polygon points="0,240 640,240 500,480 140,480" fill="%2364748b"/><text x="320" y="220" font-family="sans-serif" font-size="20" fill="white" font-weight="bold" text-anchor="middle">CRISTA DA BARRAGEM (COROAMENTO)</text><text x="320" y="260" font-family="sans-serif" font-size="14" fill="%2394a3b8" text-anchor="middle">Amostra didática de campo - CSB/SEMA-MT</text></svg>',
+      componentId: 'crista',
+      componentName: 'Crista da Barragem (Coroamento)',
+      locationDescription: 'Coroamento central',
+      caption: 'Vista longitudinal da crista do barramento observando-se pista de tráfego desprovida de trincas estruturais transversais.',
+      timestamp: '15/09/2026, 10:14:32',
+      latitude: -16.2574,
+      longitude: -56.6218,
+      accuracyMeters: 3.5,
+      syncStatus: 'local'
+    },
+    {
+      id: 'foto-amostra-vertedouro',
+      dataUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="%230284c7"/><rect y="280" width="640" height="200" fill="%230369a1"/><polygon points="200,280 440,280 400,480 240,480" fill="%23075985"/><text x="320" y="230" font-family="sans-serif" font-size="20" fill="white" font-weight="bold" text-anchor="middle">ESTRUTURA VERTEDORA (EXTRAVASOR)</text><text x="320" y="260" font-family="sans-serif" font-size="14" fill="%23bae6fd" text-anchor="middle">Canal de descarga e dissipador de energia</text></svg>',
+      componentId: 'vertedouro',
+      componentName: 'Estruturas Vertedoras (Vertedouro)',
+      locationDescription: 'Ombreira direita',
+      caption: 'Canal lateral de extravasamento de cheias com acúmulo de galhos e detritos vegetais necessitando de desobstrução preventiva.',
+      timestamp: '15/09/2026, 10:35:10',
+      latitude: -16.2576,
+      longitude: -56.6221,
+      accuracyMeters: 4.1,
+      syncStatus: 'local'
+    },
+    {
+      id: 'foto-amostra-jusante',
+      dataUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="%2315803d"/><rect y="220" width="640" height="260" fill="%23166534"/><text x="320" y="210" font-family="sans-serif" font-size="20" fill="white" font-weight="bold" text-anchor="middle">TALUDE DE JUSANTE</text><text x="320" y="245" font-family="sans-serif" font-size="14" fill="%23bbf7d0" text-anchor="middle">Inspeção de estabilidade e ausência de piping</text></svg>',
+      componentId: 'talude_jusante',
+      componentName: 'Talude de Jusante',
+      locationDescription: 'Terço inferior',
+      caption: 'Talude de jusante revestido com gramíneas com identificação de formigueiro em início de atividade no sopé.',
+      timestamp: '15/09/2026, 11:02:45',
+      latitude: -16.2578,
+      longitude: -56.6215,
+      accuracyMeters: 3.8,
+      syncStatus: 'local'
+    }
+  ];
+
   return base;
 }
 

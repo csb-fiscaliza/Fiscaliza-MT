@@ -27,6 +27,7 @@ import {
   uploadPhotoToRemoteStorage 
 } from '../services/photoStorage';
 import { formatGmsString } from '../utils/geoCoordinates';
+import { OFFICIAL_DAM_COMPONENTS_OPTIONS, getComponentNameById } from '../utils/photoCaptureUtils';
 
 interface Props {
   data: InspectionData;
@@ -262,6 +263,38 @@ export const PhotoManagerStep: React.FC<Props> = ({
     });
 
     if (zoomPhoto?.id === photoId) setZoomPhoto(null);
+  };
+
+  const handleReassignComponent = (photoId: string, newComponentId: string) => {
+    const newName = getComponentNameById(newComponentId);
+    onChange(prev => {
+      const updatedPhotos = (prev.photos || []).map(p => {
+        if (p.id === photoId) {
+          return {
+            ...p,
+            componentId: newComponentId,
+            componentName: newName,
+            locationDescription: newComponentId === 'geral' ? 'Visão Geral' : `Componente: ${newName}`
+          };
+        }
+        return p;
+      });
+      const updatedRecords = (prev.photoRecords || []).map(p => {
+        if (p.id === photoId) {
+          return {
+            ...p,
+            componenteId: newComponentId,
+            componenteNome: newName
+          };
+        }
+        return p;
+      });
+      return {
+        ...prev,
+        photos: updatedPhotos,
+        photoRecords: updatedRecords
+      };
+    });
   };
 
   // Repetição de envio de fotos pendentes de sincronização
@@ -548,15 +581,31 @@ export const PhotoManagerStep: React.FC<Props> = ({
                   </div>
 
                   <div className="p-3 text-xs flex-1 flex flex-col justify-between space-y-2">
-                    <div>
-                      <span className="font-bold text-emerald-800 dark:text-emerald-400 text-[11px] block truncate">
-                        {photo.componenteNome}
-                      </span>
+                    <div className="space-y-1.5">
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-slate-500 dark:text-slate-400">
+                          Vínculo ao Componente:
+                        </label>
+                        <select
+                          value={photo.componenteId || 'geral'}
+                          onChange={e => handleReassignComponent(photo.id, e.target.value)}
+                          className="w-full mt-0.5 text-[11px] font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-lg p-1.5 border border-slate-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500"
+                          title="Vincular a qual componente da barragem"
+                        >
+                          {OFFICIAL_DAM_COMPONENTS_OPTIONS.map(opt => (
+                            <option key={opt.id} value={opt.id}>
+                              {opt.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
                       {photo.itemRotulo && (
                         <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block truncate">
                           Item: {photo.itemRotulo}
                         </span>
                       )}
+
                       <p className="text-slate-700 dark:text-slate-300 mt-1 line-clamp-2 text-[11px]">
                         {photo.descricao || 'Sem descrição complementar'}
                       </p>

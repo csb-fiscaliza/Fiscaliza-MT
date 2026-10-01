@@ -29,7 +29,10 @@ import {
 } from '../types/inspection';
 import { EvaluationItemCard } from './EvaluationItemCard';
 import { LocationCaptureWidget } from './LocationCaptureWidget';
+import { ComponentPhotoUploader } from './ComponentPhotoUploader';
+import { GeneralPhotoAttachmentSection } from './GeneralPhotoAttachmentSection';
 import { formatGmsString } from '../utils/geoCoordinates';
+import { InspectionPhoto } from '../types/inspection';
 
 interface Props {
   data: InspectionData;
@@ -62,6 +65,14 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
 
   const toggleSection = (key: string) => {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Helper para atualizar fotos de campo sincronizadamente
+  const handleUpdatePhotos = (updatedPhotos: InspectionPhoto[]) => {
+    onChange(prev => ({
+      ...prev,
+      photos: updatedPhotos
+    }));
   };
 
   // Helper para atualizar item avaliado individual
@@ -833,6 +844,15 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
+
+            {/* Campo para fotos inseridas no componente Talude de Montante */}
+            <ComponentPhotoUploader
+              componentId="talude_montante"
+              componentName="Talude de Montante"
+              allPhotos={data.photos || []}
+              onUpdatePhotos={handleUpdatePhotos}
+              inspectionId={data.id}
+            />
           </div>
         )}
       </div>
@@ -958,6 +978,15 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
+
+            {/* Campo para fotos inseridas no componente Crista (Coroamento) */}
+            <ComponentPhotoUploader
+              componentId="crista"
+              componentName="Crista da Barragem (Coroamento)"
+              allPhotos={data.photos || []}
+              onUpdatePhotos={handleUpdatePhotos}
+              inspectionId={data.id}
+            />
           </div>
         )}
       </div>
@@ -1060,6 +1089,15 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
+
+            {/* Campo para fotos inseridas no componente Talude de Jusante */}
+            <ComponentPhotoUploader
+              componentId="talude_jusante"
+              componentName="Talude de Jusante"
+              allPhotos={data.photos || []}
+              onUpdatePhotos={handleUpdatePhotos}
+              inspectionId={data.id}
+            />
           </div>
         )}
       </div>
@@ -1126,6 +1164,15 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
+
+            {/* Campo para fotos inseridas no componente Região a Jusante */}
+            <ComponentPhotoUploader
+              componentId="area_jusante"
+              componentName="Região a Jusante da Barragem"
+              allPhotos={data.photos || []}
+              onUpdatePhotos={handleUpdatePhotos}
+              inspectionId={data.id}
+            />
           </div>
         )}
       </div>
@@ -1174,6 +1221,15 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
+
+            {/* Campo para fotos inseridas no componente Instrumentação */}
+            <ComponentPhotoUploader
+              componentId="instrumentacao"
+              componentName="Instrumentação de Monitoramento"
+              allPhotos={data.photos || []}
+              onUpdatePhotos={handleUpdatePhotos}
+              inspectionId={data.id}
+            />
           </div>
         )}
       </div>
@@ -1206,6 +1262,15 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 className="w-full text-xs sm:text-sm p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
+
+            {/* Campo para fotos inseridas no componente Estruturas Vertedoras */}
+            <ComponentPhotoUploader
+              componentId="vertedouro"
+              componentName="Estruturas Vertedoras (Vertedouro, Extravasor)"
+              allPhotos={data.photos || []}
+              onUpdatePhotos={handleUpdatePhotos}
+              inspectionId={data.id}
+            />
           </div>
         )}
       </div>
@@ -1278,6 +1343,15 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
+
+            {/* Campo para fotos inseridas no componente Reservatório */}
+            <ComponentPhotoUploader
+              componentId="reservatorio_borda"
+              componentName="Reservatório, Borda Livre e Margens"
+              allPhotos={data.photos || []}
+              onUpdatePhotos={handleUpdatePhotos}
+              inspectionId={data.id}
+            />
           </div>
         )}
       </div>
@@ -1344,9 +1418,27 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 />
               </div>
             </div>
+
+            {/* Campo para fotos de outros problemas / estruturas */}
+            <ComponentPhotoUploader
+              componentId="outros"
+              componentName="Outros Problemas e Anomalias Gerais"
+              allPhotos={data.photos || []}
+              onUpdatePhotos={handleUpdatePhotos}
+              inspectionId={data.id}
+            />
           </div>
         )}
       </div>
+
+      {/* ========================================================================= */}
+      {/* ESPAÇO PARA ANEXAR FOTOS APÓS O PREENCHIMENTO E VINCULAR AOS COMPONENTES */}
+      {/* ========================================================================= */}
+      <GeneralPhotoAttachmentSection
+        allPhotos={data.photos || []}
+        onUpdatePhotos={handleUpdatePhotos}
+        inspectionId={data.id}
+      />
 
       {/* Mobile-Friendly Sticky Bottom Bar */}
       <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 px-4 py-3 flex items-center justify-between shadow-lg sm:static sm:bg-transparent sm:border-0 sm:shadow-none sm:px-0 sm:pt-4">

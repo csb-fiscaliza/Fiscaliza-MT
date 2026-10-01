@@ -156,9 +156,41 @@ export function generateRelatorioInspecaoData(data: InspectionData): RelatorioIn
   // Helper para buscar fotos por componente ou gerais
   const getFotosPorComponente = (compPrefix: string) => {
     return todasFotosComFigura.filter(p => {
-      if (!p.componentId) return false;
+      if (!p.componentId) return compPrefix === 'geral';
       const cId = p.componentId.toLowerCase();
-      return cId.includes(compPrefix.toLowerCase()) || (compPrefix === 'geral' && (cId === 'geral' || cId === 'visao_geral'));
+
+      if (compPrefix === 'crista') {
+        return cId.includes('crista') || cId.includes('coroamento');
+      }
+      if (compPrefix === 'talude_montante') {
+        return cId.includes('montante');
+      }
+      if (compPrefix === 'talude_jusante') {
+        return cId.includes('talude_jusante') || (cId.includes('jusante') && !cId.includes('area') && !cId.includes('regiao'));
+      }
+      if (compPrefix === 'area_jusante' || compPrefix === 'regiao_jusante') {
+        return cId.includes('area_jusante') || cId.includes('regiao_jusante') || cId.includes('jusante_faixa');
+      }
+      if (compPrefix === 'vertedouro') {
+        return cId.includes('vertedouro') || cId.includes('extravasor') || cId.includes('vert_');
+      }
+      if (compPrefix === 'descarregador_fundo') {
+        return cId.includes('fundo') || cId.includes('tomada');
+      }
+      if (compPrefix === 'drenagem_pe') {
+        return cId.includes('drenagem') || cId.includes('pe');
+      }
+      if (compPrefix === 'reservatorio' || compPrefix === 'reservatorio_borda') {
+        return cId.includes('reservatorio');
+      }
+      if (compPrefix === 'instrumentacao') {
+        return cId.includes('instrument');
+      }
+      if (compPrefix === 'geral') {
+        return cId === 'geral' || cId === 'visao_geral' || cId === 'outros' || cId === 'sem_vinculo' || !cId;
+      }
+
+      return cId.includes(compPrefix.toLowerCase());
     });
   };
 
@@ -325,6 +357,24 @@ export function generateRelatorioInspecaoData(data: InspectionData): RelatorioIn
       itensConstatados: compData['reservatorio_borda']?.selectedAnomalies || []
     }
   ];
+
+  // Fotos complementares / gerais que foram anexadas após o preenchimento ou sem componente específico
+  const allocatedIds = new Set<string>();
+  secoesComponentes.forEach(sec => {
+    sec.fotosVinculadas.forEach(f => allocatedIds.add(f.id));
+  });
+
+  const unallocatedPhotos = todasFotosComFigura.filter(f => !allocatedIds.has(f.id));
+  if (unallocatedPhotos.length > 0) {
+    secoesComponentes.push({
+      numeroSecao: '4.9',
+      id: 'registros_gerais_complementares',
+      titulo: 'Registros Fotográficos Complementares e Visão Geral',
+      descricaoTexto: 'Registros fotográficos adicionais capturados durante os trabalhos de campo pela equipe técnica da CSB/SEMA-MT.',
+      fotosVinculadas: unallocatedPhotos,
+      itensConstatados: []
+    });
+  }
 
   // 6. Seção 5: Considerações e Observações Gerais
   const consideracoesGeraisTexto = data.conclusions.generalFindings?.trim() 

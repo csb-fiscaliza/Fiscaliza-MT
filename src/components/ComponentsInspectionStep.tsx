@@ -13,7 +13,8 @@ import {
   Info
 } from 'lucide-react';
 import { DAM_COMPONENTS } from '../data/damComponents';
-import { InspectionData, SeverityCondition } from '../types/inspection';
+import { InspectionData, SeverityCondition, InspectionPhoto } from '../types/inspection';
+import { ComponentPhotoUploader } from './ComponentPhotoUploader';
 
 interface Props {
   data: InspectionData;
@@ -318,29 +319,14 @@ export const ComponentsInspectionStep: React.FC<Props> = ({
             />
           </div>
 
-          {/* Attached Photos Preview for this component */}
-          {photosForThisComponent.length > 0 && (
-            <div className="pt-2 border-t border-slate-100">
-              <span className="text-xs font-bold text-slate-700 mb-2 block">
-                Fotos registradas para este componente:
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {photosForThisComponent.map(p => (
-                  <div key={p.id} className="relative group rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-video">
-                    <img
-                      src={p.dataUrl}
-                      alt={p.caption || 'Foto componente'}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition p-2 flex flex-col justify-end text-white text-[10px]">
-                      <p className="truncate font-semibold">{p.caption || 'Sem legenda'}</p>
-                      <p className="text-slate-300 text-[9px] truncate">{p.locationDescription}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Upload e Registro Fotográfico Direto deste Componente */}
+          <ComponentPhotoUploader
+            componentId={activeComponentDef.id}
+            componentName={activeComponentDef.name}
+            allPhotos={data.photos || []}
+            onUpdatePhotos={updated => onChange(prev => ({ ...prev, photos: updated }))}
+            inspectionId={data.id}
+          />
         </div>
       </div>
 

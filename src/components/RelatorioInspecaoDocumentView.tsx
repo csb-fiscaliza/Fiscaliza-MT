@@ -394,13 +394,19 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
                             alt={foto.caption || foto.componentName}
                             className="w-full h-full object-cover"
                           />
-                          {/* Carimbo de dados de captura na foto */}
-                          <div className="absolute top-1 right-1 bg-black/75 text-white text-[9px] p-1.5 rounded font-mono leading-tight text-right backdrop-blur-xs">
-                            <div>{foto.timestamp ? new Date(foto.timestamp).toLocaleString('pt-BR') : report.dataVistoriaFormatada}</div>
+                          {/* Carimbo de dados de captura na foto (Timestamp, GPS e Município) */}
+                          <div className="absolute top-1.5 right-1.5 bg-black/80 text-white text-[9px] p-1.5 rounded font-mono leading-tight text-right backdrop-blur-xs shadow-xs max-w-[85%]">
+                            <div>
+                              {foto.timestamp
+                                ? (foto.timestamp.includes('/') ? foto.timestamp : new Date(foto.timestamp).toLocaleString('pt-BR'))
+                                : report.dataVistoriaFormatada}
+                            </div>
                             {foto.latitude && foto.longitude ? (
-                              <div>{formatGmsString(foto.latitude, true)}, {formatGmsString(foto.longitude, false)}</div>
+                              <div className="text-emerald-300">
+                                {formatGmsString(foto.latitude, true)}, {formatGmsString(foto.longitude, false)}
+                              </div>
                             ) : null}
-                            <div>{data.damIdentification.municipality || 'MT'}</div>
+                            <div className="text-slate-300 uppercase">{data.damIdentification.municipality || 'Mato Grosso'}/MT</div>
                           </div>
                         </div>
                         {/* Legenda Oficial (Figura X – ...) */}
