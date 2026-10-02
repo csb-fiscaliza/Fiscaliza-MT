@@ -8,88 +8,43 @@
 }
 
 /* ==============================================================================
-   TEMA ESCURO GLOBAL & TRANSIÇÕES MODERNAS
+   TEMA GLOBAL & TRANSIÇÕES FLUIDAS
    ============================================================================== */
 html {
-  transition: background-color 0.2s ease, color 0.2s ease;
+  scroll-behavior: smooth;
 }
 
-html.dark {
-  color-scheme: dark;
-  background-color: #020617;
-  color: #f8fafc;
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-html.dark body {
-  background-color: #020617;
-  color: #f8fafc;
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-/* Form Controls no Modo Escuro (exceto em documentos de impressão) */
-html.dark:not(.print) input[type="text"],
-html.dark:not(.print) input[type="number"],
-html.dark:not(.print) input[type="date"],
-html.dark:not(.print) input[type="datetime-local"],
-html.dark:not(.print) select,
-html.dark:not(.print) textarea {
-  background-color: #0f172a;
-  border-color: #334155;
-  color: #f8fafc;
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-html.dark:not(.print) input[type="text"]:focus,
-html.dark:not(.print) input[type="number"]:focus,
-html.dark:not(.print) select:focus,
-html.dark:not(.print) textarea:focus {
-  background-color: #1e293b;
-  border-color: #10b981;
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
 }
 
-html.dark:not(.print) input::placeholder,
-html.dark:not(.print) textarea::placeholder {
-  color: #64748b;
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
 }
 
-/* Mapeamento de superfícies no modo escuro (fora do documento A4 oficial) */
-html.dark .bg-white:not(.printable-document):not(.printable-document *) {
-  background-color: #0f172a !important;
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
 }
 
-html.dark .bg-slate-50:not(.printable-document):not(.printable-document *) {
-  background-color: #080d1a !important;
-}
-
-html.dark .bg-slate-100:not(.printable-document):not(.printable-document *) {
-  background-color: #1e293b !important;
-}
-
-html.dark .border-slate-200:not(.printable-document):not(.printable-document *),
-html.dark .border-slate-100:not(.printable-document):not(.printable-document *) {
-  border-color: #1e293b !important;
-}
-
-html.dark .border-slate-300:not(.printable-document):not(.printable-document *) {
-  border-color: #334155 !important;
-}
-
-html.dark .text-slate-900:not(.printable-document):not(.printable-document *) {
-  color: #f8fafc !important;
-}
-
-html.dark .text-slate-800:not(.printable-document):not(.printable-document *) {
-  color: #f1f5f9 !important;
-}
-
-html.dark .text-slate-700:not(.printable-document):not(.printable-document *) {
-  color: #e2e8f0 !important;
-}
-
-html.dark .text-slate-600:not(.printable-document):not(.printable-document *) {
-  color: #cbd5e1 !important;
-}
-
-html.dark .text-slate-500:not(.printable-document):not(.printable-document *) {
-  color: #94a3b8 !important;
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
 }
 
 /* Preserva fidelidade de documento impresso (A4 papel oficial) */
@@ -112,7 +67,8 @@ html.dark .text-slate-500:not(.printable-document):not(.printable-document *) {
     header,
     nav,
     button,
-    .print\\:hidden {
+    footer,
+    .print\:hidden {
       display: none !important;
     }
 
@@ -127,8 +83,7 @@ html.dark .text-slate-500:not(.printable-document):not(.printable-document *) {
 
     @page {
       size: A4 portrait;
-      margin: 15mm 15mm 15mm 15mm;
+      margin: 15mm;
     }
   }
 }
-
