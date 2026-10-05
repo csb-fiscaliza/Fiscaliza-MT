@@ -387,6 +387,12 @@ export function saveInspection(inspection: InspectionData): void {
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
     localStorage.setItem(CURRENT_ACTIVE_KEY, updated.id);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('csb:notificacao_changed', {
+        detail: { action: existingIndex >= 0 ? 'UPDATE' : 'INSERT', id: updated.id }
+      }));
+    }
   } catch (err) {
     console.error('Erro ao salvar vistoria no storage:', err);
   }
@@ -398,6 +404,12 @@ export function deleteInspection(id: string): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
     if (localStorage.getItem(CURRENT_ACTIVE_KEY) === id) {
       localStorage.removeItem(CURRENT_ACTIVE_KEY);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('csb:notificacao_changed', {
+        detail: { action: 'DELETE', id }
+      }));
     }
   } catch (err) {
     console.error('Erro ao deletar vistoria:', err);

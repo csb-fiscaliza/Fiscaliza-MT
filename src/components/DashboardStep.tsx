@@ -33,6 +33,7 @@ import {
 import { InspectionData } from '../types/inspection';
 import { FiscalizaLogo } from './FiscalizaLogo';
 import { InspectionDetailModal } from './InspectionDetailModal';
+import { InteractiveMap } from './InteractiveMap';
 
 interface Props {
   currentInspection: InspectionData;
@@ -399,7 +400,15 @@ export const DashboardStep: React.FC<Props> = ({
       </div>
 
       {/* ===================================================================== */}
-      {/* 3. LISTAGEM DE TODAS AS BARRAGENS COM AÇÕES (VISUALIZAR / EDITAR / EXCLUIR) */}
+      {/* 3. MAPA INTERATIVO GEOESPACIAL DE MATO GROSSO (CSB / SEMA-MT)         */}
+      {/* ===================================================================== */}
+      <InteractiveMap 
+        inspections={allInspections} 
+        onSelectInspection={onSelectAndEdit} 
+      />
+
+      {/* ===================================================================== */}
+      {/* 4. LISTAGEM DE TODAS AS BARRAGENS COM AÇÕES (VISUALIZAR / EDITAR / EXCLUIR) */}
       {/* ===================================================================== */}
       <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-6 sm:p-7 shadow-xs space-y-5">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-5">

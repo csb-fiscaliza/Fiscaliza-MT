@@ -2,7 +2,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { VistoriaAggregate, ItemAvaliadoEntity, DocumentoGeradoEntity } from '../types/inspection';
 import { parseGmsToDecimal, formatGmsString } from '../utils/geoCoordinates';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const rawUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+const supabaseUrl = rawUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 // Validação estrita: somente chaves anônimas públicas no frontend
@@ -12,7 +13,8 @@ export const isSupabaseConfigured = (): boolean => {
     supabaseUrl.startsWith('https://') &&
     typeof supabaseAnonKey === 'string' &&
     supabaseAnonKey.length > 20 &&
-    !supabaseAnonKey.includes('your-project')
+    !supabaseAnonKey.includes('your-project') &&
+    !supabaseUrl.includes('COLE_AQUI')
   );
 };
 
