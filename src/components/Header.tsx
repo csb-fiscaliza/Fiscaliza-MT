@@ -14,7 +14,8 @@ import {
   MapPin,
   Clock,
   Wifi,
-  WifiOff
+  WifiOff,
+  Save
 } from 'lucide-react';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionData } from '../types/inspection';
@@ -42,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeStep,
   setActiveStep,
   onNewInspection,
+  onSave,
   allInspections,
   lastSavedAt,
   isOnline
@@ -133,10 +135,21 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={onNewInspection}
               className="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-emerald-500 transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
-              title="Iniciar uma nova ficha de vistoria em branco"
+              title="Iniciar uma nova ficha de vistoria em branco com captura de coordenadas"
             >
               <PlusCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <span>Nova Ficha</span>
+            </button>
+
+            {/* Atalho 3: Salvar Vistoria */}
+            <button
+              type="button"
+              onClick={onSave}
+              className="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-800 border border-emerald-300 dark:border-emerald-800 hover:border-emerald-500 transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
+              title="Salvar dados da vistoria e registrar localização precisa da barragem"
+            >
+              <Save className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Salvar</span>
             </button>
 
             {/* Atalho 3: Banco de Dados */}

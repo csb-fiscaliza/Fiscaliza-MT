@@ -18,7 +18,8 @@ import {
   Droplet,
   Waves,
   Eye,
-  CheckCircle2
+  CheckCircle2,
+  Save
 } from 'lucide-react';
 import { BASINS_MT, MUNICIPALITIES_MT } from '../data/damComponents';
 import { 
@@ -40,13 +41,15 @@ interface Props {
   onChange: (updater: (prev: InspectionData) => InspectionData) => void;
   onNext: () => void;
   onPrev: () => void;
+  onSave?: () => void;
 }
 
 export const OfficialInspectionSheetStep: React.FC<Props> = ({
   data,
   onChange,
   onNext,
-  onPrev
+  onPrev,
+  onSave
 }) => {
   // Estado de recolher/expandir seções preservando as respostas
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -1450,14 +1453,28 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
           <span>Voltar</span>
         </button>
 
-        <button
-          type="button"
-          onClick={onNext}
-          className="min-h-[44px] flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs sm:text-sm shadow-xs transition cursor-pointer"
-        >
-          <span>Avançar para Fotos de Campo</span>
-          <ArrowRight className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          {onSave && (
+            <button
+              type="button"
+              onClick={onSave}
+              className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-800 text-xs sm:text-sm font-semibold transition cursor-pointer shadow-2xs"
+              title="Salvar dados da vistoria e registrar localização"
+            >
+              <Save className="w-4 h-4" />
+              <span>Salvar Vistoria</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onNext}
+            className="min-h-[44px] flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs sm:text-sm shadow-xs transition cursor-pointer"
+          >
+            <span>Avançar para Fotos de Campo</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
   );

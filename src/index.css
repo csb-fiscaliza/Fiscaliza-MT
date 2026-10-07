@@ -87,3 +87,44 @@ body {
     }
   }
 }
+
+/* ==============================================================================
+   SEMA CUSTOM POPUP - Design idêntico à imagem de monitoramento CSB/SEMA-MT
+   ============================================================================== */
+.sema-custom-popup .leaflet-popup-content-wrapper {
+  background: #ffffff !important;
+  border-radius: 20px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 10px 10px -5px rgba(0, 0, 0, 0.1) !important;
+  padding: 0 !important;
+  border: 1px solid rgba(226, 232, 240, 0.95) !important;
+  overflow: hidden !important;
+}
+
+.sema-custom-popup .leaflet-popup-content {
+  margin: 0 !important;
+  line-height: 1.4 !important;
+}
+
+.sema-custom-popup .leaflet-popup-tip-container {
+  overflow: visible !important;
+}
+
+.sema-custom-popup .leaflet-popup-tip {
+  background: #ffffff !important;
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.1) !important;
+}
+
+.sema-custom-popup .leaflet-popup-close-button {
+  display: none !important;
+}
+
+.custom-map-pin {
+  cursor: pointer !important;
+  transition: transform 0.15s ease, filter 0.15s ease !important;
+}
+
+.custom-map-pin:hover {
+  transform: scale(1.22) !important;
+  filter: brightness(1.1) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45)) !important;
+  z-index: 10000 !important;
+}

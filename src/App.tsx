@@ -31,6 +31,7 @@ import {
   setActiveInspectionId,
   exportInspectionToJson
 } from './services/storage';
+import { formatGmsString } from './utils/geoCoordinates';
 
 export default function App() {
   return (
@@ -118,14 +119,127 @@ function AppContent() {
     };
   }, [currentInspection]);
 
-  const handleNewInspection = () => {
+  // Captura geolocalização do dispositivo via API do navegador para o local da barragem
+  const captureBrowserLocation = (): Promise<{
+    latitude: string;
+    longitude: string;
+    accuracyMeters: number;
+    altitudeMeters: number | null;
+    captureTimestamp: string;
+  } | null> => {
+    return new Promise(resolve => {
+      if (typeof navigator === 'undefined' || !navigator.geolocation) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const latGms = formatGmsString(pos.coords.latitude, true, false);
+          const lngGms = formatGmsString(pos.coords.longitude, false, false);
+          resolve({
+            latitude: latGms,
+            longitude: lngGms,
+            accuracyMeters: Math.round(pos.coords.accuracy * 10) / 10,
+            altitudeMeters: pos.coords.altitude !== null ? Math.round(pos.coords.altitude * 10) / 10 : null,
+            captureTimestamp: new Date().toISOString()
+          });
+        },
+        err => {
+          console.warn('Geolocalização não obtida:', err.message);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    });
+  };
+
+  const handleNewInspection = async () => {
     if (confirm('Deseja iniciar uma nova vistoria em branco? Os dados da vistoria atual foram salvos automaticamente.')) {
       const fresh = createEmptyInspection();
       saveInspection(fresh);
       setCurrentInspection(fresh);
       setInspections(getAllInspections());
       setActiveStep(1); // Direciona para a Ficha
+
+      // Captura precisa de coordenadas do navegador ao iniciar a inspeção
+      const loc = await captureBrowserLocation();
+      if (loc) {
+        setCurrentInspection(prev => {
+          // Se o usuário ainda não alterou manualmente as coordenadas deste formulário
+          if (prev.id === fresh.id && !prev.damIdentification.coordinates.isManualEdit) {
+            const updated: InspectionData = {
+              ...prev,
+              damIdentification: {
+                ...prev.damIdentification,
+                coordinates: {
+                  ...prev.damIdentification.coordinates,
+                  latitude: loc.latitude,
+                  longitude: loc.longitude,
+                  accuracyMeters: loc.accuracyMeters,
+                  altitudeMeters: loc.altitudeMeters,
+                  captureTimestamp: loc.captureTimestamp,
+                  isManualEdit: false
+                }
+              }
+            };
+            saveInspection(updated);
+            setInspections(getAllInspections());
+            return updated;
+          }
+          return prev;
+        });
+      }
     }
+  };
+
+  const handleSaveInspection = async () => {
+    const coords = currentInspection.damIdentification.coordinates;
+    const isManual = coords.isManualEdit;
+    const hasLat = !!coords.latitude?.trim();
+    const hasLng = !!coords.longitude?.trim();
+
+    // Se o usuário NÃO editou manualmente o espaço de coordenadas ou se estiver vazio,
+    // captura a geolocalização via API do navegador
+    if (!isManual || !hasLat || !hasLng) {
+      const loc = await captureBrowserLocation();
+      if (loc) {
+        setCurrentInspection(prev => {
+          // Mantém editável se o usuário editou manualmente durante a chamada
+          if (prev.damIdentification.coordinates.isManualEdit && prev.damIdentification.coordinates.latitude) {
+            saveInspection(prev);
+            return prev;
+          }
+          const updated: InspectionData = {
+            ...prev,
+            damIdentification: {
+              ...prev.damIdentification,
+              coordinates: {
+                ...prev.damIdentification.coordinates,
+                latitude: loc.latitude,
+                longitude: loc.longitude,
+                accuracyMeters: loc.accuracyMeters,
+                altitudeMeters: loc.altitudeMeters,
+                captureTimestamp: loc.captureTimestamp,
+                isManualEdit: false
+              }
+            }
+          };
+          saveInspection(updated);
+          setInspections(getAllInspections());
+          return updated;
+        });
+      } else {
+        saveInspection(currentInspection);
+        setInspections(getAllInspections());
+      }
+    } else {
+      // Espaço editado manualmente pelo usuário: dados do usuário são integralmente preservados
+      saveInspection(currentInspection);
+      setInspections(getAllInspections());
+    }
+
+    const now = new Date();
+    setLastSavedAt(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`);
   };
 
   const handleLoadSample = () => {
@@ -223,7 +337,7 @@ function AppContent() {
         setActiveStep={setActiveStep}
         onNewInspection={handleNewInspection}
         onLoadSample={handleLoadSample}
-        onSave={() => saveInspection(currentInspection)}
+        onSave={handleSaveInspection}
         onExportJson={handleExportJson}
         onImportJson={handleImportJson}
         allInspections={inspections}
@@ -259,6 +373,7 @@ function AppContent() {
             onChange={setCurrentInspection}
             onNext={() => setActiveStep(2)}
             onPrev={() => setActiveStep(0)}
+            onSave={handleSaveInspection}
           />
         )}
 

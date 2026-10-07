@@ -237,7 +237,7 @@ export const LocationCaptureWidget: React.FC<Props> = ({
               Coordenadas Geográficas em Formato GMS (Datum {datum || 'SIRGAS 2000'})
             </h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Padrão obrigatório SEMA-MT: Graus, Minutos e Segundos (ex: 16º15'26,64" S)
+              Padrão obrigatório SEMA-MT: Graus, Minutos e Segundos (ex: 16º15'26,64" S) · <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Espaço 100% editável pelo usuário</span>
             </p>
           </div>
         </div>
@@ -276,9 +276,14 @@ export const LocationCaptureWidget: React.FC<Props> = ({
       {/* Grid de Campos em Formato GMS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
         <div>
-          <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-            Latitude em GMS <span className="text-emerald-700 dark:text-emerald-400 font-bold">(xxºxx'xx,xx")</span>
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+              Latitude em GMS <span className="text-emerald-700 dark:text-emerald-400 font-bold">(xxºxx'xx,xx")</span>
+            </label>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/60">
+              Editável
+            </span>
+          </div>
           <input
             type="text"
             placeholder={`ex: 16º15'26,64"`}
@@ -305,9 +310,14 @@ export const LocationCaptureWidget: React.FC<Props> = ({
         </div>
 
         <div>
-          <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-            Longitude em GMS <span className="text-emerald-700 dark:text-emerald-400 font-bold">(xxºxx'xx,xx")</span>
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+              Longitude em GMS <span className="text-emerald-700 dark:text-emerald-400 font-bold">(xxºxx'xx,xx")</span>
+            </label>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/60">
+              Editável
+            </span>
+          </div>
           <input
             type="text"
             placeholder={`ex: 56º37'18,48"`}

@@ -56,8 +56,11 @@ function formatLiveGms(lat: number, lng: number): string {
   const gmsLng = decimalToGms(lng, false);
   if (!gmsLat || !gmsLng) return '';
 
-  const latStr = `${String(gmsLat.graus).padStart(2, '0')}° ${String(gmsLat.minutos).padStart(2, '0')}' ${gmsLat.segundos.toFixed(2).padStart(5, '0')}" S`;
-  const lngStr = `${String(gmsLng.graus).padStart(2, '0')}° ${String(gmsLng.minutos).padStart(2, '0')}' ${gmsLng.segundos.toFixed(2).padStart(5, '0')}" W`;
+  const sLat = gmsLat.segundos.toFixed(2).replace('.', ',').padStart(5, '0');
+  const sLng = gmsLng.segundos.toFixed(2).replace('.', ',').padStart(5, '0');
+
+  const latStr = `${String(gmsLat.graus).padStart(2, '0')}° ${String(gmsLat.minutos).padStart(2, '0')}' ${sLat}" S`;
+  const lngStr = `${String(gmsLng.graus).padStart(2, '0')}° ${String(gmsLng.minutos).padStart(2, '0')}' ${sLng}" W`;
   return `${latStr} | ${lngStr}`;
 }
 
@@ -557,103 +560,166 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     });
   };
 
-  // Popup com design limpo e suporte para Badge "Nova (Sistema)"
+  // Formata coordenadas especificamente para o card informativo fiel à imagem de monitoramento
+  // Ex: "16°  28'  54,70"  S" e "54°  54'  44,08"  W"
+  const formatGmsCard = (decimal: number | null | undefined, isLat: boolean): string => {
+    if (decimal === null || decimal === undefined || isNaN(decimal)) return '-';
+    const gms = decimalToGms(decimal, isLat);
+    if (!gms) return '-';
+    const g = String(gms.graus).padStart(2, '0');
+    const m = String(gms.minutos).padStart(2, '0');
+    const s = gms.segundos.toFixed(2).replace('.', ',').padStart(5, '0');
+    const h = isLat ? 'S' : 'W';
+    return `${g}°  ${m}'  ${s}"  ${h}`;
+  };
+
+  // Popup com design limpo e fiel à imagem anexa do sistema de monitoramento CSB/SEMA-MT
   const createCleanPopup = (options: {
     origem: string;
-    origemCor: string;
+    origemCor?: string;
     identificador: string;
-    nomeOuPropriedade: string;
     empreendedor: string;
-    cpfCnpj?: string;
-    municipio: string;
+    propriedade?: string;
+    data?: string;
+    prazo?: string;
+    municipio?: string;
+    situacaoResposta?: string;
     lat: number;
     lng: number;
-    statusBadge?: { label: string; bg: string; text: string };
-    isNovaSistema?: boolean;
-    alertaVencido?: string;
-    prazo?: string;
-    dataEmissao?: string;
-    resposta?: string;
     actionId?: string;
   }): HTMLElement => {
-    const gmsLat = formatGmsString(options.lat, true, true);
-    const gmsLng = formatGmsString(options.lng, false, true);
+    const latGms = formatGmsCard(options.lat, true);
+    const lngGms = formatGmsCard(options.lng, false);
 
     const div = document.createElement('div');
-    div.style.minWidth = '240px';
-    div.style.maxWidth = '300px';
-    div.style.fontFamily = 'system-ui, sans-serif';
-    div.style.lineHeight = '1.35';
+    div.className = 'sema-info-card';
+    div.style.width = '330px';
+    div.style.padding = '18px 20px';
+    div.style.fontFamily = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    div.style.color = '#0F172A';
+    div.style.textAlign = 'left';
+    div.style.boxSizing = 'border-box';
 
     div.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #E2E8F0;padding-bottom:6px;margin-bottom:6px;">
-        <div style="display:flex;align-items:center;gap:4px;">
-          <span style="font-size:10px;font-weight:800;text-transform:uppercase;color:${options.origemCor};">
-            ${options.origem}
-          </span>
-          ${options.isNovaSistema ? `
-            <span style="font-size:9px;font-weight:800;background:#EDE9FE;color:#6D28D9;border:1px solid #C4B5FD;padding:1px 5px;border-radius:4px;">
-              Nova (Sistema)
-            </span>
-          ` : ''}
+      <!-- CABEÇALHO: LOCALIZAÇÃO (GMS) E BOTÃO FECHAR -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <span style="font-size:11px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:0.05em;">
+          LOCALIZAÇÃO (GMS)
+        </span>
+        <button type="button" class="sema-popup-close-btn" style="background:none;border:none;font-size:16px;line-height:1;color:#94A3B8;cursor:pointer;padding:2px 4px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:color 0.15s;" title="Fechar">
+          ✕
+        </button>
+      </div>
+
+      <!-- BOXES DE LATITUDE E LONGITUDE (AZUL SUAVE) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+        <div style="background:#F0F9FF;border:1px solid #E0F2FE;border-radius:12px;padding:8px 10px;">
+          <div style="font-size:9px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:0.04em;">
+            LATITUDE
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#0F172A;font-family:ui-monospace, monospace;margin-top:3px;white-space:nowrap;">
+            ${latGms}
+          </div>
         </div>
-        <span style="font-size:12px;font-weight:800;font-family:monospace;color:#0F172A;">
+        <div style="background:#F0F9FF;border:1px solid #E0F2FE;border-radius:12px;padding:8px 10px;">
+          <div style="font-size:9px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:0.04em;">
+            LONGITUDE
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#0F172A;font-family:ui-monospace, monospace;margin-top:3px;white-space:nowrap;">
+            ${lngGms}
+          </div>
+        </div>
+      </div>
+
+      <!-- TAG DE CATEGORIA E NÚMERO IDENTIFICADOR -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px;">
+        <span style="font-size:12px;font-weight:800;color:${options.origemCor || '#8B5CF6'};text-transform:uppercase;letter-spacing:0.02em;">
+          ${options.origem}
+        </span>
+        <span style="font-size:11px;font-weight:700;color:#94A3B8;font-family:ui-monospace, monospace;">
           #${options.identificador}
         </span>
       </div>
-      <div style="font-size:13px;font-weight:700;color:#0F172A;margin-bottom:2px;">
-        ${options.nomeOuPropriedade || 'Sem denominação'}
+
+      <!-- EMPREENDEDOR / NOME PRINCIPAL -->
+      <div style="font-size:16px;font-weight:900;color:#0F172A;line-height:1.25;margin-bottom:2px;">
+        ${options.empreendedor || 'Não informado'}
       </div>
-      <div style="font-size:11px;color:#475569;margin-bottom:6px;">
-        <strong>Empreendedor:</strong> ${options.empreendedor || 'Não informado'}
-        ${options.cpfCnpj ? `<br/><strong>CPF/CNPJ:</strong> ${options.cpfCnpj}` : ''}
-      </div>
-      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:6px;font-size:10px;font-family:monospace;margin-bottom:6px;">
-        <div><strong>Município:</strong> ${options.municipio}/MT</div>
-        <div style="color:#0284C7;margin-top:2px;">GMS: ${gmsLat} | ${gmsLng}</div>
-        <div style="color:#64748B;">DEC: ${options.lat.toFixed(5)}, ${options.lng.toFixed(5)}</div>
-      </div>
-      ${options.alertaVencido ? `
-        <div style="background:#FEF2F2;border:1px solid #FCA5A5;color:#991B1B;font-size:10px;font-weight:700;padding:4px 6px;border-radius:4px;margin-bottom:6px;">
-          ⚠️ ${options.alertaVencido}
+
+      <!-- PROPRIEDADE -->
+      ${options.propriedade ? `
+        <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;">
+          ${options.propriedade}
         </div>
-      ` : ''}
-      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">
-        ${options.statusBadge ? `
-          <span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;background:${options.statusBadge.bg};color:${options.statusBadge.text};">
-            ${options.statusBadge.label}
-          </span>
-        ` : ''}
-        ${options.dataEmissao ? `
-          <span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#475569;">
-            Emissão: ${options.dataEmissao}
-          </span>
-        ` : ''}
-        ${options.prazo ? `
-          <span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:#F1F5F9;color:#475569;">
-            Prazo: ${options.prazo}
-          </span>
-        ` : ''}
-      </div>
-      ${options.resposta ? `
-        <div style="font-size:10px;color:#334155;background:#F1F5F9;padding:4px 6px;border-radius:4px;max-height:60px;overflow-y:auto;margin-top:4px;">
-          <strong>Situação / Objetivo:</strong><br/>
-          ${options.resposta}
+      ` : '<div style="margin-bottom:10px;"></div>'}
+
+      <!-- DATA E PRAZO (2 COLUNAS) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div>
+          <div style="font-size:10px;font-weight:800;color:#94A3B8;text-transform:uppercase;letter-spacing:0.03em;">
+            DATA
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#1E293B;margin-top:2px;">
+            ${options.data || '-'}
+          </div>
         </div>
-      ` : ''}
+        <div>
+          <div style="font-size:10px;font-weight:800;color:#94A3B8;text-transform:uppercase;letter-spacing:0.03em;">
+            PRAZO
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#1E293B;margin-top:2px;">
+            ${options.prazo || '-'}
+          </div>
+        </div>
+      </div>
+
+      <!-- MUNICÍPIO -->
+      <div style="margin-bottom:10px;">
+        <div style="font-size:10px;font-weight:800;color:#94A3B8;text-transform:uppercase;letter-spacing:0.03em;">
+          MUNICÍPIO
+        </div>
+        <div style="font-size:12.5px;font-weight:700;color:#1E293B;margin-top:2px;">
+          ${options.municipio || 'Mato Grosso'}
+        </div>
+      </div>
+
+      <!-- SITUAÇÃO / RESPOSTA -->
+      <div>
+        <div style="font-size:10px;font-weight:800;color:#94A3B8;text-transform:uppercase;letter-spacing:0.03em;">
+          SITUAÇÃO/RESPOSTA
+        </div>
+        <div style="font-size:11.5px;font-style:italic;color:#334155;line-height:1.45;margin-top:3px;max-height:85px;overflow-y:auto;">
+          ${options.situacaoResposta || 'Sem observações adicionais.'}
+        </div>
+      </div>
+
+      <!-- BOTÃO DE AÇÃO OPCIONAL (SE HOUVER FICHA VINCULADA) -->
       ${options.actionId ? `
-        <button id="btn-popup-${options.actionId}" style="width:100%;margin-top:6px;padding:6px;background:#059669;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">
+        <button id="btn-popup-${options.actionId}" style="width:100%;margin-top:12px;padding:8px 12px;background:#059669;color:#ffffff;border:none;border-radius:10px;font-size:11px;font-weight:800;cursor:pointer;transition:background 0.15s ease;">
           Abrir Ficha no Sistema
         </button>
       ` : ''}
     `;
 
-    if (options.actionId && onSelectInspection) {
-      setTimeout(() => {
-        const btn = div.querySelector(`#btn-popup-${options.actionId}`);
-        if (btn) btn.addEventListener('click', () => onSelectInspection(options.actionId!));
-      }, 50);
-    }
+    setTimeout(() => {
+      const closeBtn = div.querySelector('.sema-popup-close-btn');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          mapInstanceRef.current?.closePopup();
+        });
+      }
+
+      if (options.actionId && onSelectInspection) {
+        const actionBtn = div.querySelector(`#btn-popup-${options.actionId}`);
+        if (actionBtn) {
+          actionBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onSelectInspection(options.actionId!);
+          });
+        }
+      }
+    }, 40);
 
     return div;
   };
@@ -683,6 +749,16 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       return item.anoPlanilha === selectedMesAno;
     };
 
+    const popupOptions: L.PopupOptions = {
+      className: 'sema-custom-popup',
+      maxWidth: 360,
+      minWidth: 320,
+      autoPan: true,
+      autoPanPadding: [25, 25],
+      closeButton: false,
+      offset: [0, -10]
+    };
+
     // --------------------------------------------------------------------------
     // 1. NOTIFICAÇÕES NOVAS EM TEMPO REAL DO SUPABASE
     // Cores baseadas na situação:
@@ -696,59 +772,49 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
         const sitLower = (item.situacao || '').toLowerCase();
         let iconType: 'roxa_aberto' | 'roxa_cumprida' | 'vermelha_atrasada' = 'roxa_aberto';
-        let statusLabel = item.situacao || 'Em aberto';
-        let statusBg = '#FEF3C7';
-        let statusText = '#92400E';
-        let markerColor = '#F59E0B';
 
         if (sitLower.includes('cumprid') || sitLower.includes('atendid')) {
           if (!legendFilters.notifCumprida) return;
           iconType = 'roxa_cumprida';
-          markerColor = '#10B981';
-          statusBg = '#D1FAE5';
-          statusText = '#065F46';
         } else if (sitLower.includes('atrasad') || sitLower.includes('vencid')) {
           if (!legendFilters.notifAtrasada) return;
           iconType = 'vermelha_atrasada';
-          markerColor = '#EF4444';
-          statusBg = '#FEE2E2';
-          statusText = '#991B1B';
         } else {
           // Em aberto / pendente
           if (!legendFilters.notifEmAberto) return;
           iconType = 'roxa_aberto';
-          markerColor = '#F59E0B';
-          statusBg = '#FEF3C7';
-          statusText = '#92400E';
         }
 
         const marker = L.marker([item.lat, item.long], {
           icon: createCustomIcon(iconType)
         });
 
-        marker.bindTooltip(`[Nova] ${item.numNotificacao} (${statusLabel}) - ${item.municipio}`, {
-          direction: 'top',
-          offset: [0, -10]
-        });
-
         const popup = createCleanPopup({
-          origem: 'Notificação',
-          origemCor: markerColor,
-          identificador: item.numNotificacao,
-          nomeOuPropriedade: item.empreendedor,
+          origem: 'NOTIFICAÇÃO (NOVA)',
+          origemCor: '#8B5CF6',
+          identificador: item.numNotificacao.replace(/^Notif\.?\s*/i, ''),
           empreendedor: item.empreendedor,
-          cpfCnpj: item.cpfCnpj,
-          municipio: item.municipio,
-          lat: item.lat,
-          lng: item.long,
-          isNovaSistema: true,
-          statusBadge: { label: statusLabel, bg: statusBg, text: statusText },
-          dataEmissao: item.dataEmissao,
+          propriedade: (item as any).propriedade || '',
+          data: item.dataEmissao,
           prazo: item.prazo,
-          resposta: item.respostaFinal
+          municipio: item.municipio,
+          situacaoResposta: item.respostaFinal || item.situacao || 'Em aberto',
+          lat: item.lat,
+          lng: item.long
         });
 
-        marker.bindPopup(popup);
+        marker.bindPopup(popup, popupOptions);
+        marker.on('mouseover', () => {
+          marker.setZIndexOffset(1000);
+          marker.openPopup();
+        });
+        marker.on('mouseout', () => {
+          marker.setZIndexOffset(0);
+        });
+        marker.on('click', () => {
+          marker.setZIndexOffset(1000);
+          marker.openPopup();
+        });
         notificationsLayerRef.current?.addLayer(marker);
       });
     }
@@ -774,48 +840,29 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       }
 
       let iconType: 'roxa_aberto' | 'roxa_cumprida' | 'vermelha_atrasada' | 'cinza_arquivada' | 'antiga_pendente' | 'antiga_atendida' = 'roxa_aberto';
-      let statusLabel = 'Em Aberto';
-      let statusBg = '#EDE9FE';
-      let statusText = '#5B21B6';
 
       if (isNova) {
         if (item.status === 'pendente') {
           if (!legendFilters.notifEmAberto) return;
           iconType = 'roxa_aberto';
-          statusLabel = 'Em Aberto / Pendente';
         } else if (item.status === 'cumprida') {
           if (!legendFilters.notifCumprida) return;
           iconType = 'roxa_cumprida';
-          statusLabel = 'Cumprida / Atendida';
-          statusBg = '#D1FAE5';
-          statusText = '#065F46';
         } else if (item.status === 'atrasada') {
           if (!legendFilters.notifAtrasada) return;
           iconType = 'vermelha_atrasada';
-          statusLabel = 'Atrasada / Vencida';
-          statusBg = '#FEE2E2';
-          statusText = '#991B1B';
         } else if (item.status === 'arquivada') {
           if (!legendFilters.notifArquivada) return;
           iconType = 'cinza_arquivada';
-          statusLabel = 'Arquivada';
-          statusBg = '#F1F5F9';
-          statusText = '#475569';
         }
       } else {
         // Antiga
         if (item.atendidoStatus === 'SIM') {
           if (!legendFilters.notifAntigaAtendida) return;
           iconType = 'antiga_atendida';
-          statusLabel = 'Antiga (Atendida)';
-          statusBg = '#D1FAE5';
-          statusText = '#065F46';
         } else {
           if (!legendFilters.notifAntigaPendente) return;
           iconType = 'antiga_pendente';
-          statusLabel = 'Antiga (Pendente)';
-          statusBg = '#FEF3C7';
-          statusText = '#92400E';
         }
       }
 
@@ -823,27 +870,32 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         icon: createCustomIcon(iconType)
       });
 
-      marker.bindTooltip(`Notificação #${item.numero} (${statusLabel}) - ${item.municipio}`, {
-        direction: 'top',
-        offset: [0, -10]
-      });
-
       const popup = createCleanPopup({
-        origem: isNova ? 'Notificação Planilha' : 'Notificação Histórica',
-        origemCor: isNova ? '#7B3FE4' : '#F59E0B',
-        identificador: item.numero,
-        nomeOuPropriedade: item.propriedade || 'Propriedade não informada',
-        empreendedor: item.empreendedor,
-        cpfCnpj: item.cpfCnpj,
-        municipio: item.municipio,
+        origem: isAntiga ? 'NOTIFICAÇÃO (ANTIGA)' : 'NOTIFICAÇÃO (HISTÓRICO)',
+        origemCor: isAntiga ? (item.atendidoStatus === 'SIM' ? '#10B981' : '#F59E0B') : '#8B5CF6',
+        identificador: item.numero || 'S/N',
+        empreendedor: item.empreendedor || 'Não informado',
+        propriedade: item.propriedade || '',
+        data: item.dataEmissao || item.anoPlanilha || '',
+        prazo: item.prazoDias ? String(item.prazoDias) : (item.atendidoStatus === 'SIM' ? 'Atendida' : 'Pendente'),
+        municipio: item.municipio || '',
+        situacaoResposta: item.resposta || item.obs || (item.atendidoStatus === 'SIM' ? 'Notificação atendida pelo empreendedor.' : 'Notificação em aberto aguardando atendimento.'),
         lat: item.lat,
-        lng: item.lng,
-        statusBadge: { label: statusLabel, bg: statusBg, text: statusText },
-        alertaVencido: item.status === 'atrasada' && item.diasAtraso ? `Vencido há ${item.diasAtraso} dia(s)` : undefined,
-        resposta: item.resposta || item.obs
+        lng: item.lng
       });
 
-      marker.bindPopup(popup);
+      marker.bindPopup(popup, popupOptions);
+      marker.on('mouseover', () => {
+        marker.setZIndexOffset(1000);
+        marker.openPopup();
+      });
+      marker.on('mouseout', () => {
+        marker.setZIndexOffset(0);
+      });
+      marker.on('click', () => {
+        marker.setZIndexOffset(1000);
+        marker.openPopup();
+      });
       notificationsLayerRef.current?.addLayer(marker);
     });
 
@@ -858,25 +910,32 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           icon: createCustomIcon('snisb')
         });
 
-        marker.bindTooltip(`<strong>#${item.codigoSnisb}</strong> - ${item.nome} (SNISB)`, {
-          direction: 'top',
-          offset: [0, -6]
-        });
-
         const popup = createCleanPopup({
-          origem: 'Barragem SNISB (ANA)',
+          origem: 'BARRAGEM SNISB',
           origemCor: '#1D4ED8',
           identificador: item.codigoSnisb,
-          nomeOuPropriedade: item.nome,
           empreendedor: item.empreendedor,
+          propriedade: item.nome,
+          data: item.codEntidadeFiscal || 'SNISB',
+          prazo: item.dpa ? `DPA: ${item.dpa}` : 'Não Classificado',
           municipio: item.municipio,
+          situacaoResposta: item.usoPrincipal ? `Uso Principal: ${item.usoPrincipal}` : 'Cadastrada no Sistema Nacional de Informações sobre Segurança de Barragens (SNISB/ANA)',
           lat: item.lat,
-          lng: item.lng,
-          statusBadge: { label: `DPA: ${item.dpa}`, bg: '#EFF6FF', text: '#1D4ED8' },
-          resposta: item.usoPrincipal ? `Uso Principal: ${item.usoPrincipal}` : undefined
+          lng: item.lng
         });
 
-        marker.bindPopup(popup);
+        marker.bindPopup(popup, popupOptions);
+        marker.on('mouseover', () => {
+          marker.setZIndexOffset(1000);
+          marker.openPopup();
+        });
+        marker.on('mouseout', () => {
+          marker.setZIndexOffset(0);
+        });
+        marker.on('click', () => {
+          marker.setZIndexOffset(1000);
+          marker.openPopup();
+        });
         snisbLayerRef.current?.addLayer(marker);
       });
     }
@@ -892,25 +951,32 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           icon: createCustomIcon('aneel')
         });
 
-        marker.bindTooltip(`<strong>#${item.codigoSnisb}</strong> - ${item.nome} (ANEEL)`, {
-          direction: 'top',
-          offset: [0, -6]
-        });
-
         const popup = createCleanPopup({
-          origem: 'Barragem ANEEL',
+          origem: 'BARRAGEM ANEEL',
           origemCor: '#059669',
           identificador: item.codigoSnisb,
-          nomeOuPropriedade: item.nome,
           empreendedor: item.empreendedor,
+          propriedade: item.nome,
+          data: 'ANEEL',
+          prazo: item.dpa ? `DPA: ${item.dpa}` : 'UHE / PCH / CGH',
           municipio: item.municipio,
+          situacaoResposta: item.usoPrincipal ? `Uso Energético: ${item.usoPrincipal}` : 'Barragem regulada pela Agência Nacional de Energia Elétrica (ANEEL)',
           lat: item.lat,
-          lng: item.lng,
-          statusBadge: item.dpa ? { label: `DPA: ${item.dpa}`, bg: '#ECFDF5', text: '#065F46' } : undefined,
-          resposta: item.usoPrincipal ? `Uso: ${item.usoPrincipal}` : undefined
+          lng: item.lng
         });
 
-        marker.bindPopup(popup);
+        marker.bindPopup(popup, popupOptions);
+        marker.on('mouseover', () => {
+          marker.setZIndexOffset(1000);
+          marker.openPopup();
+        });
+        marker.on('mouseout', () => {
+          marker.setZIndexOffset(0);
+        });
+        marker.on('click', () => {
+          marker.setZIndexOffset(1000);
+          marker.openPopup();
+        });
         aneelLayerRef.current?.addLayer(marker);
       });
     }
@@ -933,26 +999,33 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           icon: createCustomIcon('fiscalizada')
         });
 
-        marker.bindTooltip(`Fiscalizada CSB: ${d.damName || d.propertyOrBusinessName || 'Vistoria'}`, {
-          direction: 'top',
-          offset: [0, -8]
-        });
-
         const popup = createCleanPopup({
-          origem: 'Fiscalizada no Sistema',
+          origem: 'FISCALIZADA CSB',
           origemCor: '#06B6D4',
           identificador: g.recordNumber || insp.id.slice(-6),
-          nomeOuPropriedade: d.damName || d.propertyOrBusinessName || 'Sem denominação',
-          empreendedor: d.propertyOrBusinessName || 'Proprietário',
+          empreendedor: d.propertyOrBusinessName || 'Empreendedor Notificado',
+          propriedade: d.damName || 'Estrutura Fiscalizada',
+          data: g.inspectionDate || insp.createdAt.split('T')[0],
+          prazo: insp.conclusions?.requiresNotification ? 'Notificada' : 'Regular',
           municipio: mun,
+          situacaoResposta: g.weather ? `Condições climáticas: ${g.weather} • Relatório de campo emitido pela CSB/SEMA-MT` : 'Inspeção técnica cadastrada no sistema Fiscaliza CSB',
           lat,
           lng,
-          statusBadge: { label: 'Vistoria CSB', bg: '#CFFAFE', text: '#0E7490' },
-          resposta: g.inspectionDate ? `Data: ${g.inspectionDate}` : undefined,
           actionId: insp.id
         });
 
-        marker.bindPopup(popup);
+        marker.bindPopup(popup, popupOptions);
+        marker.on('mouseover', () => {
+          marker.setZIndexOffset(1000);
+          marker.openPopup();
+        });
+        marker.on('mouseout', () => {
+          marker.setZIndexOffset(0);
+        });
+        marker.on('click', () => {
+          marker.setZIndexOffset(1000);
+          marker.openPopup();
+        });
         fiscalizadasLayerRef.current?.addLayer(marker);
       });
     }
@@ -1019,6 +1092,18 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         DEC: ${lat.toFixed(5)}, ${lng.toFixed(5)}
       </div>
     `);
+
+    marker.on('mouseover', () => {
+      marker.setZIndexOffset(1000);
+      marker.openPopup();
+    });
+    marker.on('mouseout', () => {
+      marker.setZIndexOffset(0);
+    });
+    marker.on('click', () => {
+      marker.setZIndexOffset(1000);
+      marker.openPopup();
+    });
 
     marker.addTo(map);
     marker.openPopup();
@@ -1340,9 +1425,16 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         <div className="w-full relative rounded-2xl overflow-hidden border border-slate-200 min-h-[560px] lg:min-h-[640px]">
           <div ref={mapContainerRef} className="w-full h-full min-h-[560px] lg:min-h-[640px] z-10" />
 
+            {/* Barra de Coordenadas Flutuante no Topo (Fiel à Imagem de Monitoramento) */}
+            {liveCoords && (
+              <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-20 bg-slate-900/90 backdrop-blur-md text-white text-xs font-mono font-bold px-4 py-1.5 rounded-full shadow-xl border border-slate-700/80 pointer-events-none tracking-wide select-none">
+                {liveCoords}
+              </div>
+            )}
+
             {/* Aviso Toast Flutuante de Evento Realtime no Topo do Mapa */}
             {realtimeToast && (
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 animate-bounce-short bg-slate-900/95 backdrop-blur-md text-white px-4 py-2 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center gap-2.5 text-xs font-semibold">
+              <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 animate-bounce-short bg-slate-900/95 backdrop-blur-md text-white px-4 py-2 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center gap-2.5 text-xs font-semibold">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -1522,13 +1614,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 </label>
               </div>
             </div>
-
-            {/* Barra de Coordenadas Flutuante no Rodapé */}
-            {liveCoords && (
-              <div className="absolute bottom-3 right-3 z-20 bg-slate-900/80 backdrop-blur-xs text-white text-[11px] font-mono px-3 py-1 rounded-full shadow-md pointer-events-none">
-                {liveCoords}
-              </div>
-            )}
           </div>
         </div>
       </div>
