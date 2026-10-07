@@ -20,6 +20,7 @@ import { InspectionData } from './types/inspection';
 import { 
   WifiOff 
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { ThemeProvider } from './context/ThemeContext';
 import { 
   createEmptyInspection, 
@@ -32,6 +33,22 @@ import {
   exportInspectionToJson
 } from './services/storage';
 import { formatGmsString } from './utils/geoCoordinates';
+
+// Variantes para animação de deslize (slide) suave entre as etapas (0 a 6) para tablets e campo
+const stepSlideVariants = {
+  enter: (direction: number) => ({
+    x: direction > 0 ? 40 : -40,
+    opacity: 0,
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+  },
+  exit: (direction: number) => ({
+    x: direction > 0 ? -40 : 40,
+    opacity: 0,
+  }),
+};
 
 export default function App() {
   return (
@@ -51,7 +68,27 @@ function AppContent() {
   // activeStep 4 = 4. Conclusões & Notificação
   // activeStep 5 = 5. Minutas Oficiais
   // activeStep 6 = Banco de Dados
-  const [activeStep, setActiveStep] = useState<number>(0);
+  const [activeStep, setActiveStepState] = useState<number>(0);
+  const [slideDirection, setSlideDirection] = useState<number>(1);
+  const prevStepRef = useRef<number>(0);
+
+  // Navegação entre etapas com cálculo de direção para animação suave de deslize (slide)
+  const setActiveStep = (stepOrUpdater: number | ((prev: number) => number)) => {
+    setActiveStepState(current => {
+      const next = typeof stepOrUpdater === 'function' ? stepOrUpdater(current) : stepOrUpdater;
+      if (next !== current) {
+        setSlideDirection(next > current ? 1 : -1);
+        prevStepRef.current = current;
+        try {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch {
+          // fallback
+        }
+      }
+      return next;
+    });
+  };
+
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [photoFilterComponent, setPhotoFilterComponent] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -347,89 +384,105 @@ function AppContent() {
         onOpenSecurityReview={() => setShowSecurityModal(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6">
-        {/* PASSO 0: PAINEL DE CONTROLE (PÁGINA INICIAL) */}
-        {activeStep === 0 && (
-          <DashboardStep
-            currentInspection={currentInspection}
-            allInspections={inspections}
-            onGoToSheet={() => setActiveStep(1)}
-            onGoToDatabase={() => setActiveStep(6)}
-            onGoToDocuments={() => setActiveStep(5)}
-            onOpenSecurityModal={() => setShowSecurityModal(true)}
-            onNewInspection={handleNewInspection}
-            onLoadSample={handleLoadSample}
-            onSelectAndEdit={handleSelectAndEdit}
-            onDeleteInspection={handleDeleteInspection}
-            isOnline={isOnline}
-            lastSavedAt={lastSavedAt}
-          />
-        )}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 overflow-x-hidden">
+        <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
+          <motion.div
+            key={activeStep}
+            custom={slideDirection}
+            variants={stepSlideVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{
+              duration: 0.28,
+              ease: [0.22, 1, 0.36, 1]
+            }}
+            className="w-full focus:outline-hidden"
+          >
+            {/* PASSO 0: PAINEL DE CONTROLE (PÁGINA INICIAL) */}
+            {activeStep === 0 && (
+              <DashboardStep
+                currentInspection={currentInspection}
+                allInspections={inspections}
+                onGoToSheet={() => setActiveStep(1)}
+                onGoToDatabase={() => setActiveStep(6)}
+                onGoToDocuments={() => setActiveStep(5)}
+                onOpenSecurityModal={() => setShowSecurityModal(true)}
+                onNewInspection={handleNewInspection}
+                onLoadSample={handleLoadSample}
+                onSelectAndEdit={handleSelectAndEdit}
+                onDeleteInspection={handleDeleteInspection}
+                isOnline={isOnline}
+                lastSavedAt={lastSavedAt}
+              />
+            )}
 
-        {/* PASSO 1: FICHA COMPLETA SEMA-MT */}
-        {activeStep === 1 && (
-          <OfficialInspectionSheetStep
-            data={currentInspection}
-            onChange={setCurrentInspection}
-            onNext={() => setActiveStep(2)}
-            onPrev={() => setActiveStep(0)}
-            onSave={handleSaveInspection}
-          />
-        )}
+            {/* PASSO 1: FICHA COMPLETA SEMA-MT */}
+            {activeStep === 1 && (
+              <OfficialInspectionSheetStep
+                data={currentInspection}
+                onChange={setCurrentInspection}
+                onNext={() => setActiveStep(2)}
+                onPrev={() => setActiveStep(0)}
+                onSave={handleSaveInspection}
+              />
+            )}
 
-        {/* PASSO 2: PAINEL POR COMPONENTES */}
-        {activeStep === 2 && (
-          <ComponentsInspectionStep
-            data={currentInspection}
-            onChange={setCurrentInspection}
-            onNext={() => setActiveStep(3)}
-            onPrev={() => setActiveStep(1)}
-            onGoToPhotosForComponent={handleGoToPhotosForComponent}
-          />
-        )}
+            {/* PASSO 2: PAINEL POR COMPONENTES */}
+            {activeStep === 2 && (
+              <ComponentsInspectionStep
+                data={currentInspection}
+                onChange={setCurrentInspection}
+                onNext={() => setActiveStep(3)}
+                onPrev={() => setActiveStep(1)}
+                onGoToPhotosForComponent={handleGoToPhotosForComponent}
+              />
+            )}
 
-        {/* PASSO 3: FOTOS DE CAMPO */}
-        {activeStep === 3 && (
-          <PhotoManagerStep
-            data={currentInspection}
-            onChange={setCurrentInspection}
-            onNext={() => setActiveStep(4)}
-            onPrev={() => setActiveStep(2)}
-            initialComponentFilter={photoFilterComponent}
-          />
-        )}
+            {/* PASSO 3: FOTOS DE CAMPO */}
+            {activeStep === 3 && (
+              <PhotoManagerStep
+                data={currentInspection}
+                onChange={setCurrentInspection}
+                onNext={() => setActiveStep(4)}
+                onPrev={() => setActiveStep(2)}
+                initialComponentFilter={photoFilterComponent}
+              />
+            )}
 
-        {/* PASSO 4: CONCLUSÕES & NOTIFICAÇÃO */}
-        {activeStep === 4 && (
-          <ConclusionsStep
-            data={currentInspection}
-            onChange={setCurrentInspection}
-            onNext={() => setActiveStep(5)}
-            onPrev={() => setActiveStep(3)}
-          />
-        )}
+            {/* PASSO 4: CONCLUSÕES & NOTIFICAÇÃO */}
+            {activeStep === 4 && (
+              <ConclusionsStep
+                data={currentInspection}
+                onChange={setCurrentInspection}
+                onNext={() => setActiveStep(5)}
+                onPrev={() => setActiveStep(3)}
+              />
+            )}
 
-        {/* PASSO 5: MINUTAS OFICIAIS */}
-        {activeStep === 5 && (
-          <DocumentReviewStep
-            data={currentInspection}
-            onChange={setCurrentInspection}
-            onPrev={() => setActiveStep(4)}
-          />
-        )}
+            {/* PASSO 5: MINUTAS OFICIAIS */}
+            {activeStep === 5 && (
+              <DocumentReviewStep
+                data={currentInspection}
+                onChange={setCurrentInspection}
+                onPrev={() => setActiveStep(4)}
+              />
+            )}
 
-        {/* PASSO 6: MÓDULO DE BANCO DE DADOS */}
-        {activeStep === 6 && (
-          <DatabaseModuleStep
-            inspections={inspections}
-            currentInspectionId={currentInspection.id}
-            onSelectAndEdit={handleSelectAndEdit}
-            onDeleteInspection={handleDeleteInspection}
-            onNewInspection={handleNewInspection}
-            onLoadSample={handleLoadSample}
-            onGoToSheet={() => setActiveStep(1)}
-          />
-        )}
+            {/* PASSO 6: MÓDULO DE BANCO DE DADOS */}
+            {activeStep === 6 && (
+              <DatabaseModuleStep
+                inspections={inspections}
+                currentInspectionId={currentInspection.id}
+                onSelectAndEdit={handleSelectAndEdit}
+                onDeleteInspection={handleDeleteInspection}
+                onNewInspection={handleNewInspection}
+                onLoadSample={handleLoadSample}
+                onGoToSheet={() => setActiveStep(1)}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Rodapé Oficial Fiscaliza MT de Alta Disponibilidade */}
