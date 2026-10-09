@@ -91,7 +91,7 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
       });
     } catch (err) {
       console.error('Erro ao ler foto:', err);
-      alert('Não foi possível ler o arquivo da imagem.');
+      try { alert('Não foi possível ler o arquivo da imagem.'); } catch {}
     } finally {
       setIsProcessing(false);
       if (cameraInputRef.current) cameraInputRef.current.value = '';
@@ -130,14 +130,20 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
       setPendingModalPhoto(null);
     } catch (err) {
       console.error('Erro ao salvar foto:', err);
-      alert('Erro ao salvar a fotografia no banco local.');
+      try { alert('Erro ao salvar a fotografia no banco local.'); } catch {}
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleDeletePhoto = async (photoId: string) => {
-    if (confirm('Deseja excluir esta foto?')) {
+    let proceed = true;
+    try {
+      proceed = window.confirm('Deseja excluir esta foto?');
+    } catch {
+      proceed = true;
+    }
+    if (proceed) {
       await deletePhotoBlob(photoId);
       const remaining = allPhotos.filter(p => p.id !== photoId);
       onUpdatePhotos(remaining);

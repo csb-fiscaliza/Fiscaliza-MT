@@ -123,7 +123,7 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
       });
     } catch (err) {
       console.error('Erro ao ler fotografia:', err);
-      alert('Não foi possível processar a imagem selecionada.');
+      try { alert('Não foi possível processar a imagem selecionada.'); } catch {}
     } finally {
       setIsProcessing(false);
       setGpsLoading(false);
@@ -162,14 +162,20 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
       setPendingModalPhoto(null);
     } catch (err) {
       console.error('Erro ao salvar foto:', err);
-      alert('Erro ao salvar a fotografia. Tente novamente.');
+      try { alert('Erro ao salvar a fotografia. Tente novamente.'); } catch {}
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleDeletePhoto = async (photoId: string) => {
-    if (confirm('Deseja realmente remover esta foto deste componente?')) {
+    let proceed = true;
+    try {
+      proceed = window.confirm('Deseja realmente remover esta foto deste componente?');
+    } catch {
+      proceed = true;
+    }
+    if (proceed) {
       await deletePhotoBlob(photoId);
       const remaining = allPhotos.filter(p => p.id !== photoId);
       onUpdatePhotos(remaining);

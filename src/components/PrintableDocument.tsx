@@ -1,5 +1,7 @@
 import React from 'react';
 import { InspectionData } from '../types/inspection';
+import { createAuthenticitySeal, OFFICIAL_ANTI_PLAGIARISM_NOTICE } from '../utils/securityCrypto';
+import { ShieldCheck, Lock, CheckCircle2 } from 'lucide-react';
 
 interface Props {
   docType: 'auto' | 'relatorio' | 'notificacao';
@@ -8,6 +10,15 @@ interface Props {
 }
 
 export const PrintableDocument: React.FC<Props> = ({ docType, content, data }) => {
+  const seal = createAuthenticitySeal(
+    data, 
+    docType === 'auto' 
+      ? 'AUTO DE INSPEÇÃO' 
+      : docType === 'relatorio' 
+      ? 'RELATÓRIO TÉCNICO' 
+      : 'NOTIFICAÇÃO'
+  );
+
   return (
     <div className="printable-document bg-white text-black p-8 sm:p-12 max-w-4xl mx-auto shadow-sm print:shadow-none print:p-0 print:m-0 font-serif leading-relaxed text-sm">
       {/* Official SEMA-MT Header */}
@@ -74,8 +85,32 @@ export const PrintableDocument: React.FC<Props> = ({ docType, content, data }) =
         </div>
       )}
 
+      {/* Selo Digital de Autenticidade e Anti-Plágio */}
+      <div className="mt-10 p-3.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 text-[10px] font-sans">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-2">
+          <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-slate-900">
+            <ShieldCheck className="w-4 h-4 text-emerald-700" />
+            <span>Selo Digital de Autenticidade, Rastreabilidade e Anti-Plágio (CSB/SEMA-MT)</span>
+          </div>
+          <span className="font-mono text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 border border-emerald-200 rounded">
+            {seal.verificationCode}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-600 font-mono text-[9px]">
+          <div>
+            <strong>HASH SHA-256:</strong> <span className="break-all">{seal.sha256Hash}</span>
+          </div>
+          <div>
+            <strong>DATA/HORA EMISSÃO:</strong> {seal.timestampFormatted}
+          </div>
+        </div>
+        <p className="mt-2 text-[8px] text-slate-500 font-sans italic border-t border-slate-200 pt-1">
+          {OFFICIAL_ANTI_PLAGIARISM_NOTICE}
+        </p>
+      </div>
+
       {/* Official Footer */}
-      <div className="mt-12 pt-4 border-t border-slate-200 text-center text-[10px] text-slate-500 font-sans">
+      <div className="mt-6 pt-3 border-t border-slate-200 text-center text-[10px] text-slate-500 font-sans">
         <p>Fiscaliza – Etapa de Campo CSB/SEMA-MT • Sistema de Registro de Vistorias em Barragens de Usos Múltiplos</p>
         <p className="mt-0.5">Centro Político Administrativo – Rua C, Bloco F – Cuiabá/MT – CEP: 78049-913</p>
       </div>

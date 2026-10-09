@@ -274,14 +274,14 @@ export const DashboardStep: React.FC<Props> = ({
             </p>
 
             {/* Widget de Vistoria Ativa */}
-            <div className="rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/60 dark:border-slate-800 p-4 space-y-2.5">
+            <div className="rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/60 dark:border-slate-800 p-4 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                   <span>Vistoria Carregada:</span>
                 </span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                  {checklistPoints}% preenchida
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {d.damName || d.propertyOrBusinessName ? 'Ficha em Aberto' : 'Nova Ficha'}
                 </span>
               </div>
 
@@ -292,13 +292,6 @@ export const DashboardStep: React.FC<Props> = ({
                 <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
                   {d.municipality || 'Mato Grosso'}/MT {g.inspectionDate ? `· ${g.inspectionDate}` : ''}
                 </p>
-              </div>
-
-              <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-                <div 
-                  className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${checklistPoints}%` }}
-                />
               </div>
             </div>
           </div>

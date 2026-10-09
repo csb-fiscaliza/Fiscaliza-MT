@@ -10,6 +10,7 @@
 import { InspectionData, InspectionPhoto } from '../types/inspection';
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { formatGmsString } from './geoCoordinates';
+import { createAuthenticitySeal, AuthenticitySealData } from './securityCrypto';
 
 export interface AnomaliaValidadaReportItem {
   numero: number;
@@ -106,6 +107,7 @@ export interface RelatorioInspecaoGeneratedStructure {
 
   todasFotosComFigura: (InspectionPhoto & { figuraNumero: number })[];
 
+  autenticidadeSeal?: AuthenticitySealData;
   textoCompletoFormatado: string;
 }
 
@@ -467,6 +469,8 @@ Foi realizada uma vistoria técnica, dia ${dataVistoriaFormatada}, ${formatClima
     equipeTecnica
   };
 
+  const seal = createAuthenticitySeal(data, 'RELATÓRIO TÉCNICO DE INSPEÇÃO DE BARRAGEM');
+
   // 10. Geração do Texto Completo Formatado (Pronto para Editor e Exportação TXT)
   const introConstrucao = `Governo do Estado de Mato Grosso
 SEMA – Secretaria de Estado de Meio Ambiente
@@ -518,7 +522,9 @@ ${conclusaoTexto}
 Cuiabá - MT, ${dataEmissaoFormatada}.
 
 EQUIPE TÉCNICA DE FISCALIZAÇÃO (CSB/SEMA-MT):
-${equipeTecnica.map(e => `___________________________________________________\n${e.nome}\n${e.cargo}`).join('\n\n')}`;
+${equipeTecnica.map(e => `___________________________________________________\n${e.nome}\n${e.cargo}`).join('\n\n')}
+
+${seal.blocoAssinaturaFormatado}`;
 
   return {
     numeroRelatorio,
@@ -548,6 +554,7 @@ ${equipeTecnica.map(e => `___________________________________________________\n$
     conclusaoTexto,
     equipeTecnica,
     todasFotosComFigura,
+    autenticidadeSeal: seal,
     textoCompletoFormatado: introConstrucao
   };
 }

@@ -403,6 +403,17 @@ export interface InspectionData {
   };
 
   historicoAlteracoes?: HistoricoAlteracaoEntity[];
+  digitalSecurity?: {
+    verificationCode: string;
+    sha256Hash: string;
+    sha256Short: string;
+    timestampUtc: string;
+    timestampFormatted: string;
+    emissor: string;
+    orgao: string;
+    rastreabilidadeId: string;
+    avisoLegal: string;
+  };
 }
 
 export interface FotoVistoriaEntity {

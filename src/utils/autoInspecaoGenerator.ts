@@ -6,11 +6,13 @@
 import { InspectionData, EvaluationResponseType } from '../types/inspection';
 import { formatGmsString } from './geoCoordinates';
 import { DEFAULT_LEGAL_REFERENCES, LegalReferenceConfig } from '../config/legalReferences';
+import { createAuthenticitySeal, AuthenticitySealData } from './securityCrypto';
 
 export interface AutoInspecaoGeneratedStructure {
   numeroAuto: string;
   dataEmissao: string;
   versaoSistema: string;
+  autenticidadeSeal?: AuthenticitySealData;
   empreendedor: {
     nomeRazaoSocial: string;
     cpfCnpj: string;
@@ -228,6 +230,9 @@ ${data.componentsData['reservatorio_borda']?.notes ? `Observações: ${data.comp
 
 ${c.immediateSafetyMeasures ? `Medidas de segurança imediatas orientadas em campo:\n${c.immediateSafetyMeasures}\n\n` : ''}Em razão das constatações apontadas neste Auto de Inspeção, o empreendedor deverá providenciar o monitoramento contínuo das condições da barragem e realizar as correções necessárias sob a responsabilidade de profissional legalmente habilitado, de forma a garantir a segurança da estrutura e a preservação de vidas e recursos hídricos.`;
 
+  // Selo digital de autenticidade e proteção anti-plágio
+  const seal = createAuthenticitySeal(data, 'AUTO DE INSPEÇÃO DE CAMPO - SIGA AUTUAÇÃO');
+
   // Texto consolidado oficial
   const textoCompletoFormatado = `================================================================================
 Governo do Estado de Mato Grosso
@@ -331,12 +336,15 @@ LOCAL E DATA: ${d.municipality || 'Cuiabá'} - MT, ${dataFormatada}
 ASSINATURA: __________________________________________________
 [ ] Recusou-se a assinar
 ================================================================================
-Página 1 de 1 • SIGA AUTUAÇÃO • SEMA-MT`;
+Página 1 de 1 • SIGA AUTUAÇÃO • SEMA-MT
+
+${seal.blocoAssinaturaFormatado}`;
 
   return {
     numeroAuto: g.recordNumber || 'S/N',
     dataEmissao: dataFormatada,
     versaoSistema: '1.3.13.10',
+    autenticidadeSeal: seal,
     empreendedor: {
       nomeRazaoSocial: d.propertyOrBusinessName || 'Não informada',
       cpfCnpj: g.accompaniedBy.document || 'Não informado',

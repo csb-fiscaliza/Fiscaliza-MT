@@ -1,6 +1,7 @@
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { InspectionData } from '../types/inspection';
 import { formatGmsString } from './geoCoordinates';
+import { createAuthenticitySeal } from './securityCrypto';
 
 const DISCLAIMER_NOTICE = 
 `[MINUTA PRELIMINAR DE DOCUMENTO DE CAMPO – COORDENADORIA DE SEGURANÇA DE BARRAGENS / SEMA-MT]
@@ -88,7 +89,9 @@ ___________________________________________________
 Assinatura do Servidor Fiscal da CSB/SEMA-MT
 
 ___________________________________________________
-Assinatura do Acompanhante / Notificado no Local`;
+Assinatura do Acompanhante / Notificado no Local
+
+${createAuthenticitySeal(data, 'AUTO DE INSPEÇÃO TÉCNICA DE CAMPO').blocoAssinaturaFormatado}`;
 }
 
 import { generateRelatorioInspecaoData } from './relatorioInspecaoGenerator';

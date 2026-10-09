@@ -16,6 +16,7 @@ import { DocumentReviewStep } from './components/DocumentReviewStep';
 import { DatabaseModuleStep } from './components/DatabaseModuleStep';
 import { OperationalReviewModal } from './components/OperationalReviewModal';
 import { OfficialFooter } from './components/OfficialFooter';
+import { InspectionProgressBar } from './components/InspectionProgressBar';
 import { InspectionData } from './types/inspection';
 import { 
   WifiOff 
@@ -33,6 +34,11 @@ import {
   exportInspectionToJson
 } from './services/storage';
 import { formatGmsString } from './utils/geoCoordinates';
+import { 
+  validateAndSanitizeImportedInspection, 
+  decryptTextAesGcm,
+  createAuthenticitySeal
+} from './utils/securityCrypto';
 
 // Variantes para animação de deslize (slide) suave entre as etapas (0 a 6) para tablets e campo
 const stepSlideVariants = {
@@ -191,7 +197,13 @@ function AppContent() {
   };
 
   const handleNewInspection = async () => {
-    if (confirm('Deseja iniciar uma nova vistoria em branco? Os dados da vistoria atual foram salvos automaticamente.')) {
+    let proceed = true;
+    try {
+      proceed = window.confirm('Deseja iniciar uma nova vistoria em branco? Os dados da vistoria atual foram salvos automaticamente.');
+    } catch {
+      proceed = true;
+    }
+    if (proceed) {
       const fresh = createEmptyInspection();
       saveInspection(fresh);
       setCurrentInspection(fresh);
@@ -280,7 +292,13 @@ function AppContent() {
   };
 
   const handleLoadSample = () => {
-    if (confirm('Carregar exemplo didático de teste de campo? (Fazenda Alvorada - Poconé/MT)')) {
+    let proceed = true;
+    try {
+      proceed = window.confirm('Carregar exemplo didático de teste de campo? (Fazenda Alvorada - Poconé/MT)');
+    } catch {
+      proceed = true;
+    }
+    if (proceed) {
       const sample = createSampleInspection();
       saveInspection(sample);
       setCurrentInspection(sample);
@@ -328,20 +346,36 @@ function AppContent() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = event => {
+    reader.onload = async event => {
       try {
         const content = event.target?.result as string;
-        const parsed = JSON.parse(content);
-        if (parsed && parsed.damIdentification && parsed.generalInfo) {
-          saveInspection(parsed);
+        let parsed = JSON.parse(content);
+
+        // Suporte a envelope criptografado AES-GCM
+        if (parsed && parsed.protocolo === 'SEMA-MT/CSB-ENCRYPTED-V1' && parsed.conteudoCriptografado) {
+          try {
+            const decryptedStr = await decryptTextAesGcm(parsed.conteudoCriptografado);
+            parsed = JSON.parse(decryptedStr);
+          } catch (decErr) {
+            console.error('Falha ao descriptografar arquivo protegido:', decErr);
+            alert('Falha na autenticação/chave do arquivo criptografado.');
+            return;
+          }
+        }
+
+        // Sanitização profunda anti-poluição de protótipo e validação de integridade
+        const validated = validateAndSanitizeImportedInspection(parsed);
+        if (validated && validated.damIdentification && validated.generalInfo) {
+          saveInspection(validated);
           setInspections(getAllInspections());
-          setCurrentInspection(parsed);
-          alert('Vistoria importada com sucesso!');
+          setCurrentInspection(validated);
+          alert('Vistoria importada, autenticada e protegida com sucesso!');
         } else {
-          alert('Arquivo JSON não possui a estrutura padrão de vistoria da CSB/SEMA-MT.');
+          alert('Arquivo JSON não possui a estrutura padrão de vistoria da CSB/SEMA-MT ou foi rejeitado na verificação de integridade.');
         }
       } catch (err) {
-        alert('Erro ao ler arquivo JSON. Verifique o formato.');
+        console.error('Erro ao processar importação:', err);
+        alert('Erro ao ler arquivo JSON. Verifique o formato ou integridade.');
       }
     };
     reader.readAsText(file);
@@ -383,6 +417,15 @@ function AppContent() {
         isOnline={isOnline}
         onOpenSecurityReview={() => setShowSecurityModal(true)}
       />
+
+      {/* Barra de Progresso Visual de Preenchimento da Inspeção de Campo (visível apenas na Nova Ficha) */}
+      {activeStep >= 1 && activeStep <= 5 && (
+        <InspectionProgressBar
+          currentInspection={currentInspection}
+          activeStep={activeStep}
+          onNavigateToStep={setActiveStep}
+        />
+      )}
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 overflow-x-hidden">
         <AnimatePresence mode="wait" custom={slideDirection} initial={false}>

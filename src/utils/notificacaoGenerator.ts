@@ -6,12 +6,14 @@
 import { InspectionData, NotificationDetailsState, NotificationLegalReference } from '../types/inspection';
 import { NOTIFICATION_TEMPLATES } from '../config/notificationTemplates';
 import { formatGmsString } from './geoCoordinates';
+import { createAuthenticitySeal, AuthenticitySealData } from './securityCrypto';
 
 export interface NotificacaoGeneratedStructure {
   numeroNotificacao: string;
   dataEmissaoFormatada: string;
   versaoSistema: string;
   sistemaEmissor: string;
+  autenticidadeSeal?: AuthenticitySealData;
 
   destinatario: {
     nomeRazaoSocial: string;
@@ -271,13 +273,18 @@ CPF / RG: ${n.responsavelRecebimentoDocumento || '___________________________'}
 CARGO: ${n.responsavelRecebimentoCargo || '___________________________'}
 LOCAL E DATA: ${n.responsavelRecebimentoLocalData || '____/____/2026'}
 ASSINATURA: _________________________________________________
-[${n.modoConfirmacaoRecebimento === 'recusou_assinar' ? 'X' : ' '}] Recusou-se a assinar`;
+[${n.modoConfirmacaoRecebimento === 'recusou_assinar' ? 'X' : ' '}] Recusou-se a assinar
+
+${createAuthenticitySeal(data, 'NOTIFICAÇÃO TÉCNICA CSB/SEMA-MT').blocoAssinaturaFormatado}`;
+
+  const seal = createAuthenticitySeal(data, 'NOTIFICAÇÃO TÉCNICA CSB/SEMA-MT');
 
   return {
     numeroNotificacao,
     dataEmissaoFormatada,
     versaoSistema: '1.3.13.10',
     sistemaEmissor: 'SIGA AUTUAÇÃO',
+    autenticidadeSeal: seal,
     destinatario: {
       nomeRazaoSocial: destNome || '',
       cpfCnpj: destCpfCnpj || '',

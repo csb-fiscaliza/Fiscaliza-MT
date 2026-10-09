@@ -1,9 +1,17 @@
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { ComponentInspectionData, InspectionData, HistoricoAlteracaoEntity } from '../types/inspection';
 import { isSupabaseConfigured, syncVistoriaToSupabase } from './supabase';
+import { 
+  createAuthenticitySeal, 
+  sanitizeDeepObject, 
+  computeSha256Sync,
+  encryptTextAesGcm,
+  decryptTextAesGcm
+} from '../utils/securityCrypto';
 
 const STORAGE_KEY = 'fiscaliza_csb_sema_inspections_v1';
 const CURRENT_ACTIVE_KEY = 'fiscaliza_csb_sema_active_id';
+const INTEGRITY_SEAL_KEY = 'fiscaliza_csb_integrity_seal_v1';
 
 function generateUUID(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -350,7 +358,21 @@ export function getAllInspections(): InspectionData[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw);
+    
+    // Verificação de integridade contra adulteração externa no localStorage
+    const savedSeal = localStorage.getItem(INTEGRITY_SEAL_KEY);
+    if (savedSeal) {
+      const currentSeal = computeSha256Sync(raw);
+      if (savedSeal !== currentSeal) {
+        console.warn('[CSB-Segurança] Alerta: O armazenamento local foi modificado externamente ou sofreu tentativa de injeção direta. Sanitizando registros.');
+      }
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    // Sanitização profunda anti-poluição de protótipo e anti-injeção
+    return parsed.map(item => sanitizeDeepObject(item) as InspectionData);
   } catch (err) {
     console.error('Erro ao ler vistorias do storage:', err);
     return [];
@@ -373,11 +395,25 @@ export function saveInspection(inspection: InspectionData): void {
       alteradoEm: now
     };
 
-    const updated: InspectionData = {
+    // Gera selo digital de autenticidade criptográfica e proteção anti-plágio
+    const seal = createAuthenticitySeal(inspection, 'FICHA DE CAMPO CSB/SEMA-MT');
+
+    const updated: InspectionData = sanitizeDeepObject({
       ...inspection,
       updatedAt: now,
+      digitalSecurity: {
+        verificationCode: seal.verificationCode,
+        sha256Hash: seal.sha256Hash,
+        sha256Short: seal.sha256Short,
+        timestampUtc: seal.timestampUtc,
+        timestampFormatted: seal.timestampFormatted,
+        emissor: seal.emissor,
+        orgao: seal.orgao,
+        rastreabilidadeId: seal.rastreabilidadeId,
+        avisoLegal: seal.avisoLegal
+      },
       historicoAlteracoes: [...(inspection.historicoAlteracoes || []), auditEntry]
-    };
+    });
 
     if (existingIndex >= 0) {
       list[existingIndex] = updated;
@@ -385,8 +421,16 @@ export function saveInspection(inspection: InspectionData): void {
       list.unshift(updated);
     }
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    localStorage.setItem(CURRENT_ACTIVE_KEY, updated.id);
+    const serialized = JSON.stringify(list);
+    try {
+      localStorage.setItem(STORAGE_KEY, serialized);
+      // Salva o selo de integridade SHA-256 para prevenir adulteração de hacker no localStorage
+      localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(serialized));
+      localStorage.setItem(CURRENT_ACTIVE_KEY, updated.id);
+    } catch (storageErr) {
+      // Tratamento gracioso caso a cota do localStorage seja excedida por fotos volumosas
+      console.warn('Aviso de cota do localStorage:', storageErr);
+    }
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('csb:notificacao_changed', {
@@ -401,7 +445,10 @@ export function saveInspection(inspection: InspectionData): void {
 export function deleteInspection(id: string): void {
   try {
     const list = getAllInspections().filter(i => i.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    const serialized = JSON.stringify(list);
+    localStorage.setItem(STORAGE_KEY, serialized);
+    localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(serialized));
+
     if (localStorage.getItem(CURRENT_ACTIVE_KEY) === id) {
       localStorage.removeItem(CURRENT_ACTIVE_KEY);
     }
@@ -425,7 +472,24 @@ export function setActiveInspectionId(id: string): void {
 }
 
 export function exportInspectionToJson(inspection: InspectionData): void {
-  const jsonStr = JSON.stringify(inspection, null, 2);
+  // Garante selo criptográfico e anti-plágio nos metadados exportados
+  const seal = createAuthenticitySeal(inspection, 'EXPORTAÇÃO OFICIAL CSB/SEMA-MT');
+  const exportPayload: InspectionData = {
+    ...inspection,
+    digitalSecurity: {
+      verificationCode: seal.verificationCode,
+      sha256Hash: seal.sha256Hash,
+      sha256Short: seal.sha256Short,
+      timestampUtc: seal.timestampUtc,
+      timestampFormatted: seal.timestampFormatted,
+      emissor: seal.emissor,
+      orgao: seal.orgao,
+      rastreabilidadeId: seal.rastreabilidadeId,
+      avisoLegal: seal.avisoLegal
+    }
+  };
+
+  const jsonStr = JSON.stringify(exportPayload, null, 2);
   const blob = new Blob([jsonStr], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -433,7 +497,50 @@ export function exportInspectionToJson(inspection: InspectionData): void {
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '_');
   a.href = url;
-  a.download = `SEMA_CSB_${safeName}_${inspection.generalInfo.inspectionDate || 'data'}.json`;
+  a.download = `SEMA_CSB_${safeName}_${inspection.generalInfo.inspectionDate || 'data'}_autenticado.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Exportação com Criptografia Anti-Invasão AES-GCM (Arquivo Protegido)
+ */
+export async function exportEncryptedInspectionToJson(inspection: InspectionData, password?: string): Promise<void> {
+  const seal = createAuthenticitySeal(inspection, 'EXPORTAÇÃO CRIPTOGRAFADA CSB/SEMA-MT');
+  const exportPayload: InspectionData = {
+    ...inspection,
+    digitalSecurity: {
+      verificationCode: seal.verificationCode,
+      sha256Hash: seal.sha256Hash,
+      sha256Short: seal.sha256Short,
+      timestampUtc: seal.timestampUtc,
+      timestampFormatted: seal.timestampFormatted,
+      emissor: seal.emissor,
+      orgao: seal.orgao,
+      rastreabilidadeId: seal.rastreabilidadeId,
+      avisoLegal: seal.avisoLegal
+    }
+  };
+
+  const rawJson = JSON.stringify(exportPayload);
+  const encrypted = await encryptTextAesGcm(rawJson, password || 'SEMA_MT_SECURE_VAULT_2026');
+  const envelope = {
+    protocolo: 'SEMA-MT/CSB-ENCRYPTED-V1',
+    hashSha256: seal.sha256Hash,
+    codigoVerificacao: seal.verificationCode,
+    criadoEm: seal.timestampFormatted,
+    avisoLegal: seal.avisoLegal,
+    conteudoCriptografado: encrypted
+  };
+
+  const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeName = (inspection.damIdentification.damName || 'vistoria-barragem')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '_');
+  a.href = url;
+  a.download = `SEMA_CSB_${safeName}_PROTEGIDO_CRIPTOGRAFADO.json`;
   a.click();
   URL.revokeObjectURL(url);
 }

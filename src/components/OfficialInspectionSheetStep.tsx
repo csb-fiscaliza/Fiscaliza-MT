@@ -57,6 +57,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     sec2: true,
     sec3: true,
     sec4: true,
+    secComponentes: true,
     sec5: false,
     sec6: false,
     sec7: false,
@@ -115,7 +116,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
   const [gpsLoading, setGpsLoading] = useState(false);
   const handleCaptureGps = () => {
     if (!navigator.geolocation) {
-      alert('Geolocalização não suportada neste dispositivo.');
+      console.warn('Geolocalização não suportada neste dispositivo.');
       return;
     }
     setGpsLoading(true);
@@ -139,7 +140,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       },
       err => {
         setGpsLoading(false);
-        alert('Erro ao obter satélites GPS: ' + err.message);
+        console.warn('Erro ao obter satélites GPS:', err.message);
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
@@ -749,20 +750,52 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 5: TALUDE DE MONTANTE */}
+      {/* TÓPICO: COMPONENTES DA BARRAGEM */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div className="bg-white rounded-xl border-2 border-emerald-600/30 shadow-xs overflow-hidden">
         <button
           type="button"
-          onClick={() => toggleSection('sec5')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          onClick={() => toggleSection('secComponentes')}
+          className="w-full p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border-b border-emerald-100 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none transition-colors hover:from-emerald-100/70 hover:to-slate-100"
         >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">5</span>
-            <span>5. Talude de Montante</span>
+          <div className="flex items-center gap-2.5">
+            <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shadow-xs">
+              5
+            </span>
+            <div className="text-left">
+              <span className="font-extrabold text-slate-900 block text-xs sm:text-sm">
+                5. COMPONENTES DA BARRAGEM
+              </span>
+              <span className="text-[11px] font-normal text-slate-600 normal-case hidden sm:inline">
+                Subtópicos de inspeção: Talude de Montante, Coroamento, Talude de Jusante, Região a Jusante, Instrumentação, Estruturas Vertedoras e Reservatório
+              </span>
+            </div>
           </div>
-          {openSections.sec5 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+          <div className="flex items-center gap-2 text-emerald-700">
+            <span className="text-xs font-semibold hidden md:inline">
+              {openSections.secComponentes ? 'Recolher' : 'Expandir'}
+            </span>
+            {openSections.secComponentes ? <ChevronUp className="w-5 h-5 text-emerald-700" /> : <ChevronDown className="w-5 h-5 text-emerald-700" />}
+          </div>
         </button>
+
+        {openSections.secComponentes && (
+          <div className="p-3 sm:p-5 space-y-4 bg-slate-50/40">
+            {/* ========================================================================= */}
+            {/* SUBTÓPICO 5.1: TALUDE DE MONTANTE */}
+            {/* ========================================================================= */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleSection('sec5')}
+                className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.1</span>
+                  <span>5.1. Talude de Montante</span>
+                </div>
+                {openSections.sec5 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+              </button>
 
         {openSections.sec5 && (
           <div className="p-4 sm:p-5 space-y-4">
@@ -860,17 +893,17 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 6: COROAMENTO (CRISTA) */}
+      {/* SUBTÓPICO 5.2: COROAMENTO (CRISTA) */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <button
           type="button"
           onClick={() => toggleSection('sec6')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
         >
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">6</span>
-            <span>6. Coroamento (Crista)</span>
+            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.2</span>
+            <span>5.2. Coroamento (Crista)</span>
           </div>
           {openSections.sec6 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
         </button>
@@ -994,17 +1027,17 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 7: TALUDE DE JUSANTE */}
+      {/* SUBTÓPICO 5.3: TALUDE DE JUSANTE */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <button
           type="button"
           onClick={() => toggleSection('sec7')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
         >
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">7</span>
-            <span>7. Talude de Jusante</span>
+            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.3</span>
+            <span>5.3. Talude de Jusante</span>
           </div>
           {openSections.sec7 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
         </button>
@@ -1105,17 +1138,17 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 8: REGIÃO A JUSANTE DA BARRAGEM */}
+      {/* SUBTÓPICO 5.4: REGIÃO A JUSANTE DA BARRAGEM */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <button
           type="button"
           onClick={() => toggleSection('sec8')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
         >
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">8</span>
-            <span>8. Região a Jusante da Barragem</span>
+            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.4</span>
+            <span>5.4. Região a Jusante da Barragem</span>
           </div>
           {openSections.sec8 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
         </button>
@@ -1180,17 +1213,17 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 9: INSTRUMENTAÇÃO DE MONITORAMENTO */}
+      {/* SUBTÓPICO 5.5: INSTRUMENTAÇÃO DE MONITORAMENTO */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <button
           type="button"
           onClick={() => toggleSection('sec9')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
         >
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">9</span>
-            <span>9. Instrumentação de Monitoramento</span>
+            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.5</span>
+            <span>5.5. Instrumentação de Monitoramento</span>
           </div>
           {openSections.sec9 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
         </button>
@@ -1237,17 +1270,17 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 10: ESTRUTURAS VERTEDORAS */}
+      {/* SUBTÓPICO 5.6: ESTRUTURAS VERTEDORAS */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <button
           type="button"
           onClick={() => toggleSection('sec10')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
         >
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">10</span>
-            <span>10. Estruturas Vertedoras (Vertedor, Monge, Ladrão, etc.)</span>
+            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.6</span>
+            <span>5.6. Estruturas Vertedoras (Vertedor, Monge, Ladrão, etc.)</span>
           </div>
           {openSections.sec10 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
         </button>
@@ -1278,17 +1311,17 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 11: RESERVATÓRIO */}
+      {/* SUBTÓPICO 5.7: RESERVATÓRIO */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <button
           type="button"
           onClick={() => toggleSection('sec11')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
         >
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">11</span>
-            <span>11. Reservatório</span>
+            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.7</span>
+            <span>5.7. Reservatório</span>
           </div>
           {openSections.sec11 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
         </button>
@@ -1358,8 +1391,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         )}
       </div>
 
+          </div>
+        )}
+      </div>
+
       {/* ========================================================================= */}
-      {/* SEÇÃO 12: OUTROS PROBLEMAS E PESSOAS QUE ACOMPANHARAM */}
+      {/* SEÇÃO 6: OUTROS PROBLEMAS E PESSOAS QUE ACOMPANHARAM */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <button
@@ -1368,8 +1405,8 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
           className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
         >
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">12</span>
-            <span>12. Outros Problemas e Pessoas que Acompanharam</span>
+            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">6</span>
+            <span>6. Outros Problemas e Pessoas que Acompanharam</span>
           </div>
           {openSections.sec12 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
         </button>

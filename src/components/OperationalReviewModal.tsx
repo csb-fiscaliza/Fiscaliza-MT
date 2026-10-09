@@ -37,6 +37,8 @@ import {
   exportAnonymizedJsonFile, 
   generateAnonymizedDocumentsBundle 
 } from '../utils/anonymizer';
+import { createAuthenticitySeal, OFFICIAL_ANTI_PLAGIARISM_NOTICE } from '../utils/securityCrypto';
+import { exportEncryptedInspectionToJson } from '../services/storage';
 
 interface Props {
   isOpen: boolean;
@@ -514,6 +516,65 @@ export const OperationalReviewModal: React.FC<Props> = ({
                   )}
                 </div>
               </div>
+
+              {/* Módulo de Criptografia Anti-Invasão Hacker e Selo Anti-Plágio */}
+              {(() => {
+                const seal = createAuthenticitySeal(data, 'VISTORIA CSB/SEMA-MT');
+                return (
+                  <div className="border border-emerald-300 rounded-xl p-4 space-y-3 bg-emerald-50/40">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-emerald-700" />
+                        <h3 className="text-xs sm:text-sm font-bold text-emerald-950">
+                          Criptografia Anti-Invasão & Selo Digital Anti-Plágio (CSB/SEMA-MT)
+                        </h3>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">
+                        {seal.verificationCode}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 text-xs">
+                      <div className="bg-white p-3 rounded-lg border border-emerald-200 space-y-1.5 font-mono text-[11px]">
+                        <div className="flex justify-between items-center text-slate-700">
+                          <span className="font-semibold font-sans text-slate-500">Hash SHA-256 de Integridade:</span>
+                          <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">Válido & Íntegro</span>
+                        </div>
+                        <p className="text-[10px] text-slate-800 break-all bg-slate-50 p-1.5 rounded border border-slate-200">
+                          {seal.sha256Hash}
+                        </p>
+                        <div className="flex justify-between text-[10px] text-slate-500 pt-1 font-sans">
+                          <span>Rastreabilidade: {seal.rastreabilidadeId}</span>
+                          <span>Carimbo UTC: {seal.timestampFormatted}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 font-sans">
+                        <div className="flex items-start gap-1.5 text-[11px] text-slate-700">
+                          <Lock className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                          <span><strong>Anti-Invasão:</strong> Proteção contra poluição de protótipo, injeção XSS e adulteração indevida de dados locais.</span>
+                        </div>
+                        <div className="flex items-start gap-1.5 text-[11px] text-slate-700">
+                          <Scale className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                          <span><strong>Anti-Plágio:</strong> Garantia de fé pública conforme Arts. 297/299 do Código Penal Brasileiro e Lei 9.610/98.</span>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => exportEncryptedInspectionToJson(data)}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                          title="Exportar arquivo protegido com criptografia AES-GCM 256-bit"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-emerald-300" />
+                          <span>Exportar Cópia Protegida com Criptografia (AES-GCM)</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
