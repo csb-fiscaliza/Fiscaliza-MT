@@ -209,7 +209,11 @@ ${data.componentsData['reservatorio_borda']?.notes ? `Observações: ${data.comp
       if (it.resposta === 'sim') {
         const det = it.localizacaoDetalhe ? ` (${it.localizacaoDetalhe})` : '';
         const obs = it.observacaoComplementar ? ` - ${it.observacaoComplementar}` : '';
-        anomalias.push(`${it.itemRotuloOriginal}${det}${obs}`);
+        const perigoMap: Record<string, string> = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', emergencia: 'Emergência' };
+        const magMap: Record<string, string> = { insignificante: 'Insignificante', pequena: 'Pequena', media: 'Média', grande: 'Grande' };
+        const perigoStr = it.nivelPerigo ? ` [Perigo: ${perigoMap[it.nivelPerigo] || it.nivelPerigo}]` : '';
+        const magStr = it.magnitude ? ` [Magnitude: ${magMap[it.magnitude] || it.magnitude}]` : '';
+        anomalias.push(`${it.itemRotuloOriginal}${det}${perigoStr}${magStr}${obs}`);
       }
     });
   }

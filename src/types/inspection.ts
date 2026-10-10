@@ -171,6 +171,9 @@ export interface MedicoesVistoriaEntity {
   volumeEstimadoM3?: number | null;
 }
 
+export type NivelPerigoType = 'normal' | 'atencao' | 'alerta' | 'emergencia';
+export type MagnitudeType = 'insignificante' | 'pequena' | 'media' | 'grande';
+
 export interface ItemAvaliadoEntity {
   id: string;
   vistoriaId: string;
@@ -181,6 +184,8 @@ export interface ItemAvaliadoEntity {
   localizacaoDetalhe?: string | null;
   estadoConservacao?: ConservationState | null;
   observacaoComplementar?: string | null;
+  nivelPerigo?: NivelPerigoType | null;
+  magnitude?: MagnitudeType | null;
 }
 
 export interface ComponenteObservacaoEntity {

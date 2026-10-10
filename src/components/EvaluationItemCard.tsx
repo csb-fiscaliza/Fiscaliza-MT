@@ -1,3 +1,11 @@
+// ==============================================================================
+// ARQUIVO: src/components/EvaluationItemCard.tsx
+// Card de Avaliação de Item/Anomalia de Componente de Barragem (CSB / SEMA-MT)
+// Ao selecionar "Sim", exibe os campos obrigatórios "Nível de Perigo" e "Magnitude"
+// com layout responsivo para celular e tablet.
+// Ao mudar para outra opção, oculta os campos e limpa os valores.
+// ==============================================================================
+
 import React from 'react';
 import { 
   CheckCircle2, 
@@ -7,9 +15,16 @@ import {
   HelpCircle, 
   AlertCircle,
   MapPin,
-  FileText
+  AlertTriangle,
+  Activity
 } from 'lucide-react';
-import { EvaluationResponseType, ConservationState, ItemAvaliadoEntity } from '../types/inspection';
+import { 
+  EvaluationResponseType, 
+  ConservationState, 
+  ItemAvaliadoEntity,
+  NivelPerigoType,
+  MagnitudeType
+} from '../types/inspection';
 
 interface Props {
   componentCode: string;
@@ -41,9 +56,12 @@ export const EvaluationItemCard: React.FC<Props> = ({
       itemCodigo: itemCode,
       itemRotuloOriginal: itemLabel,
       resposta: resp,
-      localizacaoDetalhe: value?.localizacaoDetalhe || '',
-      estadoConservacao: value?.estadoConservacao || null,
-      observacaoComplementar: value?.observacaoComplementar || ''
+      localizacaoDetalhe: resp === 'sim' ? (value?.localizacaoDetalhe || '') : '',
+      estadoConservacao: resp === 'sim' ? (value?.estadoConservacao || null) : null,
+      observacaoComplementar: value?.observacaoComplementar || '',
+      // Se a resposta mudar para outra opção além de "sim", limpa os valores de nível de perigo e magnitude
+      nivelPerigo: resp === 'sim' ? (value?.nivelPerigo || null) : null,
+      magnitude: resp === 'sim' ? (value?.magnitude || null) : null
     });
   };
 
@@ -58,6 +76,8 @@ export const EvaluationItemCard: React.FC<Props> = ({
       localizacaoDetalhe: value?.localizacaoDetalhe || '',
       estadoConservacao: value?.estadoConservacao || null,
       observacaoComplementar: value?.observacaoComplementar || '',
+      nivelPerigo: value?.nivelPerigo || null,
+      magnitude: value?.magnitude || null,
       [field]: val
     });
   };
@@ -106,7 +126,7 @@ export const EvaluationItemCard: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Large Touch Targets for Mobile/Tablet Android */}
+      {/* Botões de resposta com toque amplo para Mobile/Tablet */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2">
         {options.map(opt => {
           const isSelected = currentResponse === opt.id;
@@ -115,7 +135,7 @@ export const EvaluationItemCard: React.FC<Props> = ({
               key={opt.id}
               type="button"
               onClick={() => setResponse(opt.id)}
-              className={`min-h-[44px] py-2 px-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 text-center transition cursor-pointer select-none ${
+              className={`min-h-[44px] py-2 px-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 text-center transition cursor-pointer select-none active:scale-98 ${
                 isSelected
                   ? opt.activeClass
                   : 'bg-slate-50/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-slate-200'
@@ -127,6 +147,91 @@ export const EvaluationItemCard: React.FC<Props> = ({
           );
         })}
       </div>
+
+      {/* Conditional: Se "Sim" em qualquer anomalia -> Campos obrigatórios "Nível de Perigo" e "Magnitude" */}
+      {currentResponse === 'sim' && (
+        <div className="pt-2.5 border-t border-rose-200 dark:border-rose-900/50 space-y-3 bg-rose-50/50 dark:bg-rose-950/25 p-3 rounded-xl border border-rose-200/80 dark:border-rose-900/40">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Campo 1: Nível de Perigo (Normal, Atenção, Alerta ou Emergência) */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-rose-900 dark:text-rose-300 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+                  <span>Nível de Perigo:</span>
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-900/60 px-1.5 py-0.5 rounded">
+                  Obrigatório *
+                </span>
+              </label>
+
+              {/* Layout otimizado para celular e tablet */}
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { id: 'normal', label: 'Normal', activeClass: 'bg-emerald-600 text-white border-emerald-700' },
+                  { id: 'atencao', label: 'Atenção', activeClass: 'bg-amber-500 text-white border-amber-600' },
+                  { id: 'alerta', label: 'Alerta', activeClass: 'bg-orange-600 text-white border-orange-700' },
+                  { id: 'emergencia', label: 'Emergência', activeClass: 'bg-rose-600 text-white border-rose-700' }
+                ].map(item => {
+                  const isChecked = value?.nivelPerigo === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => updateField('nivelPerigo', item.id as NivelPerigoType)}
+                      className={`min-h-[42px] px-2 py-1.5 rounded-lg border text-xs font-bold transition flex items-center justify-center text-center cursor-pointer select-none active:scale-98 ${
+                        isChecked
+                          ? `${item.activeClass} shadow-xs ring-2 ring-rose-400 ring-offset-1`
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Campo 2: Magnitude (Insignificante, Pequena, Média ou Grande) */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-rose-900 dark:text-rose-300 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+                  <span>Magnitude:</span>
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-900/60 px-1.5 py-0.5 rounded">
+                  Obrigatório *
+                </span>
+              </label>
+
+              {/* Layout otimizado para celular e tablet */}
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { id: 'insignificante', label: 'Insignificante', activeClass: 'bg-slate-600 text-white border-slate-700' },
+                  { id: 'pequena', label: 'Pequena', activeClass: 'bg-blue-600 text-white border-blue-700' },
+                  { id: 'media', label: 'Média', activeClass: 'bg-amber-600 text-white border-amber-700' },
+                  { id: 'grande', label: 'Grande', activeClass: 'bg-purple-600 text-white border-purple-700' }
+                ].map(item => {
+                  const isChecked = value?.magnitude === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => updateField('magnitude', item.id as MagnitudeType)}
+                      className={`min-h-[42px] px-2 py-1.5 rounded-lg border text-xs font-bold transition flex items-center justify-center text-center cursor-pointer select-none active:scale-98 ${
+                        isChecked
+                          ? `${item.activeClass} shadow-xs ring-2 ring-rose-400 ring-offset-1`
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Conditional: Se "Sim" e requer localização */}
       {currentResponse === 'sim' && showLocationOnYes && (
