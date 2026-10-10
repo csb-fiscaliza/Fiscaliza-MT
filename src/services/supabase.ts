@@ -232,14 +232,164 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
  * Salva a Vistoria completa no Supabase
  * Suporta tanto InspectionData quanto VistoriaAggregate
  */
-export async function syncVistoriaToSupabase(input: VistoriaAggregate | InspectionData): Promise<{ success: boolean; error?: string }> {
-  if (!supabase) {
-    return { success: false, error: 'Serviço de nuvem em modo offline ou não configurado. Seus dados estão criptografados e salvos localmente com total segurança.' };
+export interface SyncVistoriaResponse {
+  success: boolean;
+  error?: string;
+  code?: string;
+  isRlsError?: boolean;
+  table?: string;
+}
+
+/**
+ * Garante uma sessão autenticada no Supabase antes das operações
+ * Tenta sessão existente ou autenticação anônima institucional
+ */
+export async function ensureAuthenticatedSession(): Promise<{ authenticated: boolean; email?: string; role?: string }> {
+  if (!supabase) return { authenticated: false };
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      return { 
+        authenticated: true, 
+        email: session.user.email,
+        role: session.user.user_metadata?.role || session.user.role || 'fiscal' 
+      };
+    }
+
+    // Tenta autenticação anônima se habilitada no projeto Supabase
+    try {
+      const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
+      if (!anonError && anonData?.session?.user) {
+        return { 
+          authenticated: true, 
+          email: anonData.session.user.email || 'fiscal-campo@sema.mt.gov.br',
+          role: 'anon_field'
+        };
+      }
+    } catch {
+      // Login anônimo pode estar desligado no dashboard
+    }
+  } catch (err) {
+    console.warn('Verificação de sessão pré-sync:', err);
   }
+
+  return { authenticated: false };
+}
+
+/**
+ * Autenticação do Fiscal de Barragens (Login com e-mail e senha)
+ */
+export async function signInInspector(email: string, password: string): Promise<{ success: boolean; error?: string; email?: string }> {
+  if (!supabase) {
+    return { success: false, error: 'Serviço de banco de dados não configurado.' };
+  }
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password
+    });
+    if (error) throw error;
+    return { success: true, email: data.user?.email };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Falha ao autenticar fiscal.' };
+  }
+}
+
+/**
+ * Cadastro de novo Fiscal de Campo
+ */
+export async function signUpInspector(email: string, password: string, fullName?: string): Promise<{ success: boolean; error?: string; message?: string }> {
+  if (!supabase) {
+    return { success: false, error: 'Serviço de banco de dados não configurado.' };
+  }
+  try {
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: {
+          full_name: fullName || 'Fiscal SEMA-MT',
+          cargo: 'Fiscal Técnico CSB'
+        }
+      }
+    });
+    if (error) throw error;
+    return { 
+      success: true, 
+      message: data.session ? 'Fiscal autenticado com sucesso!' : 'Cadastro realizado! Verifique a confirmação ou acesse.' 
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Falha ao cadastrar fiscal.' };
+  }
+}
+
+/**
+ * Encerra a sessão do Fiscal
+ */
+export async function signOutInspector(): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.auth.signOut();
+  } catch (e) {
+    console.error('Erro ao deslogar:', e);
+  }
+}
+
+/**
+ * Retorna o estado atual da sessão do Fiscal
+ */
+export async function getInspectorSession(): Promise<{ authenticated: boolean; email?: string; role?: string }> {
+  if (!supabase) return { authenticated: false };
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      return {
+        authenticated: true,
+        email: session.user.email,
+        role: session.user.user_metadata?.cargo || session.user.role || 'Fiscal Técnico'
+      };
+    }
+  } catch {
+    // offline
+  }
+  return { authenticated: false };
+}
+
+/**
+ * Salva a Vistoria completa no Supabase
+ * Suporta tanto InspectionData quanto VistoriaAggregate
+ */
+export async function syncVistoriaToSupabase(input: VistoriaAggregate | InspectionData): Promise<SyncVistoriaResponse> {
+  if (!supabase) {
+    return { 
+      success: false, 
+      error: 'Serviço de nuvem em modo offline ou não configurado. Seus dados estão criptografados e salvos localmente com total segurança.' 
+    };
+  }
+
+  // Tenta garantir que há sessão ativa antes do envio
+  await ensureAuthenticatedSession();
 
   const vistoria: VistoriaAggregate = 'generalInfo' in input 
     ? convertInspectionDataToAggregate(input as InspectionData)
     : input as VistoriaAggregate;
+
+  const handleDbError = (err: any, tableName: string) => {
+    if (!err) return;
+    const code = err.code || err.status;
+    const msg = String(err.message || '');
+    if (code === '42501' || msg.includes('row-level security') || msg.includes('violates row-level')) {
+      const e = new Error(
+        `Permissão de Segurança (RLS 42501 na tabela "${tableName}"): O banco de dados em nuvem exige autenticação de fiscal ou liberação das políticas de campo. Seus dados estão 100% seguros e salvos localmente neste aparelho.`
+      );
+      (e as any).code = '42501';
+      (e as any).isRlsError = true;
+      (e as any).table = tableName;
+      throw e;
+    }
+    throw err;
+  };
 
   try {
     // 1. Upsert Empreendedor
@@ -257,7 +407,7 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
       quantidade_barragens_propriedade: toNullableNumber(vistoria.empreendedor.quantidadeBarragens),
       updated_at: new Date().toISOString()
     });
-    if (empError) throw empError;
+    handleDbError(empError, 'empreendedores');
 
     // 2. Upsert Barragem
     const { error: barError } = await supabase.from('barragens').upsert({
@@ -278,7 +428,7 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
       usos_secundarios: vistoria.barragem.usosSecundarios || [],
       updated_at: new Date().toISOString()
     });
-    if (barError) throw barError;
+    handleDbError(barError, 'barragens');
 
     // 3. Upsert Vistoria Mestre
     const { error: visError } = await supabase.from('vistorias').upsert({
@@ -304,7 +454,7 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
       notificacao_exigencias: toNullableString(vistoria.conclusoes.notificacaoExigencias),
       updated_at: new Date().toISOString()
     });
-    if (visError) throw visError;
+    handleDbError(visError, 'vistorias');
 
     // 4. Upsert Medições
     const { error: medError } = await supabase.from('vistoria_medicoes').upsert({
@@ -320,7 +470,7 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
       volume_estimado_m3: toNullableNumber(vistoria.medicoes.volumeEstimadoM3),
       updated_at: new Date().toISOString()
     });
-    if (medError) throw medError;
+    handleDbError(medError, 'vistoria_medicoes');
 
     // 5. Itens Avaliados
     const itens = Object.values(vistoria.itensAvaliados || {}) as ItemAvaliadoEntity[];
@@ -339,7 +489,7 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
 
     if (itensArray.length > 0) {
       const { error: itensError } = await supabase.from('vistoria_itens_avaliados').upsert(itensArray);
-      if (itensError) throw itensError;
+      handleDbError(itensError, 'vistoria_itens_avaliados');
     }
 
     // 6. Documentos Gerados
@@ -356,13 +506,27 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
 
     if (docsArray.length > 0) {
       const { error: docError } = await supabase.from('vistoria_documentos').upsert(docsArray);
-      if (docError) throw docError;
+      handleDbError(docError, 'vistoria_documentos');
     }
 
     return { success: true };
   } catch (err: any) {
     console.error('Erro ao sincronizar com banco de dados:', err);
-    return { success: false, error: err.message || 'Falha na comunicação com o banco de dados seguro.' };
+    const code = err?.code || '';
+    const isRls = code === '42501' || err?.isRlsError || String(err?.message || '').includes('row-level security') || String(err?.message || '').includes('violates row-level');
+    let message = err?.message || 'Falha na comunicação com o banco de dados seguro.';
+    
+    if (isRls && !message.startsWith('Permissão de Segurança')) {
+      message = 'Permissão de Segurança (RLS 42501 na tabela "empreendedores"): O banco de dados em nuvem exige autenticação de fiscal ou aplicação das políticas de coleta no Supabase. Os dados continuam 100% seguros e salvos localmente no dispositivo.';
+    }
+
+    return { 
+      success: false, 
+      error: message,
+      code: String(code),
+      isRlsError: !!isRls,
+      table: err?.table || 'empreendedores'
+    };
   }
 }
 
@@ -431,7 +595,7 @@ export async function getSupabaseSecurityDiagnostics(): Promise<{
     if (session?.user) {
       authenticated = true;
       userEmail = session.user.email;
-      role = session.user.role || 'authenticated';
+      role = session.user.user_metadata?.cargo || session.user.role || 'authenticated';
     } else {
       warnings.push('Conexão ativa com proteção RLS e criptografia de ponta a ponta.');
     }

@@ -15,6 +15,7 @@ import { ConclusionsStep } from './components/ConclusionsStep';
 import { DocumentReviewStep } from './components/DocumentReviewStep';
 import { DatabaseModuleStep } from './components/DatabaseModuleStep';
 import { OperationalReviewModal } from './components/OperationalReviewModal';
+import { InspectorAuthModal } from './components/InspectorAuthModal';
 import { OfficialFooter } from './components/OfficialFooter';
 import { InspectionProgressBar } from './components/InspectionProgressBar';
 import { InspectionData } from './types/inspection';
@@ -101,8 +102,9 @@ function AppContent() {
   const [photoFilterComponent, setPhotoFilterComponent] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [syncFeedback, setSyncFeedback] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+  const [syncFeedback, setSyncFeedback] = useState<{ message: string; type: 'success' | 'info' | 'error'; isRls?: boolean } | null>(null);
   const saveTimeoutRef = useRef<any>(null);
 
   // Monitora conectividade para resiliência no campo e sincronização automática ao restabelecer rede
@@ -127,6 +129,12 @@ function AppContent() {
           });
         } else if (res.total === 0) {
           setSyncFeedback(null);
+        } else if (res.hasRlsError) {
+          setSyncFeedback({
+            message: 'Banco em nuvem protegido por regras RLS. Vistorias preservadas com segurança localmente.',
+            type: 'info',
+            isRls: true
+          });
         }
       }).catch(() => {
         setIsSyncing(false);
@@ -177,9 +185,11 @@ function AppContent() {
           type: 'success'
         });
       } else {
+        const isRls = res.hasRlsError || (res.errors[0] && (res.errors[0].includes('RLS') || res.errors[0].includes('42501')));
         setSyncFeedback({
-          message: `Dados mantidos salvos com segurança no dispositivo. ${res.errors[0] || 'Aguardando servidor.'}`,
-          type: 'info'
+          message: res.errors[0] || 'Dados mantidos salvos com segurança no dispositivo.',
+          type: isRls ? 'info' : 'error',
+          isRls: !!isRls
         });
       }
     } catch (err: any) {
@@ -191,7 +201,7 @@ function AppContent() {
       setIsSyncing(false);
       setTimeout(() => {
         setSyncFeedback(prev => (prev?.type === 'success' ? null : prev));
-      }, 5000);
+      }, 7000);
     }
   };
 
@@ -495,13 +505,24 @@ function AppContent() {
               <span className="w-2 h-2 rounded-full bg-current animate-ping shrink-0" />
               <span>{syncFeedback.message}</span>
             </div>
-            <button
-              type="button"
-              onClick={() => setSyncFeedback(null)}
-              className="text-[11px] underline opacity-80 hover:opacity-100 cursor-pointer"
-            >
-              Fechar
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {syncFeedback.isRls && (
+                <button
+                  type="button"
+                  onClick={() => setShowAuthModal(true)}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] shadow-xs transition cursor-pointer"
+                >
+                  Resolver Permissão / Entrar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSyncFeedback(null)}
+                className="text-[11px] underline opacity-80 hover:opacity-100 cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -523,6 +544,7 @@ function AppContent() {
         onOpenSecurityReview={() => setShowSecurityModal(true)}
         onSyncNow={handleSyncNow}
         isSyncing={isSyncing}
+        onOpenAuthModal={() => setShowAuthModal(true)}
       />
 
       {/* Barra de Progresso Visual de Preenchimento da Inspeção de Campo (visível apenas na Nova Ficha) */}

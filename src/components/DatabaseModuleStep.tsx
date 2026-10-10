@@ -47,6 +47,7 @@ interface Props {
   onSyncSingle?: (id: string) => void;
   onSyncAll?: () => void;
   isSyncing?: boolean;
+  onOpenAuthModal?: () => void;
 }
 
 export const DatabaseModuleStep: React.FC<Props> = ({
@@ -59,7 +60,8 @@ export const DatabaseModuleStep: React.FC<Props> = ({
   onGoToSheet,
   onSyncSingle,
   onSyncAll,
-  isSyncing = false
+  isSyncing = false,
+  onOpenAuthModal
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCondition, setFilterCondition] = useState<'all' | 'critico' | 'alerta' | 'adequado'>('all');
@@ -380,10 +382,20 @@ export const DatabaseModuleStep: React.FC<Props> = ({
 
                         {/* Status de Sincronização e Criptografia */}
                         {insp.syncStatus === 'synced' ? (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1" title="Sincronizado no banco centralizado">
                             <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                             <span>Sincronizado no Banco</span>
                           </span>
+                        ) : insp.syncStatus === 'error' ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenAuthModal ? onOpenAuthModal() : (onSyncSingle && onSyncSingle(insp.id))}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1 hover:bg-rose-200 cursor-pointer"
+                            title={insp.syncError || "Pendente de sincronização (clique para resolver permissão ou reenviar)"}
+                          >
+                            <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                            <span>Pendente / Resolver Permissão</span>
+                          </button>
                         ) : (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1" title="Ficha criptografada e salva apenas no armazenamento local do aparelho">
                             <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />

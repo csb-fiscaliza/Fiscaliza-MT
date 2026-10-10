@@ -471,7 +471,7 @@ export function saveInspection(inspection: InspectionData): void {
 /**
  * Sincroniza uma ficha específica com o banco de dados seguro
  */
-export async function syncSingleInspection(id: string): Promise<{ success: boolean; error?: string }> {
+export async function syncSingleInspection(id: string): Promise<{ success: boolean; error?: string; isRlsError?: boolean }> {
   try {
     const list = getAllInspections();
     const item = list.find(i => i.id === id);
@@ -497,7 +497,11 @@ export async function syncSingleInspection(id: string): Promise<{ success: boole
         syncError: result.error || 'Erro na transmissão segura dos dados.'
       };
       saveInspection(updatedItem);
-      return { success: false, error: result.error };
+      return { 
+        success: false, 
+        error: result.error,
+        isRlsError: result.isRlsError 
+      };
     }
   } catch (err: any) {
     return { success: false, error: err.message || 'Falha ao sincronizar' };
@@ -512,12 +516,14 @@ export async function syncAllPendingInspections(): Promise<{
   synced: number;
   failed: number;
   errors: string[];
+  hasRlsError?: boolean;
 }> {
   const list = getAllInspections();
   const pending = list.filter(i => !i.syncStatus || i.syncStatus === 'local' || i.syncStatus === 'error');
 
   let synced = 0;
   let failed = 0;
+  let hasRlsError = false;
   const errors: string[] = [];
 
   for (const item of pending) {
@@ -526,6 +532,7 @@ export async function syncAllPendingInspections(): Promise<{
       synced++;
     } else {
       failed++;
+      if (res.isRlsError) hasRlsError = true;
       if (res.error) errors.push(`${item.damIdentification.damName || 'Barragem'}: ${res.error}`);
     }
   }
@@ -534,7 +541,8 @@ export async function syncAllPendingInspections(): Promise<{
     total: pending.length,
     synced,
     failed,
-    errors
+    errors,
+    hasRlsError
   };
 }
 

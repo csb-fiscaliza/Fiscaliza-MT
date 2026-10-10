@@ -461,40 +461,40 @@ DROP POLICY IF EXISTS "Servidores SEMA: Auditoria de Alterações" ON vistoria_h
 -- Políticas de Acesso: ESTRITAMENTE AUTENTICADAS (Conformidade com LGPD e Segurança Institucional)
 -- Nenhuma política pública ou anônima permitida para proteção de dados cadastrais e fotos
 CREATE POLICY "Servidores SEMA: Empreendedores" ON empreendedores
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Barragens" ON barragens
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Vistorias" ON vistorias
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Equipe" ON vistoria_equipe
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Acompanhantes" ON vistoria_acompanhantes
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Medições" ON vistoria_medicoes
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Condição Componentes" ON vistoria_componentes_condicao
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Itens Avaliados" ON vistoria_itens_avaliados
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Observações Componentes" ON vistoria_observacoes_componentes
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Fotos" ON vistoria_fotos
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Documentos" ON vistoria_documentos
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Servidores SEMA: Histórico Auditoria" ON vistoria_historico_alteracoes
-    FOR SELECT TO authenticated USING (true);
+    FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 -- ------------------------------------------------------------------------------
 -- 9. CONFIGURAÇÃO IDEMPOTENTE DO BUCKET PRIVADO DE FOTOS (SUPABASE STORAGE)

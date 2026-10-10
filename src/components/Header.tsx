@@ -21,7 +21,8 @@ import {
   AlertCircle,
   Lock,
   CloudCheck,
-  CloudOff
+  CloudOff,
+  UserCheck
 } from 'lucide-react';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionData } from '../types/inspection';
@@ -44,6 +45,7 @@ interface HeaderProps {
   onOpenSecurityReview: () => void;
   onSyncNow?: () => void;
   isSyncing?: boolean;
+  onOpenAuthModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -57,7 +59,8 @@ export const Header: React.FC<HeaderProps> = ({
   isOnline,
   onOpenSecurityReview,
   onSyncNow,
-  isSyncing = false
+  isSyncing = false,
+  onOpenAuthModal
 }) => {
   const isPanelActive = activeStep === 0;
   const isDatabaseActive = activeStep === 6;
@@ -150,6 +153,19 @@ export const Header: React.FC<HeaderProps> = ({
             <Lock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span className="hidden md:inline">Criptografia Ativa</span>
           </button>
+
+          {/* Acesso Seguro do Fiscal */}
+          {onOpenAuthModal && (
+            <button
+              type="button"
+              onClick={onOpenAuthModal}
+              className="hidden lg:flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition cursor-pointer"
+              title="Acesso de Fiscal / Sincronização SEMA-MT (Resolução RLS)"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Acesso Fiscal</span>
+            </button>
+          )}
 
           {/* Status de Rede */}
           <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400">

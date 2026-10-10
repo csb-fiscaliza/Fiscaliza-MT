@@ -53,6 +53,7 @@ interface Props {
   onSave?: () => void;
   onSyncNow?: () => void;
   isSyncing?: boolean;
+  onOpenAuthModal?: () => void;
 }
 
 export const OfficialInspectionSheetStep: React.FC<Props> = ({
@@ -62,7 +63,8 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
   onPrev,
   onSave,
   onSyncNow,
-  isSyncing = false
+  isSyncing = false,
+  onOpenAuthModal
 }) => {
   // Estado de recolher/expandir seções preservando as respostas
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -252,22 +254,36 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
           </div>
         </div>
 
-        {onSyncNow && (
-          <button
-            type="button"
-            onClick={onSyncNow}
-            disabled={isSyncing}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-              data.syncStatus === 'synced'
-                ? 'bg-white hover:bg-emerald-100/50 text-emerald-800 border border-emerald-300'
-                : 'bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-800'
-            }`}
-            title="Sincronizar esta ficha com o banco de dados seguro agora"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Sincronizando...' : data.syncStatus === 'synced' ? 'Sincronizar Novamente' : 'Sincronizar com Banco'}</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {data.syncStatus === 'error' && onOpenAuthModal && (
+            <button
+              type="button"
+              onClick={onOpenAuthModal}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs bg-rose-700 hover:bg-rose-800 text-white border border-rose-800"
+              title="Resolver permissão RLS do Supabase ou entrar como fiscal"
+            >
+              <Lock className="w-3.5 h-3.5 text-rose-200" />
+              <span>Resolver Permissão / Acesso</span>
+            </button>
+          )}
+
+          {onSyncNow && (
+            <button
+              type="button"
+              onClick={onSyncNow}
+              disabled={isSyncing}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                data.syncStatus === 'synced'
+                  ? 'bg-white hover:bg-emerald-100/50 text-emerald-800 border border-emerald-300'
+                  : 'bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-800'
+              }`}
+              title="Sincronizar esta ficha com o banco de dados seguro agora"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Sincronizando...' : data.syncStatus === 'synced' ? 'Sincronizar Novamente' : 'Sincronizar com Banco'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ========================================================================= */}
