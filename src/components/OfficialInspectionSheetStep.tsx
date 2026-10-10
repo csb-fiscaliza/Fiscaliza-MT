@@ -19,8 +19,12 @@ import {
   Waves,
   Eye,
   CheckCircle2,
-  Save
+  Save,
+  FileDown,
+  Printer,
+  ShieldCheck
 } from 'lucide-react';
+import { exportInspectionSheetPdf } from '../utils/exportInspectionSheetPdf';
 import { BASINS_MT, MUNICIPALITIES_MT } from '../data/damComponents';
 import { 
   InspectionData, 
@@ -165,6 +169,16 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={() => exportInspectionSheetPdf(data)}
+            className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+            title="Exportar ficha de vistoria completa para arquivo PDF estilizado no padrão oficial da SEMA-MT"
+          >
+            <FileDown className="w-4 h-4" />
+            <span>Exportar PDF SEMA-MT</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => {
               const allOpen = Object.values(openSections).every(Boolean);
               const nextState: Record<string, boolean> = {};
@@ -173,7 +187,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               });
               setOpenSections(nextState);
             }}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold border border-slate-700 text-slate-200 cursor-pointer"
+            className="min-h-[38px] px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold border border-slate-700 text-slate-200 cursor-pointer"
           >
             {Object.values(openSections).every(Boolean) ? 'Recolher Todas' : 'Expandir Todas'}
           </button>
@@ -1491,6 +1505,17 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         </button>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => exportInspectionSheetPdf(data)}
+            className="min-h-[44px] flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg border border-emerald-600 bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900 font-bold text-xs sm:text-sm transition cursor-pointer shadow-xs"
+            title="Exportar ficha de vistoria oficial preenchida em formato PDF estilizado SEMA-MT com selo e fotos"
+          >
+            <FileDown className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+            <span className="hidden sm:inline">Exportar PDF</span>
+            <span className="sm:hidden">PDF</span>
+          </button>
+
           {onSave && (
             <button
               type="button"

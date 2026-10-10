@@ -11,13 +11,15 @@ import {
   Bell, 
   ArrowLeft,
   Download,
-  ShieldCheck
+  ShieldCheck,
+  FileDown
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { AutoInspecaoDocumentView } from './AutoInspecaoDocumentView';
 import { NotificacaoDocumentView } from './NotificacaoDocumentView';
 import { RelatorioInspecaoDocumentView } from './RelatorioInspecaoDocumentView';
 import { exportAnonymizedJsonFile } from '../utils/anonymizer';
+import { exportInspectionSheetPdf } from '../utils/exportInspectionSheetPdf';
 
 interface Props {
   data: InspectionData;
@@ -42,15 +44,27 @@ export const DocumentReviewStep: React.FC<Props> = ({ data, onChange, onPrev }) 
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => exportAnonymizedJsonFile(data)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-black dark:hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
-            title="Exportar cópia 100% anonimizada em conformidade com a LGPD para uso no Google AI Studio"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-200" />
-            <span>Exportar Cópia Anonimizada (LGPD)</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => exportInspectionSheetPdf(data)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+              title="Exportar a ficha de vistoria completa em PDF estilizado padrão SEMA-MT"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              <span>Exportar Ficha em PDF</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => exportAnonymizedJsonFile(data)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-black dark:hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+              title="Exportar cópia 100% anonimizada em conformidade com a LGPD para uso no Google AI Studio"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-200" />
+              <span>Exportar Cópia Anonimizada (LGPD)</span>
+            </button>
+          </div>
         </div>
 
         {/* Abas dos 3 Documentos Oficiais */}
