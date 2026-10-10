@@ -6,7 +6,7 @@
 // Ao mudar para outra opção, oculta os campos e limpa os valores.
 // ==============================================================================
 
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { 
   CheckCircle2, 
   XCircle, 
@@ -16,37 +16,154 @@ import {
   AlertCircle,
   MapPin,
   AlertTriangle,
-  Activity
+  Activity,
+  Camera,
+  Image as ImageIcon,
+  Loader2,
+  Check
 } from 'lucide-react';
 import { 
   EvaluationResponseType, 
   ConservationState, 
   ItemAvaliadoEntity,
   NivelPerigoType,
-  MagnitudeType
+  MagnitudeType,
+  InspectionPhoto
 } from '../types/inspection';
+import { 
+  compressImageToDataUrlAndBlob, 
+  formatTimestampPtBr, 
+  getDeviceGpsCoordinates 
+} from '../utils/photoCaptureUtils';
+import { savePhotoBlob } from '../services/photoStorage';
 
 interface Props {
   componentCode: string;
+  componentName?: string;
   itemCode: string;
   itemLabel: string;
   value?: ItemAvaliadoEntity;
   onChange: (updated: ItemAvaliadoEntity) => void;
   showLocationOnYes?: boolean;
   showConservationOnYes?: boolean;
+  photos?: InspectionPhoto[];
+  onAddPhoto?: (newPhoto: InspectionPhoto) => void;
 }
 
 export const EvaluationItemCard: React.FC<Props> = ({
   componentCode,
+  componentName,
   itemCode,
   itemLabel,
   value,
   onChange,
   showLocationOnYes = true,
-  showConservationOnYes = false
+  showConservationOnYes = false,
+  photos = [],
+  onAddPhoto
 }) => {
   const currentResponse: EvaluationResponseType = value?.resposta || 'sem_informacao';
   const currentId = value?.id || `item-${componentCode}-${itemCode}`;
+
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
+  const [photoSuccessToast, setPhotoSuccessToast] = useState<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  // Mapeia o nome oficial do componente para a legenda pré-formatada (ex: Talude de Montante)
+  const getPreformattedComponentName = (): string => {
+    if (componentName) return componentName;
+    const lower = (componentCode || '').toLowerCase();
+    if (lower.includes('montante')) return 'Talude de Montante';
+    if (lower.includes('coroamento') || lower.includes('crista')) return 'Coroamento (Crista)';
+    if (lower.includes('talude_jusante') || lower === 'jusante') return 'Talude de Jusante';
+    if (lower.includes('regiao_jusante') || lower.includes('area_jusante')) return 'Região a Jusante';
+    if (lower.includes('instrument')) return 'Instrumentação';
+    if (lower.includes('vertedouro') || lower.includes('extravasor')) return 'Estruturas Vertedoras';
+    if (lower.includes('reservatorio')) return 'Reservatório';
+    if (lower.includes('outros')) return 'Outros Problemas';
+    return componentCode;
+  };
+
+  // Mapeia o id do componente para o ComponentPhotoUploader
+  const getCanonicalComponentId = (): string => {
+    const lower = (componentCode || '').toLowerCase();
+    if (lower.includes('montante')) return 'talude_montante';
+    if (lower.includes('coroamento') || lower.includes('crista')) return 'crista';
+    if (lower.includes('talude_jusante') || lower === 'jusante') return 'talude_jusante';
+    if (lower.includes('regiao_jusante') || lower.includes('area_jusante')) return 'area_jusante';
+    if (lower.includes('instrument')) return 'instrumentacao';
+    if (lower.includes('vertedouro') || lower.includes('extravasor')) return 'vertedouro';
+    if (lower.includes('reservatorio')) return 'reservatorio_borda';
+    return lower || 'outros';
+  };
+
+  // Legenda pré-formatada: ex: Talude de Montante - Erosões
+  const preformattedCaption = `${getPreformattedComponentName()} - ${itemLabel}`;
+
+  // Conta quantas fotos já existem para este item
+  const existingItemPhotos = photos.filter(p => {
+    const cap = (p.caption || '').toLowerCase();
+    const targetLabel = itemLabel.toLowerCase();
+    const targetCode = itemCode.toLowerCase();
+    return cap.includes(targetLabel) || cap.includes(targetCode);
+  });
+
+  const handlePhotoCapture = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !onAddPhoto) return;
+    setIsProcessingPhoto(true);
+
+    try {
+      // Captura GPS no momento do clique se disponível
+      let lat: number | undefined;
+      let lng: number | undefined;
+      let accuracy: number | undefined;
+
+      try {
+        const coords = await getDeviceGpsCoordinates(6000);
+        if (coords) {
+          lat = coords.latitude;
+          lng = coords.longitude;
+          accuracy = coords.accuracyMeters;
+        }
+      } catch (gpsErr) {
+        console.warn('GPS não capturado para foto do item:', gpsErr);
+      }
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const photoId = `foto-item-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`;
+        const { dataUrl, blob } = await compressImageToDataUrlAndBlob(file, 1600, 0.82);
+
+        await savePhotoBlob(photoId, blob);
+
+        const newPhoto: InspectionPhoto = {
+          id: photoId,
+          dataUrl,
+          componentId: getCanonicalComponentId(),
+          componentName: getPreformattedComponentName(),
+          locationDescription: `${getPreformattedComponentName()} - ${itemLabel}`,
+          caption: files.length > 1 ? `${preformattedCaption} (Foto ${i + 1}/${files.length})` : preformattedCaption,
+          timestamp: formatTimestampPtBr(new Date()),
+          latitude: lat,
+          longitude: lng,
+          accuracyMeters: accuracy,
+          syncStatus: 'local'
+        };
+
+        onAddPhoto(newPhoto);
+      }
+
+      setPhotoSuccessToast(`Foto inserida: "${preformattedCaption}"`);
+      setTimeout(() => setPhotoSuccessToast(null), 3500);
+    } catch (err) {
+      console.error('Erro ao inserir foto do item:', err);
+    } finally {
+      setIsProcessingPhoto(false);
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+      if (galleryInputRef.current) galleryInputRef.current.value = '';
+    }
+  };
 
   const setResponse = (resp: EvaluationResponseType) => {
     onChange({
@@ -117,14 +234,82 @@ export const EvaluationItemCard: React.FC<Props> = ({
 
   return (
     <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3 transition-colors">
-      <div className="flex flex-wrap items-baseline justify-between gap-1.5">
-        <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug">
-          {itemLabel}
-        </span>
-        {currentResponse === 'sem_informacao' && (
-          <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">Pendente de avaliação</span>
-        )}
+      {/* Inputs ocultos de câmera e galeria para o item */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={e => handlePhotoCapture(e.target.files)}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={e => handlePhotoCapture(e.target.files)}
+      />
+
+      {/* Cabeçalho do Item: Título + Ícone de Registro Fotográfico */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="space-y-0.5 min-w-0">
+          <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug block">
+            {itemLabel}
+          </span>
+          {currentResponse === 'sem_informacao' && (
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 italic block">Pendente de avaliação</span>
+          )}
+        </div>
+
+        {/* Botão/Ícone para Registro Fotográfico Direto do Item */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Botão Câmera Rápida */}
+          <button
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={isProcessingPhoto}
+            className={`min-h-[34px] px-2 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer select-none shadow-xs active:scale-95 ${
+              existingItemPhotos.length > 0
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100'
+                : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-400'
+            }`}
+            title={`Inserir registro fotográfico direto para "${preformattedCaption}"`}
+          >
+            {isProcessingPhoto ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+            ) : (
+              <Camera className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            )}
+            <span className="text-[11px] font-bold hidden sm:inline">Foto</span>
+            {existingItemPhotos.length > 0 && (
+              <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-emerald-600 text-white">
+                {existingItemPhotos.length}
+              </span>
+            )}
+          </button>
+
+          {/* Botão Galeria / Arquivos */}
+          <button
+            type="button"
+            onClick={() => galleryInputRef.current?.click()}
+            disabled={isProcessingPhoto}
+            className="min-h-[34px] p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 hover:text-emerald-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer"
+            title="Selecionar foto da galeria do dispositivo"
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
+
+      {/* Toast de confirmação visual da foto adicionada */}
+      {photoSuccessToast && (
+        <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-200 animate-fadeIn">
+          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span className="truncate">{photoSuccessToast}</span>
+        </div>
+      )}
 
       {/* Botões de resposta com toque amplo para Mobile/Tablet */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2">

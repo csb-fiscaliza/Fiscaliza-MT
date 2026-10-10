@@ -84,6 +84,14 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     }));
   };
 
+  // Helper para adicionar foto inserida diretamente a partir do ícone de um item avaliado
+  const handleAddDirectPhoto = (newPhoto: InspectionPhoto) => {
+    onChange(prev => ({
+      ...prev,
+      photos: [...(prev.photos || []), newPhoto]
+    }));
+  };
+
   // Helper para atualizar item avaliado individual
   const updateItemAvaliado = (item: ItemAvaliadoEntity) => {
     onChange(prev => {
@@ -816,55 +824,76 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="montante"
+                componentName="Talude de Montante"
                 itemCode="erosoes"
                 itemLabel="Erosões"
                 value={getItem('montante', 'erosoes', 'Erosões')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="montante"
+                componentName="Talude de Montante"
                 itemCode="escorregamento"
                 itemLabel="Escorregamento"
                 value={getItem('montante', 'escorregamento', 'Escorregamento')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="montante"
+                componentName="Talude de Montante"
                 itemCode="afundamento"
                 itemLabel="Afundamento e/ou Buracos"
                 value={getItem('montante', 'afundamento', 'Afundamento e/ou Buracos')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="montante"
+                componentName="Talude de Montante"
                 itemCode="arvores_arbustos"
                 itemLabel="Árvores e Arbustos"
                 value={getItem('montante', 'arvores_arbustos', 'Árvores e Arbustos')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="montante"
+                componentName="Talude de Montante"
                 itemCode="drenos_canaletas"
                 itemLabel="Drenos / Canaletas"
                 value={getItem('montante', 'drenos_canaletas', 'Drenos / Canaletas')}
                 onChange={updateItemAvaliado}
                 showConservationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="montante"
+                componentName="Talude de Montante"
                 itemCode="biologicos"
                 itemLabel="Formigueiros / Cupinzeiros / Tocas de Animais"
                 value={getItem('montante', 'biologicos', 'Formigueiros / Cupinzeiros / Tocas')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="montante"
+                componentName="Talude de Montante"
                 itemCode="sinais_movimentacao"
                 itemLabel="Sinais de Movimentação"
                 value={getItem('montante', 'sinais_movimentacao', 'Sinais de Movimentação')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
             </div>
 
@@ -927,64 +956,88 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="coroamento"
+                componentName="Coroamento (Crista)"
                 itemCode="erosoes"
                 itemLabel="Erosões"
                 value={getItem('coroamento', 'erosoes', 'Erosões')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="coroamento"
+                componentName="Coroamento (Crista)"
                 itemCode="rachaduras"
                 itemLabel="Rachaduras / Trincas"
                 value={getItem('coroamento', 'rachaduras', 'Rachaduras')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="coroamento"
+                componentName="Coroamento (Crista)"
                 itemCode="revestimento"
                 itemLabel="Revestimento da Pista"
                 value={getItem('coroamento', 'revestimento', 'Revestimento')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="coroamento"
+                componentName="Coroamento (Crista)"
                 itemCode="afundamento"
                 itemLabel="Afundamento e/ou Buracos"
                 value={getItem('coroamento', 'afundamento', 'Afundamento e/ou Buracos')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="coroamento"
+                componentName="Coroamento (Crista)"
                 itemCode="arvores_arbustos"
                 itemLabel="Árvores e Arbustos"
                 value={getItem('coroamento', 'arvores_arbustos', 'Árvores e Arbustos')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="coroamento"
+                componentName="Coroamento (Crista)"
                 itemCode="drenos_canaletas"
                 itemLabel="Drenos / Canaletas"
                 value={getItem('coroamento', 'drenos_canaletas', 'Drenos / Canaletas')}
                 onChange={updateItemAvaliado}
                 showConservationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="coroamento"
+                componentName="Coroamento (Crista)"
                 itemCode="meio_fio"
                 itemLabel="Possui Meio-Fio"
                 value={getItem('coroamento', 'meio_fio', 'Possui Meio Fio')}
                 onChange={updateItemAvaliado}
                 showConservationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="coroamento"
+                componentName="Coroamento (Crista)"
                 itemCode="ameaca_transbordamento"
                 itemLabel="Ameaça de Transbordamento (Borda Livre < 0,5m)"
                 value={getItem('coroamento', 'ameaca_transbordamento', 'Ameaça de Transbordamento')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
             </div>
 
@@ -1061,70 +1114,97 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="jusante"
+                componentName="Talude de Jusante"
                 itemCode="erosoes"
                 itemLabel="Erosões"
                 value={getItem('jusante', 'erosoes', 'Erosões')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="jusante"
+                componentName="Talude de Jusante"
                 itemCode="escorregamento"
                 itemLabel="Escorregamento"
                 value={getItem('jusante', 'escorregamento', 'Escorregamento')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="jusante"
+                componentName="Talude de Jusante"
                 itemCode="afundamento"
                 itemLabel="Afundamento e/ou Buracos"
                 value={getItem('jusante', 'afundamento', 'Afundamento e/ou Buracos')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="jusante"
+                componentName="Talude de Jusante"
                 itemCode="arvores_arbustos"
                 itemLabel="Árvores e Arbustos"
                 value={getItem('jusante', 'arvores_arbustos', 'Árvores e Arbustos')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="jusante"
+                componentName="Talude de Jusante"
                 itemCode="drenos_canaletas"
                 itemLabel="Drenos / Canaletas"
                 value={getItem('jusante', 'drenos_canaletas', 'Drenos / Canaletas')}
                 onChange={updateItemAvaliado}
                 showConservationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="jusante"
+                componentName="Talude de Jusante"
                 itemCode="biologicos"
                 itemLabel="Formigueiros / Cupinzeiros / Tocas de Animais"
                 value={getItem('jusante', 'biologicos', 'Formigueiros / Cupinzeiros / Tocas')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="jusante"
+                componentName="Talude de Jusante"
                 itemCode="sinais_movimentacao"
                 itemLabel="Sinais de Movimentação"
                 value={getItem('jusante', 'sinais_movimentacao', 'Sinais de Movimentação')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="jusante"
+                componentName="Talude de Jusante"
                 itemCode="fuga_agua"
                 itemLabel="Sinais de Fuga D'Água ou Áreas Úmidas"
                 value={getItem('jusante', 'fuga_agua', 'Sinais de Fuga D\'Água ou Áreas Úmidas')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="jusante"
+                componentName="Talude de Jusante"
                 itemCode="carregamento_material"
                 itemLabel="Carregamento de Material na Água dos Drenos (Piping)"
                 value={getItem('jusante', 'carregamento_material', 'Carregamento de Material na Água dos Drenos')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
             </div>
 
@@ -1172,34 +1252,46 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="regiao_jusante"
+                componentName="Região a Jusante da Barragem"
                 itemCode="construcoes_leito"
                 itemLabel="Construções Próximas ao Leito do Rio"
                 value={getItem('regiao_jusante', 'construcoes_leito', 'Construções Próximas ao Leito do Rio')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="regiao_jusante"
+                componentName="Região a Jusante da Barragem"
                 itemCode="fuga_agua"
                 itemLabel="Fuga D'Água / Percolação Anormal"
                 value={getItem('regiao_jusante', 'fuga_agua', 'Fuga D\'Água / Percolação Anormal')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="regiao_jusante"
+                componentName="Região a Jusante da Barragem"
                 itemCode="erosao_cavernas"
                 itemLabel="Erosão / Cavernas / Buracos"
                 value={getItem('regiao_jusante', 'erosao_cavernas', 'Erosão / Cavernas / Buracos')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="regiao_jusante"
+                componentName="Região a Jusante da Barragem"
                 itemCode="arvores_faixa_10m"
                 itemLabel="Árvores e Arbustos na Faixa de 10 m – Pé da Barragem"
                 value={getItem('regiao_jusante', 'arvores_faixa_10m', 'Árvores e Arbustos na Faixa de 10 m – Pé')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
             </div>
 
@@ -1345,40 +1437,55 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="reservatorio"
+                componentName="Reservatório"
                 itemCode="erosoes_entorno"
                 itemLabel="Erosões Próximas do Entorno"
                 value={getItem('reservatorio', 'erosoes_entorno', 'Erosões Próximas do Entorno')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="reservatorio"
+                componentName="Reservatório"
                 itemCode="assoreamento"
                 itemLabel="Assoreamento"
                 value={getItem('reservatorio', 'assoreamento', 'Assoreamento')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="reservatorio"
+                componentName="Reservatório"
                 itemCode="desmoronamento_margens"
                 itemLabel="Desmoronamento das Margens"
                 value={getItem('reservatorio', 'desmoronamento_margens', 'Desmoronamento das Margens')}
                 onChange={updateItemAvaliado}
                 showLocationOnYes
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="reservatorio"
+                componentName="Reservatório"
                 itemCode="vegetacao_aquatica"
                 itemLabel="Vegetação Aquática Excessiva"
                 value={getItem('reservatorio', 'vegetacao_aquatica', 'Vegetação Aquática Excessiva')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
               <EvaluationItemCard
                 componentCode="reservatorio"
+                componentName="Reservatório"
                 itemCode="gado_pastando"
                 itemLabel="Gado Pastando no Entorno"
                 value={getItem('reservatorio', 'gado_pastando', 'Gado Pastando no Entorno')}
                 onChange={updateItemAvaliado}
+                photos={data.photos || []}
+                onAddPhoto={handleAddDirectPhoto}
               />
             </div>
 
