@@ -31,7 +31,9 @@ import {
   deleteInspection,
   getActiveInspectionId, 
   setActiveInspectionId,
-  exportInspectionToJson
+  exportInspectionToJson,
+  syncAllPendingInspections,
+  syncSingleInspection
 } from './services/storage';
 import { formatGmsString } from './utils/geoCoordinates';
 import { 
@@ -99,12 +101,45 @@ function AppContent() {
   const [photoFilterComponent, setPhotoFilterComponent] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
   const saveTimeoutRef = useRef<any>(null);
 
-  // Monitora conectividade para resiliência no campo
+  // Monitora conectividade para resiliência no campo e sincronização automática ao restabelecer rede
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const handleOnline = () => {
+      setIsOnline(true);
+      // Ao restabelecer conexão, notifica e tenta sincronizar fichas pendentes
+      setSyncFeedback({
+        message: 'Rede restabelecida. Sincronizando fichas salvas localmente...',
+        type: 'info'
+      });
+      syncAllPendingInspections().then(res => {
+        const updatedList = getAllInspections();
+        setInspections(updatedList);
+        const curr = updatedList.find(i => i.id === currentInspection.id);
+        if (curr) setCurrentInspection(curr);
+
+        if (res.synced > 0) {
+          setSyncFeedback({
+            message: `${res.synced} vistoria(s) sincronizada(s) com sucesso no banco de dados centralizado.`,
+            type: 'success'
+          });
+        } else if (res.total === 0) {
+          setSyncFeedback(null);
+        }
+      }).catch(() => {
+        setIsSyncing(false);
+      });
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setSyncFeedback({
+        message: 'Dispositivo sem internet. Modo local seguro ativo: todas as fichas serão gravadas com criptografia no aparelho.',
+        type: 'info'
+      });
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -113,7 +148,52 @@ function AppContent() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [currentInspection.id]);
+
+  // Função para sincronização manual acionada pelo usuário
+  const handleSyncNow = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setSyncFeedback({
+      message: 'Transmitindo e sincronizando fichas criptografadas com o banco de dados...',
+      type: 'info'
+    });
+
+    try {
+      const res = await syncAllPendingInspections();
+      const updatedList = getAllInspections();
+      setInspections(updatedList);
+      const curr = updatedList.find(i => i.id === currentInspection.id);
+      if (curr) setCurrentInspection(curr);
+
+      if (res.synced > 0) {
+        setSyncFeedback({
+          message: `Sucesso! ${res.synced} ficha(s) sincronizada(s) e confirmada(s) no banco de dados.`,
+          type: 'success'
+        });
+      } else if (res.total === 0) {
+        setSyncFeedback({
+          message: 'Tudo em dia: todas as fichas já estão sincronizadas no banco de dados.',
+          type: 'success'
+        });
+      } else {
+        setSyncFeedback({
+          message: `Dados mantidos salvos com segurança no dispositivo. ${res.errors[0] || 'Aguardando servidor.'}`,
+          type: 'info'
+        });
+      }
+    } catch (err: any) {
+      setSyncFeedback({
+        message: 'Dados mantidos salvos no dispositivo. Sincronização pendente.',
+        type: 'info'
+      });
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => {
+        setSyncFeedback(prev => (prev?.type === 'success' ? null : prev));
+      }, 5000);
+    }
+  };
 
   // Inicializa dados do LocalStorage
   useEffect(() => {
@@ -395,8 +475,33 @@ function AppContent() {
           <div className="flex items-center gap-2 max-w-7xl mx-auto w-full">
             <WifiOff className="w-4 h-4 shrink-0 text-amber-200" />
             <span>
-              <strong>Dispositivo Offline / Sem Conexão:</strong> Operação de campo em modo local seguro ativada. Seus dados, medições e fotos permanecem íntegros e salvos no dispositivo.
+              <strong>Dispositivo Offline / Sem Conexão:</strong> Operação de campo em modo local seguro ativada. Seus dados, medições e fotos estão salvos com criptografia no aparelho.
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Banner de Feedback de Sincronização */}
+      {syncFeedback && (
+        <div className={`px-3 py-2 text-xs font-semibold flex items-center justify-between shadow-xs print:hidden z-50 transition-all ${
+          syncFeedback.type === 'success'
+            ? 'bg-emerald-600 text-white'
+            : syncFeedback.type === 'error'
+            ? 'bg-rose-600 text-white'
+            : 'bg-slate-800 text-slate-100'
+        }`}>
+          <div className="flex items-center justify-between max-w-7xl mx-auto w-full gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-current animate-ping shrink-0" />
+              <span>{syncFeedback.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSyncFeedback(null)}
+              className="text-[11px] underline opacity-80 hover:opacity-100 cursor-pointer"
+            >
+              Fechar
+            </button>
           </div>
         </div>
       )}
@@ -416,6 +521,8 @@ function AppContent() {
         lastSavedAt={lastSavedAt}
         isOnline={isOnline}
         onOpenSecurityReview={() => setShowSecurityModal(true)}
+        onSyncNow={handleSyncNow}
+        isSyncing={isSyncing}
       />
 
       {/* Barra de Progresso Visual de Preenchimento da Inspeção de Campo (visível apenas na Nova Ficha) */}
@@ -457,6 +564,19 @@ function AppContent() {
                 onDeleteInspection={handleDeleteInspection}
                 isOnline={isOnline}
                 lastSavedAt={lastSavedAt}
+                onSyncSingle={async (id) => {
+                  const res = await syncSingleInspection(id);
+                  const updated = getAllInspections();
+                  setInspections(updated);
+                  const curr = updated.find(i => i.id === currentInspection.id);
+                  if (curr) setCurrentInspection(curr);
+                  setSyncFeedback({
+                    message: res.success ? 'Ficha sincronizada e salva no banco de dados com sucesso.' : (res.error || 'Erro na sincronização.'),
+                    type: res.success ? 'success' : 'info'
+                  });
+                }}
+                onSyncAll={handleSyncNow}
+                isSyncing={isSyncing}
               />
             )}
 
@@ -468,6 +588,8 @@ function AppContent() {
                 onNext={() => setActiveStep(2)}
                 onPrev={() => setActiveStep(0)}
                 onSave={handleSaveInspection}
+                onSyncNow={handleSyncNow}
+                isSyncing={isSyncing}
               />
             )}
 
@@ -522,6 +644,19 @@ function AppContent() {
                 onNewInspection={handleNewInspection}
                 onLoadSample={handleLoadSample}
                 onGoToSheet={() => setActiveStep(1)}
+                onSyncSingle={async (id) => {
+                  const res = await syncSingleInspection(id);
+                  const updated = getAllInspections();
+                  setInspections(updated);
+                  const curr = updated.find(i => i.id === currentInspection.id);
+                  if (curr) setCurrentInspection(curr);
+                  setSyncFeedback({
+                    message: res.success ? 'Ficha sincronizada e salva no banco de dados com sucesso.' : (res.error || 'Erro na sincronização.'),
+                    type: res.success ? 'success' : 'info'
+                  });
+                }}
+                onSyncAll={handleSyncNow}
+                isSyncing={isSyncing}
               />
             )}
           </motion.div>

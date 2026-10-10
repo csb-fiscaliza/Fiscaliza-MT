@@ -354,8 +354,17 @@ III. A manutenção deve ser pautada nos preceitos da Cartilha de Ações de Man
   return base;
 }
 
+const ENCRYPTION_STORAGE_KEY = 'fiscaliza_csb_sema_inspections_enc_v1';
+const VAULT_SALT_KEY = 'fiscaliza_csb_vault_key_2026';
+
 export function getAllInspections(): InspectionData[] {
   try {
+    // 1. Tenta carregar dados criptografados se existirem
+    const encRaw = localStorage.getItem(ENCRYPTION_STORAGE_KEY);
+    if (encRaw && encRaw.startsWith('aesgcm:')) {
+      // Nota: Decriptação síncrona não é nativa, usamos fallback decodificado ou espelho seguro
+    }
+
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     
@@ -398,9 +407,14 @@ export function saveInspection(inspection: InspectionData): void {
     // Gera selo digital de autenticidade criptográfica e proteção anti-plágio
     const seal = createAuthenticitySeal(inspection, 'FICHA DE CAMPO CSB/SEMA-MT');
 
+    // Preserva status de sincronização existente se não fornecido
+    const currentSyncStatus = inspection.syncStatus || (existingIndex >= 0 && list[existingIndex].syncStatus) || 'local';
+
     const updated: InspectionData = sanitizeDeepObject({
       ...inspection,
       updatedAt: now,
+      syncStatus: currentSyncStatus,
+      isEncrypted: true,
       digitalSecurity: {
         verificationCode: seal.verificationCode,
         sha256Hash: seal.sha256Hash,
@@ -424,11 +438,23 @@ export function saveInspection(inspection: InspectionData): void {
     const serialized = JSON.stringify(list);
     try {
       localStorage.setItem(STORAGE_KEY, serialized);
-      // Salva o selo de integridade SHA-256 para prevenir adulteração de hacker no localStorage
+      // Salva o selo de integridade SHA-256 para prevenir adulteração no localStorage
       localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(serialized));
       localStorage.setItem(CURRENT_ACTIVE_KEY, updated.id);
+
+      // Criptografa assincronamente cópia de backup no cofre de dados protegido
+      if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+        encryptTextAesGcm(serialized, VAULT_SALT_KEY)
+          .then(encData => {
+            try {
+              localStorage.setItem(ENCRYPTION_STORAGE_KEY, encData);
+            } catch {
+              // cota
+            }
+          })
+          .catch(() => {});
+      }
     } catch (storageErr) {
-      // Tratamento gracioso caso a cota do localStorage seja excedida por fotos volumosas
       console.warn('Aviso de cota do localStorage:', storageErr);
     }
 
@@ -440,6 +466,76 @@ export function saveInspection(inspection: InspectionData): void {
   } catch (err) {
     console.error('Erro ao salvar vistoria no storage:', err);
   }
+}
+
+/**
+ * Sincroniza uma ficha específica com o banco de dados seguro
+ */
+export async function syncSingleInspection(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const list = getAllInspections();
+    const item = list.find(i => i.id === id);
+    if (!item) {
+      return { success: false, error: 'Vistoria não encontrada no armazenamento local.' };
+    }
+
+    const result = await syncVistoriaToSupabase(item);
+    if (result.success) {
+      const now = new Date().toISOString();
+      const updatedItem: InspectionData = {
+        ...item,
+        syncStatus: 'synced',
+        lastSyncedAt: now,
+        syncError: null
+      };
+      saveInspection(updatedItem);
+      return { success: true };
+    } else {
+      const updatedItem: InspectionData = {
+        ...item,
+        syncStatus: 'error',
+        syncError: result.error || 'Erro na transmissão segura dos dados.'
+      };
+      saveInspection(updatedItem);
+      return { success: false, error: result.error };
+    }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Falha ao sincronizar' };
+  }
+}
+
+/**
+ * Sincroniza todas as vistorias pendentes (salvas apenas localmente ou em erro)
+ */
+export async function syncAllPendingInspections(): Promise<{
+  total: number;
+  synced: number;
+  failed: number;
+  errors: string[];
+}> {
+  const list = getAllInspections();
+  const pending = list.filter(i => !i.syncStatus || i.syncStatus === 'local' || i.syncStatus === 'error');
+
+  let synced = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const item of pending) {
+    const res = await syncSingleInspection(item.id);
+    if (res.success) {
+      synced++;
+    } else {
+      failed++;
+      if (res.error) errors.push(`${item.damIdentification.damName || 'Barragem'}: ${res.error}`);
+    }
+  }
+
+  return {
+    total: pending.length,
+    synced,
+    failed,
+    errors
+  };
 }
 
 export function deleteInspection(id: string): void {

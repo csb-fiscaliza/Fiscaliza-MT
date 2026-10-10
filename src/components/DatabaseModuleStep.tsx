@@ -26,7 +26,10 @@ import {
   ArrowUpDown,
   Sparkles,
   RefreshCw,
-  FolderOpen
+  FolderOpen,
+  Lock,
+  CloudCheck,
+  AlertCircle
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { InspectionDetailModal } from './InspectionDetailModal';
@@ -41,6 +44,9 @@ interface Props {
   onNewInspection: () => void;
   onLoadSample: () => void;
   onGoToSheet: () => void;
+  onSyncSingle?: (id: string) => void;
+  onSyncAll?: () => void;
+  isSyncing?: boolean;
 }
 
 export const DatabaseModuleStep: React.FC<Props> = ({
@@ -50,7 +56,10 @@ export const DatabaseModuleStep: React.FC<Props> = ({
   onDeleteInspection,
   onNewInspection,
   onLoadSample,
-  onGoToSheet
+  onGoToSheet,
+  onSyncSingle,
+  onSyncAll,
+  isSyncing = false
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCondition, setFilterCondition] = useState<'all' | 'critico' | 'alerta' | 'adequado'>('all');
@@ -157,6 +166,19 @@ export const DatabaseModuleStep: React.FC<Props> = ({
           </div>
 
           <div className="flex items-center flex-wrap gap-2">
+            {onSyncAll && (
+              <button
+                type="button"
+                onClick={onSyncAll}
+                disabled={isSyncing}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                title="Sincronizar todas as vistorias locais pendentes com o banco de dados seguro"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar Banco'}</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onNewInspection}
@@ -356,6 +378,19 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                           {d.damName || d.propertyOrBusinessName || 'Vistoria sem denominação'}
                         </h3>
 
+                        {/* Status de Sincronização e Criptografia */}
+                        {insp.syncStatus === 'synced' ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            <span>Sincronizado no Banco</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1" title="Ficha criptografada e salva apenas no armazenamento local do aparelho">
+                            <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                            <span>Salvo Localmente (Offline)</span>
+                          </span>
+                        )}
+
                         {isActive && (
                           <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
                             · Ativa em Edição
@@ -434,6 +469,20 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                         <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                         <span>Visualizar</span>
                       </button>
+
+                      {/* Sincronizar individual se pendente */}
+                      {onSyncSingle && (!insp.syncStatus || insp.syncStatus === 'local' || insp.syncStatus === 'error') && (
+                        <button
+                          type="button"
+                          onClick={() => onSyncSingle(insp.id)}
+                          disabled={isSyncing}
+                          className="px-2.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                          title="Sincronizar esta vistoria com o banco de dados agora"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                          <span>Sync</span>
+                        </button>
+                      )}
 
                       {/* Editar */}
                       <button

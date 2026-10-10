@@ -28,7 +28,9 @@ import {
   ChevronRight,
   TrendingUp,
   SlidersHorizontal,
-  X
+  X,
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { FiscalizaLogo } from './FiscalizaLogo';
@@ -48,6 +50,9 @@ interface Props {
   onDeleteInspection?: (id: string) => void;
   isOnline: boolean;
   lastSavedAt: string | null;
+  onSyncSingle?: (id: string) => void;
+  onSyncAll?: () => void;
+  isSyncing?: boolean;
 }
 
 export const DashboardStep: React.FC<Props> = ({
@@ -60,7 +65,10 @@ export const DashboardStep: React.FC<Props> = ({
   onSelectAndEdit,
   onDeleteInspection,
   isOnline,
-  lastSavedAt
+  lastSavedAt,
+  onSyncSingle,
+  onSyncAll,
+  isSyncing = false
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'critical' | 'adequate' | 'photos'>('all');
@@ -511,6 +519,19 @@ export const DashboardStep: React.FC<Props> = ({
                         </span>
                       )}
 
+                      {/* Status de Sincronização / Criptografia */}
+                      {insp.syncStatus === 'synced' ? (
+                        <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          <span>Banco de Dados</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20" title="Salva offline no dispositivo com criptografia">
+                          <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                          <span>Salvo Local (Offline)</span>
+                        </span>
+                      )}
+
                       {insp.conclusions?.requiresNotification && (
                         <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
                           <Bell className="w-3 h-3" />
@@ -573,6 +594,20 @@ export const DashboardStep: React.FC<Props> = ({
                       <Eye className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
                       <span>Visualizar</span>
                     </button>
+
+                    {/* Sincronizar individual se pendente */}
+                    {onSyncSingle && (!insp.syncStatus || insp.syncStatus === 'local' || insp.syncStatus === 'error') && (
+                      <button
+                        type="button"
+                        onClick={() => onSyncSingle(insp.id)}
+                        disabled={isSyncing}
+                        className="px-2.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        title="Sincronizar esta ficha com o banco de dados agora"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                        <span>Sync</span>
+                      </button>
+                    )}
 
                     {/* Editar */}
                     <button

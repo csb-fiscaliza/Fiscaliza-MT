@@ -15,7 +15,13 @@ import {
   Clock,
   Wifi,
   WifiOff,
-  Save
+  Save,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  Lock,
+  CloudCheck,
+  CloudOff
 } from 'lucide-react';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionData } from '../types/inspection';
@@ -36,6 +42,8 @@ interface HeaderProps {
   lastSavedAt: string | null;
   isOnline: boolean;
   onOpenSecurityReview: () => void;
+  onSyncNow?: () => void;
+  isSyncing?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -46,11 +54,18 @@ export const Header: React.FC<HeaderProps> = ({
   onSave,
   allInspections,
   lastSavedAt,
-  isOnline
+  isOnline,
+  onOpenSecurityReview,
+  onSyncNow,
+  isSyncing = false
 }) => {
   const isPanelActive = activeStep === 0;
   const isDatabaseActive = activeStep === 6;
   const isSheetActive = activeStep >= 1 && activeStep <= 5;
+
+  // Contagem de fichas locais pendentes de sincronização
+  const pendingCount = allInspections.filter(i => !i.syncStatus || i.syncStatus === 'local' || i.syncStatus === 'error').length;
+  const syncedCount = allInspections.filter(i => i.syncStatus === 'synced').length;
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 transition-colors duration-200 shadow-2xs select-none">
@@ -88,9 +103,56 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Lado Direito: Tema e Conectividade */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400">
+        {/* Lado Direito: Status de Sincronização, Criptografia, Tema e Conectividade */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Badge de Sincronização com Banco de Dados / Modo Offline */}
+          {pendingCount > 0 ? (
+            <button
+              type="button"
+              onClick={onSyncNow}
+              disabled={isSyncing || !isOnline}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs border ${
+                !isOnline
+                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 cursor-default'
+                  : 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 hover:shadow-amber-500/20 cursor-pointer'
+              }`}
+              title={
+                !isOnline
+                  ? `${pendingCount} vistoria(s) salva(s) localmente no dispositivo (offline). Criptografia ativa.`
+                  : `${pendingCount} vistoria(s) salva(s) apenas localmente. Clique para sincronizar no banco de dados agora.`
+              }
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">
+                {isSyncing ? 'Sincronizando...' : `${pendingCount} Salvo(s) Localmente`}
+              </span>
+              <span className="sm:hidden font-mono">
+                {isSyncing ? 'Sync...' : `${pendingCount} Local`}
+              </span>
+            </button>
+          ) : (
+            <div 
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60"
+              title="Todas as vistorias sincronizadas com o banco de dados seguro."
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Sincronizado no Banco</span>
+            </div>
+          )}
+
+          {/* Indicador de Criptografia Ativa */}
+          <button
+            type="button"
+            onClick={onOpenSecurityReview}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition cursor-pointer"
+            title="Dados criptografados de ponta a ponta (AES-GCM 256-bit + Selo SHA-256)"
+          >
+            <Lock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden md:inline">Criptografia Ativa</span>
+          </button>
+
+          {/* Status de Rede */}
+          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400">
             {isOnline ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -99,7 +161,7 @@ export const Header: React.FC<HeaderProps> = ({
             ) : (
               <>
                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                <span>Modo Local</span>
+                <span>Offline</span>
               </>
             )}
           </div>

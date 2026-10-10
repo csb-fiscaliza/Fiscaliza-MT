@@ -22,7 +22,12 @@ import {
   Save,
   FileDown,
   Printer,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw,
+  Lock,
+  WifiOff,
+  CloudCheck,
+  AlertCircle
 } from 'lucide-react';
 import { exportInspectionSheetPdf } from '../utils/exportInspectionSheetPdf';
 import { BASINS_MT, MUNICIPALITIES_MT } from '../data/damComponents';
@@ -46,6 +51,8 @@ interface Props {
   onNext: () => void;
   onPrev: () => void;
   onSave?: () => void;
+  onSyncNow?: () => void;
+  isSyncing?: boolean;
 }
 
 export const OfficialInspectionSheetStep: React.FC<Props> = ({
@@ -53,7 +60,9 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
   onChange,
   onNext,
   onPrev,
-  onSave
+  onSave,
+  onSyncNow,
+  isSyncing = false
 }) => {
   // Estado de recolher/expandir seções preservando as respostas
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -200,6 +209,65 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             {Object.values(openSections).every(Boolean) ? 'Recolher Todas' : 'Expandir Todas'}
           </button>
         </div>
+      </div>
+      <div className={`p-3.5 rounded-xl border text-xs flex flex-wrap items-center justify-between gap-3 shadow-xs ${
+        data.syncStatus === 'synced'
+          ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+          : data.syncStatus === 'error'
+          ? 'bg-rose-50/80 border-rose-200 text-rose-900'
+          : 'bg-amber-50/80 border-amber-200 text-amber-900'
+      }`}>
+        <div className="flex items-center gap-2.5">
+          {data.syncStatus === 'synced' ? (
+            <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0 text-emerald-700">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+          ) : data.syncStatus === 'error' ? (
+            <div className="w-7 h-7 rounded-lg bg-rose-100 flex items-center justify-center shrink-0 text-rose-700">
+              <AlertCircle className="w-4 h-4" />
+            </div>
+          ) : (
+            <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 text-amber-700">
+              <Lock className="w-4 h-4" />
+            </div>
+          )}
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold">
+                {data.syncStatus === 'synced' 
+                  ? 'Ficha Sincronizada no Banco de Dados' 
+                  : data.syncStatus === 'error'
+                  ? 'Pendente de Sincronização (Erro na Transmissão)'
+                  : 'Ficha Salva Offline no Dispositivo (Criptografia Ativa)'}
+              </span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/80 border border-current">
+                {data.syncStatus === 'synced' ? 'Banco de Dados' : 'Apenas Local'}
+              </span>
+            </div>
+            <p className="text-[11px] opacity-85 mt-0.5">
+              {data.syncStatus === 'synced' 
+                ? `Registro persistido no banco centralizado em ${data.lastSyncedAt ? new Date(data.lastSyncedAt).toLocaleString('pt-BR') : 'recente'}. Cópia de segurança íntegra.`
+                : 'Trabalhe offline com tranquilidade. Seus dados estão criptografados em cofre local seguro (AES-GCM 256-bit) e serão sincronizados automaticamente assim que houver rede.'}
+            </p>
+          </div>
+        </div>
+
+        {onSyncNow && (
+          <button
+            type="button"
+            onClick={onSyncNow}
+            disabled={isSyncing}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+              data.syncStatus === 'synced'
+                ? 'bg-white hover:bg-emerald-100/50 text-emerald-800 border border-emerald-300'
+                : 'bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-800'
+            }`}
+            title="Sincronizar esta ficha com o banco de dados seguro agora"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Sincronizando...' : data.syncStatus === 'synced' ? 'Sincronizar Novamente' : 'Sincronizar com Banco'}</span>
+          </button>
+        )}
       </div>
 
       {/* ========================================================================= */}

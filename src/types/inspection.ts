@@ -419,6 +419,12 @@ export interface InspectionData {
     rastreabilidadeId: string;
     avisoLegal: string;
   };
+
+  // Status de Sincronização e Criptografia
+  syncStatus?: 'local' | 'synced' | 'syncing' | 'error';
+  lastSyncedAt?: string | null;
+  syncError?: string | null;
+  isEncrypted?: boolean;
 }
 
 export interface FotoVistoriaEntity {
