@@ -157,3 +157,121 @@ export function getComponentNameById(componentId: string): string {
 
   return 'Visão Geral / Não Vinculado';
 }
+
+/**
+ * Aplica carimbo pericial visual na foto com legenda, timestamp e coordenadas GPS
+ */
+export async function stampPhotoWithCaptionAndTimestamp(
+  dataUrl: string,
+  options: {
+    caption?: string;
+    timestamp?: string;
+    coordinates?: string;
+    agency?: string;
+  }
+): Promise<{ dataUrl: string; blob: Blob }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        fetch(dataUrl)
+          .then(res => res.blob())
+          .then(blob => resolve({ dataUrl, blob }))
+          .catch(reject);
+        return;
+      }
+
+      // Desenha imagem original
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+
+      const lines: string[] = [];
+      const agencyText = options.agency || 'CSB / SEMA-MT – FISCALIZAÇÃO DE BARRAGENS';
+      lines.push(agencyText);
+
+      if (options.caption && options.caption.trim()) {
+        lines.push(`Legenda: ${options.caption.trim()}`);
+      }
+
+      const timeParts: string[] = [];
+      if (options.timestamp && options.timestamp.trim()) {
+        timeParts.push(`Data/Hora: ${options.timestamp.trim()}`);
+      }
+      if (options.coordinates && options.coordinates.trim()) {
+        timeParts.push(`GPS: ${options.coordinates.trim()}`);
+      }
+      if (timeParts.length > 0) {
+        lines.push(timeParts.join(' | '));
+      }
+
+      if (lines.length > 0) {
+        // Altura proporcional da barra de carimbo
+        const baseFontSize = Math.max(14, Math.min(32, Math.round(canvas.width * 0.022)));
+        const lineHeight = Math.round(baseFontSize * 1.35);
+        const padding = Math.round(baseFontSize * 0.8);
+        const bannerHeight = (lines.length * lineHeight) + (padding * 2);
+
+        // Faixa escura com gradiente no rodapé
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(0, canvas.height - bannerHeight, canvas.width, bannerHeight);
+
+        // Borda superior da faixa em verde esmeralda
+        ctx.fillStyle = '#10b981';
+        ctx.fillRect(0, canvas.height - bannerHeight, canvas.width, Math.max(2, Math.round(baseFontSize * 0.15)));
+
+        ctx.textBaseline = 'top';
+
+        lines.forEach((line, idx) => {
+          const y = canvas.height - bannerHeight + padding + (idx * lineHeight);
+          if (idx === 0) {
+            ctx.font = `bold ${baseFontSize}px 'Plus Jakarta Sans', system-ui, sans-serif`;
+            ctx.fillStyle = '#34d399'; // Verde claro para cabeçalho
+          } else if (idx === 1 && lines.length > 2) {
+            ctx.font = `600 ${Math.round(baseFontSize * 0.95)}px 'Plus Jakarta Sans', system-ui, sans-serif`;
+            ctx.fillStyle = '#f8fafc'; // Branco para legenda
+          } else {
+            ctx.font = `500 ${Math.round(baseFontSize * 0.88)}px 'JetBrains Mono', monospace, sans-serif`;
+            ctx.fillStyle = '#cbd5e1'; // Cinza claro para timestamp/GPS
+          }
+
+          // Trunca se exceder a largura
+          const maxTextWidth = canvas.width - (padding * 2);
+          let displayText = line;
+          if (ctx.measureText(displayText).width > maxTextWidth) {
+            while (displayText.length > 4 && ctx.measureText(displayText + '...').width > maxTextWidth) {
+              displayText = displayText.slice(0, -1);
+            }
+            displayText += '...';
+          }
+
+          ctx.fillText(displayText, padding, y);
+        });
+      }
+
+      const finalDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+      canvas.toBlob(
+        blob => {
+          if (blob) {
+            resolve({ dataUrl: finalDataUrl, blob });
+          } else {
+            fetch(finalDataUrl)
+              .then(res => res.blob())
+              .then(b => resolve({ dataUrl: finalDataUrl, blob: b }))
+              .catch(reject);
+          }
+        },
+        'image/jpeg',
+        0.88
+      );
+    };
+
+    img.onerror = () => reject(new Error('Erro ao processar imagem para carimbo.'));
+    img.src = dataUrl;
+  });
+}

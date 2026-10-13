@@ -36,6 +36,7 @@ import {
 } from '../utils/photoCaptureUtils';
 import { savePhotoBlob, deletePhotoBlob } from '../services/photoStorage';
 import { formatGmsString } from '../utils/geoCoordinates';
+import { DeviceCameraCaptureModal } from './DeviceCameraCaptureModal';
 
 interface ComponentPhotoUploaderProps {
   componentId: string;
@@ -86,6 +87,7 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
 
   // Modal para confirmação de fotos (suporta uma ou múltiplas fotos)
   const [pendingModalData, setPendingModalData] = useState<PendingModalBatchData | null>(null);
+  const [isDeviceCameraOpen, setIsDeviceCameraOpen] = useState<boolean>(false);
 
   // Estado de edição detalhada de uma foto existente
   const [editingPhoto, setEditingPhoto] = useState<EditingPhotoState | null>(null);
@@ -376,13 +378,13 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
 
             {/* Botões de Ação para Inserir Fotos */}
             <div className="flex items-center flex-wrap gap-2">
-              {/* Botão Tirar Foto (Câmera do Celular/Tablet) */}
+              {/* Botão Tirar Foto (Câmera do Aparelho ao Vivo) */}
               <button
                 type="button"
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={() => setIsDeviceCameraOpen(true)}
                 disabled={isProcessing}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition cursor-pointer shadow-xs disabled:opacity-50"
-                title="Abrir câmera do dispositivo móvel"
+                title="Acessar câmera do aparelho e tirar foto ao vivo"
               >
                 <Camera className="w-4 h-4" />
                 <span>Tirar Foto</span>
@@ -908,6 +910,18 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal de Câmera do Aparelho ao Vivo para o Componente */}
+      <DeviceCameraCaptureModal
+        isOpen={isDeviceCameraOpen}
+        onClose={() => setIsDeviceCameraOpen(false)}
+        componentName={componentName}
+        canonicalComponentId={componentId}
+        onPhotoSaved={newPhoto => {
+          onUpdatePhotos([...allPhotos, newPhoto]);
+          setIsExpanded(true);
+        }}
+      />
     </div>
   );
 };

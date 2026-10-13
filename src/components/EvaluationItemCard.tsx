@@ -36,6 +36,7 @@ import {
   getDeviceGpsCoordinates 
 } from '../utils/photoCaptureUtils';
 import { savePhotoBlob } from '../services/photoStorage';
+import { DeviceCameraCaptureModal } from './DeviceCameraCaptureModal';
 
 interface Props {
   componentCode: string;
@@ -67,6 +68,8 @@ export const EvaluationItemCard: React.FC<Props> = ({
 
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [photoSuccessToast, setPhotoSuccessToast] = useState<string | null>(null);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  const [fileForModal, setFileForModal] = useState<File | undefined>(undefined);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -109,60 +112,9 @@ export const EvaluationItemCard: React.FC<Props> = ({
     return cap.includes(targetLabel) || cap.includes(targetCode);
   });
 
-  const handlePhotoCapture = async (files: FileList | null) => {
-    if (!files || files.length === 0 || !onAddPhoto) return;
-    setIsProcessingPhoto(true);
-
-    try {
-      // Captura GPS no momento do clique se disponível
-      let lat: number | undefined;
-      let lng: number | undefined;
-      let accuracy: number | undefined;
-
-      try {
-        const coords = await getDeviceGpsCoordinates(6000);
-        if (coords) {
-          lat = coords.latitude;
-          lng = coords.longitude;
-          accuracy = coords.accuracyMeters;
-        }
-      } catch (gpsErr) {
-        console.warn('GPS não capturado para foto do item:', gpsErr);
-      }
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const photoId = `foto-item-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`;
-        const { dataUrl, blob } = await compressImageToDataUrlAndBlob(file, 1600, 0.82);
-
-        await savePhotoBlob(photoId, blob);
-
-        const newPhoto: InspectionPhoto = {
-          id: photoId,
-          dataUrl,
-          componentId: getCanonicalComponentId(),
-          componentName: getPreformattedComponentName(),
-          locationDescription: `${getPreformattedComponentName()} - ${itemLabel}`,
-          caption: files.length > 1 ? `${preformattedCaption} (Foto ${i + 1}/${files.length})` : preformattedCaption,
-          timestamp: formatTimestampPtBr(new Date()),
-          latitude: lat,
-          longitude: lng,
-          accuracyMeters: accuracy,
-          syncStatus: 'local'
-        };
-
-        onAddPhoto(newPhoto);
-      }
-
-      setPhotoSuccessToast(`Foto inserida: "${preformattedCaption}"`);
-      setTimeout(() => setPhotoSuccessToast(null), 3500);
-    } catch (err) {
-      console.error('Erro ao inserir foto do item:', err);
-    } finally {
-      setIsProcessingPhoto(false);
-      if (cameraInputRef.current) cameraInputRef.current.value = '';
-      if (galleryInputRef.current) galleryInputRef.current.value = '';
-    }
+  const handleOpenPhotoCapture = (file?: File) => {
+    setFileForModal(file);
+    setIsCameraModalOpen(true);
   };
 
   const setResponse = (resp: EvaluationResponseType) => {
@@ -234,22 +186,19 @@ export const EvaluationItemCard: React.FC<Props> = ({
 
   return (
     <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3 transition-colors">
-      {/* Inputs ocultos de câmera e galeria para o item */}
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={e => handlePhotoCapture(e.target.files)}
-      />
+      {/* Input oculto de galeria para seleção rápida de arquivo com posterior legenda/timestamp */}
       <input
         ref={galleryInputRef}
         type="file"
         accept="image/*"
-        multiple
         className="hidden"
-        onChange={e => handlePhotoCapture(e.target.files)}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (file) {
+            handleOpenPhotoCapture(file);
+          }
+          if (galleryInputRef.current) galleryInputRef.current.value = '';
+        }}
       />
 
       {/* Cabeçalho do Item: Título + Ícone de Registro Fotográfico */}
@@ -265,24 +214,24 @@ export const EvaluationItemCard: React.FC<Props> = ({
 
         {/* Botão/Ícone para Registro Fotográfico Direto do Item */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* Botão Câmera Rápida */}
+          {/* Botão Câmera do Aparelho (Tirar Foto / Legenda / Time Stamp) */}
           <button
             type="button"
-            onClick={() => cameraInputRef.current?.click()}
+            onClick={() => handleOpenPhotoCapture()}
             disabled={isProcessingPhoto}
-            className={`min-h-[34px] px-2 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer select-none shadow-xs active:scale-95 ${
+            className={`min-h-[34px] px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer select-none shadow-xs active:scale-95 ${
               existingItemPhotos.length > 0
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100'
                 : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-400'
             }`}
-            title={`Inserir registro fotográfico direto para "${preformattedCaption}"`}
+            title={`Tirar foto ou anexar com legenda e time stamp: "${preformattedCaption}"`}
           >
             {isProcessingPhoto ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
             ) : (
               <Camera className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             )}
-            <span className="text-[11px] font-bold hidden sm:inline">Foto</span>
+            <span className="text-[11px] font-bold">Foto</span>
             {existingItemPhotos.length > 0 && (
               <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-emerald-600 text-white">
                 {existingItemPhotos.length}
@@ -290,18 +239,38 @@ export const EvaluationItemCard: React.FC<Props> = ({
             )}
           </button>
 
-          {/* Botão Galeria / Arquivos */}
+          {/* Botão Galeria / Arquivos Direto (Abre com tela de legenda e timestamp) */}
           <button
             type="button"
             onClick={() => galleryInputRef.current?.click()}
             disabled={isProcessingPhoto}
             className="min-h-[34px] p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 hover:text-emerald-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer"
-            title="Selecionar foto da galeria do dispositivo"
+            title="Selecionar foto da galeria e inserir legenda/timestamp"
           >
             <ImageIcon className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
+
+      {/* Modal de Câmera do Aparelho com Legenda e Time Stamp */}
+      <DeviceCameraCaptureModal
+        isOpen={isCameraModalOpen}
+        onClose={() => {
+          setIsCameraModalOpen(false);
+          setFileForModal(undefined);
+        }}
+        initialFile={fileForModal}
+        componentName={getPreformattedComponentName()}
+        itemLabel={itemLabel}
+        canonicalComponentId={getCanonicalComponentId()}
+        onPhotoSaved={newPhoto => {
+          if (onAddPhoto) {
+            onAddPhoto(newPhoto);
+            setPhotoSuccessToast(`Foto inserida: "${newPhoto.caption || preformattedCaption}"`);
+            setTimeout(() => setPhotoSuccessToast(null), 3500);
+          }
+        }}
+      />
 
       {/* Toast de confirmação visual da foto adicionada */}
       {photoSuccessToast && (
