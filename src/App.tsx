@@ -594,7 +594,8 @@ function AppContent() {
                   if (curr) setCurrentInspection(curr);
                   setSyncFeedback({
                     message: res.success ? 'Ficha sincronizada e salva no banco de dados com sucesso.' : (res.error || 'Erro na sincronização.'),
-                    type: res.success ? 'success' : 'info'
+                    type: res.success ? 'success' : 'info',
+                    isRls: res.isRlsError
                   });
                 }}
                 onSyncAll={handleSyncNow}
@@ -612,6 +613,7 @@ function AppContent() {
                 onSave={handleSaveInspection}
                 onSyncNow={handleSyncNow}
                 isSyncing={isSyncing}
+                onOpenAuthModal={() => setShowAuthModal(true)}
               />
             )}
 
@@ -674,11 +676,13 @@ function AppContent() {
                   if (curr) setCurrentInspection(curr);
                   setSyncFeedback({
                     message: res.success ? 'Ficha sincronizada e salva no banco de dados com sucesso.' : (res.error || 'Erro na sincronização.'),
-                    type: res.success ? 'success' : 'info'
+                    type: res.success ? 'success' : 'info',
+                    isRls: res.isRlsError
                   });
                 }}
                 onSyncAll={handleSyncNow}
                 isSyncing={isSyncing}
+                onOpenAuthModal={() => setShowAuthModal(true)}
               />
             )}
           </motion.div>
@@ -695,6 +699,13 @@ function AppContent() {
         data={currentInspection}
         isOnline={isOnline}
         lastSavedAt={lastSavedAt}
+      />
+
+      {/* Modal de Acesso Seguro do Fiscal & Resolução RLS */}
+      <InspectorAuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onAuthSuccess={handleSyncNow}
       />
     </div>
   );
