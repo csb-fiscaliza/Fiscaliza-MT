@@ -42,6 +42,7 @@ import { LocationCaptureWidget } from './LocationCaptureWidget';
 import { ComponentPhotoUploader } from './ComponentPhotoUploader';
 import { GeneralPhotoAttachmentSection } from './GeneralPhotoAttachmentSection';
 import { FiscalizaLogo } from './FiscalizaLogo';
+import { FloatingSheetNavMenu } from './FloatingSheetNavMenu';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionPhoto } from '../types/inspection';
 
@@ -73,18 +74,79 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     sec3: true,
     sec4: true,
     secComponentes: true,
-    sec5: false,
-    sec6: false,
-    sec7: false,
-    sec8: false,
-    sec9: false,
-    sec10: false,
-    sec11: false,
-    sec12: false
+    sec5: true,
+    sec6: true,
+    sec7: true,
+    sec8: true,
+    sec9: true,
+    sec10: true,
+    sec11: true,
+    sec12: true,
+    secFotos: true
   });
 
   const toggleSection = (key: string) => {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Navegação direta com abertura automática de tópicos e subtópicos
+  const handleNavigateToSection = (sectionKey: string, elementId: string, parentKey?: string) => {
+    setOpenSections(prev => {
+      const next = { ...prev, [sectionKey]: true };
+      if (parentKey) {
+        next[parentKey] = true;
+      }
+      return next;
+    });
+
+    setTimeout(() => {
+      const el = document.getElementById(elementId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add('ring-2', 'ring-emerald-500', 'transition-all');
+        setTimeout(() => {
+          el.classList.remove('ring-2', 'ring-emerald-500');
+        }, 2200);
+      }
+    }, 60);
+  };
+
+  const handleExpandAllSections = () => {
+    setOpenSections({
+      sec1: true,
+      sec2: true,
+      sec3: true,
+      sec4: true,
+      secComponentes: true,
+      sec5: true,
+      sec6: true,
+      sec7: true,
+      sec8: true,
+      sec9: true,
+      sec10: true,
+      sec11: true,
+      sec12: true,
+      secFotos: true
+    });
+  };
+
+  const handleCollapseAllSections = () => {
+    setOpenSections({
+      sec1: false,
+      sec2: false,
+      sec3: false,
+      sec4: false,
+      secComponentes: false,
+      sec5: false,
+      sec6: false,
+      sec7: false,
+      sec8: false,
+      sec9: false,
+      sec10: false,
+      sec11: false,
+      sec12: false,
+      secFotos: false
+    });
   };
 
   // Helper para atualizar fotos de campo sincronizadamente
@@ -289,7 +351,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SEÇÃO 1: DADOS GERAIS DA BARRAGEM */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-topico-1" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec1')}
@@ -440,7 +502,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SEÇÃO 2: IDENTIFICAÇÃO DO EMPREENDEDOR E PROPRIEDADE */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-topico-2" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec2')}
@@ -608,7 +670,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SEÇÃO 3: USOS DA BARRAGEM */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-topico-3" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec3')}
@@ -708,7 +770,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SEÇÃO 4: CARACTERÍSTICAS TÉCNICAS (AFERIÇÃO DE MEDIDAS) */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-topico-4" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec4')}
@@ -858,7 +920,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* TÓPICO: COMPONENTES DA BARRAGEM */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border-2 border-emerald-600/30 shadow-xs overflow-hidden">
+      <div id="sec-topico-5" className="bg-white rounded-xl border-2 border-emerald-600/30 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('secComponentes')}
@@ -890,7 +952,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             {/* ========================================================================= */}
             {/* SUBTÓPICO 5.1: TALUDE DE MONTANTE */}
             {/* ========================================================================= */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <div id="sec-subtopico-5-1" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
               <button
                 type="button"
                 onClick={() => toggleSection('sec5')}
@@ -1022,7 +1084,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SUBTÓPICO 5.2: COROAMENTO (CRISTA) */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-subtopico-5-2" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec6')}
@@ -1180,7 +1242,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SUBTÓPICO 5.3: TALUDE DE JUSANTE */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-subtopico-5-3" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec7')}
@@ -1318,7 +1380,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SUBTÓPICO 5.4: REGIÃO A JUSANTE DA BARRAGEM */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-subtopico-5-4" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec8')}
@@ -1405,7 +1467,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SUBTÓPICO 5.5: INSTRUMENTAÇÃO DE MONITORAMENTO */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-subtopico-5-5" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec9')}
@@ -1462,7 +1524,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SUBTÓPICO 5.6: ESTRUTURAS VERTEDORAS */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-subtopico-5-6" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec10')}
@@ -1503,7 +1565,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SUBTÓPICO 5.7: RESERVATÓRIO */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-subtopico-5-7" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec11')}
@@ -1603,7 +1665,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* SEÇÃO 6: OUTROS PROBLEMAS E PESSOAS QUE ACOMPANHARAM */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="sec-topico-6" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
         <button
           type="button"
           onClick={() => toggleSection('sec12')}
@@ -1678,10 +1740,21 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       {/* ========================================================================= */}
       {/* ESPAÇO PARA ANEXAR FOTOS APÓS O PREENCHIMENTO E VINCULAR AOS COMPONENTES */}
       {/* ========================================================================= */}
-      <GeneralPhotoAttachmentSection
-        allPhotos={data.photos || []}
-        onUpdatePhotos={handleUpdatePhotos}
-        inspectionId={data.id}
+      <div id="sec-topico-fotos" className="scroll-mt-24 transition-all">
+        <GeneralPhotoAttachmentSection
+          allPhotos={data.photos || []}
+          onUpdatePhotos={handleUpdatePhotos}
+          inspectionId={data.id}
+        />
+      </div>
+
+      {/* Menu Flutuante de Tópicos e Subtópicos da Ficha */}
+      <FloatingSheetNavMenu
+        openSections={openSections}
+        onNavigateToSection={handleNavigateToSection}
+        onExpandAll={handleExpandAllSections}
+        onCollapseAll={handleCollapseAllSections}
+        photosCount={data.photos?.length || 0}
       />
 
       {/* Mobile-Friendly Sticky Bottom Bar */}
