@@ -18,6 +18,7 @@ import { OperationalReviewModal } from './components/OperationalReviewModal';
 import { InspectorAuthModal } from './components/InspectorAuthModal';
 import { OfficialFooter } from './components/OfficialFooter';
 import { InspectionProgressBar } from './components/InspectionProgressBar';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import { InspectionData } from './types/inspection';
 import { 
   WifiOff 
@@ -34,7 +35,8 @@ import {
   setActiveInspectionId,
   exportInspectionToJson,
   syncAllPendingInspections,
-  syncSingleInspection
+  syncSingleInspection,
+  loadAllInspectionsWithFallback
 } from './services/storage';
 import { formatGmsString } from './utils/geoCoordinates';
 import { 
@@ -205,29 +207,46 @@ function AppContent() {
     }
   };
 
-  // Inicializa dados do LocalStorage
+  // Inicializa dados com sincronização resiliente LocalStorage + IndexedDB
   useEffect(() => {
-    const list = getAllInspections();
-    setInspections(list);
+    loadAllInspectionsWithFallback().then(list => {
+      setInspections(list);
 
-    const activeId = getActiveInspectionId();
-    if (activeId) {
-      const found = list.find(i => i.id === activeId);
-      if (found) {
-        setCurrentInspection(found);
-        return;
+      const activeId = getActiveInspectionId();
+      if (activeId) {
+        const found = list.find(i => i.id === activeId);
+        if (found) {
+          setCurrentInspection(found);
+          return;
+        }
       }
-    }
 
-    if (list.length > 0) {
-      setCurrentInspection(list[0]);
-    } else {
-      const sample = createSampleInspection();
-      saveInspection(sample);
-      setInspections([sample]);
-      setCurrentInspection(sample);
-    }
+      if (list.length > 0) {
+        setCurrentInspection(list[0]);
+      } else {
+        const sample = createSampleInspection();
+        saveInspection(sample);
+        setInspections([sample]);
+        setCurrentInspection(sample);
+      }
+    }).catch(() => {
+      const list = getAllInspections();
+      setInspections(list);
+      if (list.length > 0) setCurrentInspection(list[0]);
+    });
   }, []);
+
+  // Proteção contra fechamento acidental da aba durante preenchimento em campo no tablet/celular
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (currentInspection && (currentInspection.damIdentification.damName || currentInspection.generalInfo.recordNumber)) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [currentInspection]);
 
   // Auto-save debounced sempre que currentInspection for alterada
   useEffect(() => {
@@ -556,7 +575,7 @@ function AppContent() {
         />
       )}
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 overflow-x-hidden">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-28 lg:pb-8 overflow-x-hidden">
         <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
           <motion.div
             key={activeStep}
@@ -706,6 +725,16 @@ function AppContent() {
         isOpen={showAuthModal}
         onClose={() => setShowAuthModal(false)}
         onAuthSuccess={handleSyncNow}
+      />
+
+      {/* Barra de Navegação Inferior Otimizada para Celular e Tablet */}
+      <MobileBottomNav
+        activeStep={activeStep}
+        setActiveStep={setActiveStep}
+        onSave={handleSaveInspection}
+        lastSavedAt={lastSavedAt}
+        currentInspection={currentInspection}
+        onOpenNavMenu={() => window.dispatchEvent(new CustomEvent('csb:toggle_nav_menu'))}
       />
     </div>
   );

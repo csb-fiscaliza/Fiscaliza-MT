@@ -109,13 +109,19 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     setTimeout(() => {
       const el = document.getElementById(elementId);
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const headerOffset = window.innerWidth < 640 ? 110 : 130;
+        const elementPosition = el.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+        window.scrollTo({
+          top: Math.max(0, offsetPosition),
+          behavior: 'smooth'
+        });
         el.classList.add('ring-2', 'ring-emerald-500', 'transition-all');
         setTimeout(() => {
           el.classList.remove('ring-2', 'ring-emerald-500');
         }, 2200);
       }
-    }, 60);
+    }, 80);
   };
 
   const handleExpandAllSections = () => {

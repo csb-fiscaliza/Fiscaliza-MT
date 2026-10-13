@@ -8,6 +8,12 @@ import {
   encryptTextAesGcm,
   decryptTextAesGcm
 } from '../utils/securityCrypto';
+import {
+  saveInspectionToIndexedDb,
+  getAllInspectionsFromIndexedDb,
+  deleteInspectionFromIndexedDb,
+  getStorageQuotaEstimate
+} from './offlineDb';
 
 const STORAGE_KEY = 'fiscaliza_csb_sema_inspections_v1';
 const CURRENT_ACTIVE_KEY = 'fiscaliza_csb_sema_active_id';
@@ -435,6 +441,11 @@ export function saveInspection(inspection: InspectionData): void {
       list.unshift(updated);
     }
 
+    // 2. Persistência de alta capacidade no IndexedDB (resiliente para celulares e tablets)
+    saveInspectionToIndexedDb(updated).catch(idbErr => {
+      console.warn('[OfflineStore] Aviso ao salvar no IndexedDB:', idbErr);
+    });
+
     const serialized = JSON.stringify(list);
     try {
       localStorage.setItem(STORAGE_KEY, serialized);
@@ -449,13 +460,19 @@ export function saveInspection(inspection: InspectionData): void {
             try {
               localStorage.setItem(ENCRYPTION_STORAGE_KEY, encData);
             } catch {
-              // cota
+              // cota excedida no cofre secundário, preservado no IndexedDB
             }
           })
           .catch(() => {});
       }
     } catch (storageErr) {
-      console.warn('Aviso de cota do localStorage:', storageErr);
+      console.warn('[OfflineStore] Limite de cota do localStorage atingido no celular/tablet. Dados preservados com segurança total no IndexedDB.', storageErr);
+      // Se a cota do localStorage estourar devido a fotos, tenta salvar apenas o ID ativo
+      try {
+        localStorage.setItem(CURRENT_ACTIVE_KEY, updated.id);
+      } catch {
+        // ignore
+      }
     }
 
     if (typeof window !== 'undefined') {
@@ -467,6 +484,50 @@ export function saveInspection(inspection: InspectionData): void {
     console.error('Erro ao salvar vistoria no storage:', err);
   }
 }
+
+/**
+ * Carrega vistorias com sincronização bidirecional entre LocalStorage e IndexedDB
+ * Garante que em celulares/tablets nenhuma vistoria seja perdida mesmo se o navegador
+ * limpar dados voláteis do localStorage.
+ */
+export async function loadAllInspectionsWithFallback(): Promise<InspectionData[]> {
+  const localList = getAllInspections();
+  try {
+    const idbList = await getAllInspectionsFromIndexedDb();
+    if (idbList.length === 0 && localList.length > 0) {
+      // Migra dados do localStorage para o IndexedDB
+      for (const item of localList) {
+        await saveInspectionToIndexedDb(item);
+      }
+      return localList;
+    }
+    if (idbList.length > 0 && localList.length === 0) {
+      // Recupera dados do IndexedDB para o localStorage
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(idbList));
+        localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(JSON.stringify(idbList)));
+      } catch {
+        // quota
+      }
+      return idbList;
+    }
+    // Mescla itens por ID preservando o mais recente
+    const mergedMap = new Map<string, InspectionData>();
+    localList.forEach(item => mergedMap.set(item.id, item));
+    idbList.forEach(item => {
+      const existing = mergedMap.get(item.id);
+      if (!existing || new Date(item.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
+        mergedMap.set(item.id, item);
+      }
+    });
+    const combined = Array.from(mergedMap.values());
+    return combined;
+  } catch {
+    return localList;
+  }
+}
+
+export { getStorageQuotaEstimate };
 
 /**
  * Sincroniza uma ficha específica com o banco de dados seguro
@@ -552,6 +613,10 @@ export function deleteInspection(id: string): void {
     const serialized = JSON.stringify(list);
     localStorage.setItem(STORAGE_KEY, serialized);
     localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(serialized));
+
+    deleteInspectionFromIndexedDb(id).catch(idbErr => {
+      console.warn('[OfflineStore] Aviso ao remover do IndexedDB:', idbErr);
+    });
 
     if (localStorage.getItem(CURRENT_ACTIVE_KEY) === id) {
       localStorage.removeItem(CURRENT_ACTIVE_KEY);

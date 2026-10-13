@@ -1,6 +1,6 @@
 {
   "name": "Fiscaliza – Etapa de Campo CSB/SEMA-MT",
   "description": "Sistema de registro digital de vistorias de campo em barragens de acumulação de água para usos múltiplos da Coordenadoria de Segurança de Barragens (CSB/SEMA-MT).",
-  "requestFramePermissions": ["geolocation"],
+  "requestFramePermissions": ["geolocation", "camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

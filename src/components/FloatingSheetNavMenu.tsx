@@ -161,6 +161,15 @@ export const FloatingSheetNavMenu: React.FC<FloatingSheetNavMenuProps> = ({
   const [activeSectionId, setActiveSectionId] = useState<string>('sec-topico-1');
   const [isComponentesExpanded, setIsComponentesExpanded] = useState(true);
 
+  // Escuta evento global de abertura (acionado pela barra inferior em celulares/tablets)
+  useEffect(() => {
+    const handleToggleEvent = () => {
+      setIsOpen(prev => !prev);
+    };
+    window.addEventListener('csb:toggle_nav_menu', handleToggleEvent);
+    return () => window.removeEventListener('csb:toggle_nav_menu', handleToggleEvent);
+  }, []);
+
   // Monitora a posição de rolagem para destacar automaticamente o tópico visível
   useEffect(() => {
     const handleScroll = () => {
@@ -226,13 +235,22 @@ export const FloatingSheetNavMenu: React.FC<FloatingSheetNavMenuProps> = ({
 
   return (
     <>
-      {/* Botão Flutuante (FAB) quando recolhido */}
+      {/* Backdrop para fechar com toque fora em telas menores (celular e tablet) */}
+      {isOpen && (
+        <div 
+          onClick={() => setIsOpen(false)}
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 md:hidden animate-in fade-in duration-150"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Botão Flutuante (FAB) quando recolhido - posicionado acima da barra inferior no mobile */}
       {!isOpen && (
-        <div className="fixed bottom-16 right-4 sm:bottom-20 sm:right-6 z-40 flex items-center gap-2 animate-in fade-in zoom-in duration-150">
+        <div className="fixed bottom-24 right-3 sm:bottom-20 sm:right-6 z-40 flex items-center gap-2 animate-in fade-in zoom-in duration-150">
           <button
             type="button"
             onClick={() => setIsOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-slate-900/95 dark:bg-emerald-950/95 hover:bg-slate-900 text-white shadow-xl hover:shadow-2xl border border-emerald-500/50 backdrop-blur-md transition-all cursor-pointer group active:scale-95"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-slate-900/95 dark:bg-emerald-950/95 hover:bg-slate-900 text-white shadow-xl hover:shadow-2xl border border-emerald-500/50 backdrop-blur-md transition-all cursor-pointer group active:scale-95 min-h-[44px]"
             title="Abrir menu flutuante de tópicos e subtópicos da ficha"
           >
             <div className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center font-bold text-xs shrink-0 group-hover:rotate-45 transition-transform">
@@ -253,7 +271,7 @@ export const FloatingSheetNavMenu: React.FC<FloatingSheetNavMenuProps> = ({
 
       {/* Painel Flutuante Aberto */}
       {isOpen && (
-        <div className="fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-50 w-[92vw] max-w-sm max-h-[82vh] bg-white dark:bg-slate-900 border-2 border-emerald-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-5 duration-200 backdrop-blur-lg">
+        <div className="fixed bottom-24 right-2 sm:bottom-6 sm:right-6 z-50 w-[94vw] max-w-sm max-h-[75vh] sm:max-h-[82vh] bg-white dark:bg-slate-900 border-2 border-emerald-500/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-5 duration-200 backdrop-blur-lg">
           
           {/* Header do Menu Flutuante */}
           <div className="p-3.5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800 shrink-0">

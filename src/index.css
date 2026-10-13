@@ -12,12 +12,32 @@
    ============================================================================== */
 html {
   scroll-behavior: smooth;
+  touch-action: manipulation;
 }
 
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none;
+}
+
+/* Previne zoom automático indesejado no iOS Safari ao focar inputs/textareas em celular */
+@media (max-width: 768px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="date"],
+  input[type="time"],
+  input[type="email"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Otimização tátil para celular e tablet */
+* {
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Custom Scrollbar */

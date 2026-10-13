@@ -333,7 +333,7 @@ export const EvaluationItemCard: React.FC<Props> = ({
                       key={item.id}
                       type="button"
                       onClick={() => updateField('nivelPerigo', item.id as NivelPerigoType)}
-                      className={`min-h-[42px] px-2 py-1.5 rounded-lg border text-xs font-bold transition flex items-center justify-center text-center cursor-pointer select-none active:scale-98 ${
+                      className={`min-h-[44px] px-2 py-1.5 rounded-lg border text-xs font-bold transition flex items-center justify-center text-center cursor-pointer select-none active:scale-98 ${
                         isChecked
                           ? `${item.activeClass} shadow-xs ring-2 ring-rose-400 ring-offset-1`
                           : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -372,7 +372,7 @@ export const EvaluationItemCard: React.FC<Props> = ({
                       key={item.id}
                       type="button"
                       onClick={() => updateField('magnitude', item.id as MagnitudeType)}
-                      className={`min-h-[42px] px-2 py-1.5 rounded-lg border text-xs font-bold transition flex items-center justify-center text-center cursor-pointer select-none active:scale-98 ${
+                      className={`min-h-[44px] px-2 py-1.5 rounded-lg border text-xs font-bold transition flex items-center justify-center text-center cursor-pointer select-none active:scale-98 ${
                         isChecked
                           ? `${item.activeClass} shadow-xs ring-2 ring-rose-400 ring-offset-1`
                           : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
