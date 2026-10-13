@@ -16,10 +16,15 @@ import { DocumentReviewStep } from './components/DocumentReviewStep';
 import { DatabaseModuleStep } from './components/DatabaseModuleStep';
 import { OperationalReviewModal } from './components/OperationalReviewModal';
 import { InspectorAuthModal } from './components/InspectorAuthModal';
+import { PhotoSyncQueueModal } from './components/PhotoSyncQueueModal';
 import { OfficialFooter } from './components/OfficialFooter';
 import { InspectionProgressBar } from './components/InspectionProgressBar';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { InspectionData } from './types/inspection';
+import { 
+  processAllPendingPhotoQueue, 
+  enqueuePhotosFromInspection 
+} from './services/photoSyncQueueService';
 import { 
   WifiOff 
 } from 'lucide-react';
@@ -105,6 +110,7 @@ function AppContent() {
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [showPhotoQueueModal, setShowPhotoQueueModal] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; type: 'success' | 'info' | 'error'; isRls?: boolean } | null>(null);
   const saveTimeoutRef = useRef<any>(null);
@@ -113,10 +119,14 @@ function AppContent() {
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      // Ao restabelecer conexão, notifica e tenta sincronizar fichas pendentes
+      // Ao restabelecer conexão, notifica e tenta sincronizar fichas e fotos pendentes
       setSyncFeedback({
-        message: 'Rede restabelecida. Sincronizando fichas salvas localmente...',
+        message: 'Rede restabelecida. Sincronizando fichas e fila de fotos com o banco...',
         type: 'info'
+      });
+      // Sincroniza fotos pendentes da fila do IndexedDB
+      processAllPendingPhotoQueue().catch(err => {
+        console.warn('[PhotoQueue] Auto-sync de fotos ao reconectar:', err);
       });
       syncAllPendingInspections().then(res => {
         const updatedList = getAllInspections();
@@ -170,6 +180,11 @@ function AppContent() {
     });
 
     try {
+      // Sincroniza fotos pendentes na fila do IndexedDB
+      processAllPendingPhotoQueue().catch(err => {
+        console.warn('[PhotoQueue] Aviso ao sincronizar fotos:', err);
+      });
+
       const res = await syncAllPendingInspections();
       const updatedList = getAllInspections();
       setInspections(updatedList);
@@ -183,7 +198,7 @@ function AppContent() {
         });
       } else if (res.total === 0) {
         setSyncFeedback({
-          message: 'Tudo em dia: todas as fichas já estão sincronizadas no banco de dados.',
+          message: 'Tudo em dia: todas as fichas e fotos já estão sincronizadas no banco de dados.',
           type: 'success'
         });
       } else {
@@ -211,6 +226,11 @@ function AppContent() {
   useEffect(() => {
     loadAllInspectionsWithFallback().then(list => {
       setInspections(list);
+
+      // Assegura que todas as fotos estejam cadastradas na fila persistente do IndexedDB
+      list.forEach(insp => {
+        enqueuePhotosFromInspection(insp).catch(() => {});
+      });
 
       const activeId = getActiveInspectionId();
       if (activeId) {
@@ -564,6 +584,7 @@ function AppContent() {
         onSyncNow={handleSyncNow}
         isSyncing={isSyncing}
         onOpenAuthModal={() => setShowAuthModal(true)}
+        onOpenPhotoQueueModal={() => setShowPhotoQueueModal(true)}
       />
 
       {/* Barra de Progresso Visual de Preenchimento da Inspeção de Campo (visível apenas na Nova Ficha) */}
@@ -735,6 +756,15 @@ function AppContent() {
         lastSavedAt={lastSavedAt}
         currentInspection={currentInspection}
         onOpenNavMenu={() => window.dispatchEvent(new CustomEvent('csb:toggle_nav_menu'))}
+        onOpenPhotoQueueModal={() => setShowPhotoQueueModal(true)}
+      />
+
+      {/* Central de Fila de Sincronização Persistente de Fotos - IndexedDB */}
+      <PhotoSyncQueueModal
+        isOpen={showPhotoQueueModal}
+        onClose={() => setShowPhotoQueueModal(false)}
+        currentInspection={currentInspection}
+        isOnline={isOnline}
       />
     </div>
   );

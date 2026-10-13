@@ -30,6 +30,7 @@ import {
   stampPhotoWithCaptionAndTimestamp
 } from '../utils/photoCaptureUtils';
 import { savePhotoBlob } from '../services/photoStorage';
+import { enqueuePhotoForSync } from '../services/photoSyncQueueService';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { VoiceInputButton } from './VoiceInputButton';
 
@@ -321,6 +322,22 @@ export const DeviceCameraCaptureModal: React.FC<DeviceCameraCaptureModalProps> =
       }
 
       await savePhotoBlob(photoId, finalBlob);
+
+      enqueuePhotoForSync({
+        id: photoId,
+        vistoriaId: 'current',
+        componentId: canonicalComponentId,
+        componentName: componentName,
+        locationDescription: itemLabel ? `${componentName} - ${itemLabel}` : componentName,
+        caption: finalCaption,
+        timestamp: finalTimestamp,
+        thumbnailUrl: finalDataUrl,
+        blob: finalBlob,
+        coordinates: !isNaN(latNum as number) && !isNaN(lngNum as number) ? {
+          latitude: latNum as number,
+          longitude: lngNum as number
+        } : undefined
+      }).catch(err => console.warn('[IndexedDB Queue] Aviso ao enfileirar foto:', err));
 
       const newPhoto: InspectionPhoto = {
         id: photoId,

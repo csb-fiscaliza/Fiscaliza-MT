@@ -15,7 +15,10 @@ import {
   CloudOff,
   CloudCheck,
   AlertTriangle,
-  Info
+  Info,
+  CloudUpload,
+  Layers,
+  Database
 } from 'lucide-react';
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { InspectionData, PhotoRecord, PhotoSyncStatus } from '../types/inspection';
@@ -26,6 +29,14 @@ import {
   deletePhotoBlob, 
   uploadPhotoToRemoteStorage 
 } from '../services/photoStorage';
+import { 
+  enqueuePhotoForSync, 
+  enqueuePhotosFromInspection, 
+  getPhotoQueueSummary, 
+  subscribePhotoQueue,
+  uploadSingleQueuePhoto 
+} from '../services/photoSyncQueueService';
+import { PhotoSyncQueueModal } from './PhotoSyncQueueModal';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { OFFICIAL_DAM_COMPONENTS_OPTIONS, getComponentNameById } from '../utils/photoCaptureUtils';
 
@@ -48,6 +59,16 @@ export const PhotoManagerStep: React.FC<Props> = ({
   const [zoomPhoto, setZoomPhoto] = useState<PhotoRecord | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRetryingSync, setIsRetryingSync] = useState(false);
+  const [showQueueModal, setShowQueueModal] = useState(false);
+  const [queueSummary, setQueueSummary] = useState({
+    total: 0,
+    pending: 0,
+    uploading: 0,
+    error: 0,
+    completed: 0,
+    totalBytes: 0,
+    totalFormatted: '0 KB'
+  });
 
   // Form de inclusão
   const [selectedComponentId, setSelectedComponentId] = useState<string>(
@@ -104,6 +125,31 @@ export const PhotoManagerStep: React.FC<Props> = ({
       isMounted = false;
     };
   }, [photoRecords.length]);
+
+  // Monitora a fila de fotos do IndexedDB em tempo real e auto-enfileira fotos desta vistoria
+  useEffect(() => {
+    let active = true;
+
+    const updateStats = async () => {
+      const sum = await getPhotoQueueSummary();
+      if (active) setQueueSummary(sum);
+    };
+
+    updateStats();
+    // Garante que fotos desta vistoria estejam registradas na fila do IndexedDB
+    enqueuePhotosFromInspection(data).then(() => {
+      if (active) updateStats();
+    });
+
+    const unsubscribe = subscribePhotoQueue(() => {
+      if (active) updateStats();
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [data.id, photoRecords.length]);
 
   // Compressão no cliente em Canvas para gerar Blob leve (JPEG)
   const compressToBlob = (file: File): Promise<Blob> => {
@@ -195,7 +241,28 @@ export const PhotoManagerStep: React.FC<Props> = ({
         const objectUrl = URL.createObjectURL(compressedBlob);
         updatedObjectUrls[photoId] = objectUrl;
 
-        // 2. Tentar upload remoto no Supabase Storage em segundo plano
+        // 2. Registrar na fila persistente de sincronização do IndexedDB
+        await enqueuePhotoForSync({
+          id: photoId,
+          vistoriaId: data.id,
+          vistoriaNome: data.damIdentification?.damName || 'Barramento de Campo',
+          processoNumero: data.generalInfo?.recordNumber || 'S/N',
+          componentId: compObj.id,
+          componentName: compObj.name,
+          locationDescription: selectedAnomalyObj ? selectedAnomalyObj.label : undefined,
+          caption: caption.trim() || undefined,
+          timestamp: new Date().toLocaleString('pt-BR'),
+          thumbnailUrl: objectUrl,
+          blob: compressedBlob,
+          coordinates: photoCoords ? {
+            latitude: photoCoords.latitude,
+            longitude: photoCoords.longitude,
+            accuracyMeters: photoCoords.acuraciaMetros || undefined,
+            altitudeMeters: photoCoords.altitudeEstimadaDispositivo || null
+          } : undefined
+        });
+
+        // 3. Tentar upload remoto no Supabase Storage em segundo plano se houver conexão
         const uploadResult = await uploadPhotoToRemoteStorage(data.id, photoId, compressedBlob);
 
         const record: PhotoRecord = {
@@ -345,40 +412,61 @@ export const PhotoManagerStep: React.FC<Props> = ({
 
   return (
     <div className="space-y-6 pb-20 sm:pb-12">
-      {/* Banner Superior com Status de Sincronização */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-xs flex flex-wrap items-center justify-between gap-3 transition-colors">
-        <div>
-          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2">
-            <Camera className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-            <span>Registro Fotográfico de Campo</span>
-          </h2>
-          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-            Armazenamento otimizado offline (IndexedDB). As imagens são associadas ao componente e item inspecionado.
+      {/* Banner Superior com Status de Sincronização e Fila do IndexedDB */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-xs flex flex-wrap items-center justify-between gap-4 transition-colors">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2">
+              <Camera className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              <span>Registro Fotográfico de Campo</span>
+            </h2>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+              IndexedDB Persistente
+            </span>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Armazenamento de alta capacidade no dispositivo. Fila de upload controlada e monitorada com garantia de integridade.
           </p>
         </div>
 
-        {pendingCount > 0 ? (
-          <div className="flex items-center gap-2">
-            <span className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-semibold flex items-center gap-1.5">
-              <CloudOff className="w-4 h-4 text-amber-700 dark:text-amber-400" />
-              <span>{pendingCount} pendente(s) de envio remoto</span>
-            </span>
+        {/* Status da Fila e Botão para Abrir a Central */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setShowQueueModal(true)}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-2xs border bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 cursor-pointer"
+            title="Abrir Central da Fila de Sincronização de Fotos"
+          >
+            <CloudUpload className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Fila de Fotos IndexedDB</span>
+            {queueSummary.pending + queueSummary.error > 0 ? (
+              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold animate-pulse">
+                {queueSummary.pending + queueSummary.error} aguardando upload
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">
+                Tudo em dia
+              </span>
+            )}
+          </button>
+
+          {pendingCount > 0 ? (
             <button
               type="button"
               onClick={handleRetrySync}
               disabled={isRetryingSync}
-              className="min-h-[40px] px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="min-h-[38px] px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-2xs transition-all"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRetryingSync ? 'animate-spin' : ''}`} />
-              <span>Tentar Enviar Agora</span>
+              <span>{isRetryingSync ? 'Transmitindo...' : `Enviar Pendentes (${pendingCount})`}</span>
             </button>
-          </div>
-        ) : (
-          <span className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold flex items-center gap-1.5">
-            <CloudCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>Todas as fotos sincronizadas</span>
-          </span>
-        )}
+          ) : (
+            <span className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold flex items-center gap-1.5">
+              <CloudCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Fotos sincronizadas na nuvem</span>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Bloco de Captura e Associação */}
@@ -557,22 +645,48 @@ export const PhotoManagerStep: React.FC<Props> = ({
                       #{idx + 1}
                     </div>
 
-                    {/* Status de Sincronização */}
-                    <div className="absolute top-2 right-2 flex items-center gap-1">
+                    {/* Status de Sincronização Explícito no Card */}
+                    <div className="absolute top-2 right-2 flex items-center gap-1.5">
                       {photo.syncStatus === 'sincronizado' ? (
-                        <span className="p-1 rounded bg-emerald-600/90 text-white text-[10px]" title="Sincronizado na nuvem">
+                        <span 
+                          className="px-2 py-0.5 rounded-lg bg-emerald-600/95 text-white text-[10px] font-bold flex items-center gap-1 shadow-xs" 
+                          title="Sincronizada e confirmada no banco de dados da SEMA-MT"
+                        >
                           <CloudCheck className="w-3.5 h-3.5" />
+                          <span>No Banco</span>
+                        </span>
+                      ) : photo.syncStatus === 'falha_envio' ? (
+                        <span 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowQueueModal(true);
+                          }}
+                          className="px-2 py-0.5 rounded-lg bg-rose-600/95 text-white text-[10px] font-bold flex items-center gap-1 shadow-xs cursor-pointer hover:bg-rose-700" 
+                          title="Falha no upload. Clique para abrir a fila e tentar novamente."
+                        >
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>Falha Upload</span>
                         </span>
                       ) : (
-                        <span className="px-1.5 py-0.5 rounded bg-amber-600/90 text-white text-[10px] font-semibold flex items-center gap-1" title="Pendente de envio remoto">
-                          <CloudOff className="w-3 h-3" />
-                          <span>Pendente</span>
+                        <span 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowQueueModal(true);
+                          }}
+                          className="px-2 py-0.5 rounded-lg bg-amber-500/95 text-white text-[10px] font-bold flex items-center gap-1 shadow-xs cursor-pointer hover:bg-amber-600 animate-pulse" 
+                          title="Aguardando upload no banco de dados (Salva no IndexedDB local). Clique para ver a fila."
+                        >
+                          <Clock className="w-3 h-3" />
+                          <span>Aguardando Upload</span>
                         </span>
                       )}
                       <button
                         type="button"
-                        onClick={() => handleDeletePhoto(photo.id)}
-                        className="p-1 rounded bg-rose-600/90 text-white hover:bg-rose-700 cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePhoto(photo.id);
+                        }}
+                        className="p-1 rounded-lg bg-slate-900/80 hover:bg-rose-600 text-white transition-colors cursor-pointer"
                         title="Excluir foto"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -691,6 +805,14 @@ export const PhotoManagerStep: React.FC<Props> = ({
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>
+
+      {/* Central de Fila de Sincronização de Fotos (IndexedDB) */}
+      <PhotoSyncQueueModal
+        isOpen={showQueueModal}
+        onClose={() => setShowQueueModal(false)}
+        currentInspection={data}
+        isOnline={typeof navigator !== 'undefined' ? navigator.onLine : true}
+      />
     </div>
   );
 };

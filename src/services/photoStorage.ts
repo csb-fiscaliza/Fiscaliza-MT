@@ -5,42 +5,15 @@
 
 import { supabase, isSupabaseConfigured } from './supabase';
 import { PhotoRecord } from '../types/inspection';
+import { getOfflineDb, STORE_PHOTOS } from './offlineDb';
 
-const DB_NAME = 'FiscalizaCSB_OfflineStore';
-const DB_VERSION = 1;
-const STORE_NAME = 'photo_blobs';
-
-let dbInstance: IDBDatabase | null = null;
-
-function getDb(): Promise<IDBDatabase> {
-  if (dbInstance) return Promise.resolve(dbInstance);
-
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = event => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-      }
-    };
-
-    request.onsuccess = event => {
-      dbInstance = (event.target as IDBOpenDBRequest).result;
-      resolve(dbInstance);
-    };
-
-    request.onerror = event => {
-      reject((event.target as IDBOpenDBRequest).error);
-    };
-  });
-}
+const STORE_NAME = STORE_PHOTOS;
 
 /**
  * Salva o arquivo binário comprimido no IndexedDB local seguro
  */
 export async function savePhotoBlob(id: string, blob: Blob): Promise<void> {
-  const db = await getDb();
+  const db = await getOfflineDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
@@ -55,7 +28,7 @@ export async function savePhotoBlob(id: string, blob: Blob): Promise<void> {
  * Recupera o Blob binário armazenado localmente
  */
 export async function getPhotoBlob(id: string): Promise<Blob | null> {
-  const db = await getDb();
+  const db = await getOfflineDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
@@ -85,7 +58,7 @@ export async function getPhotoObjectUrl(id: string): Promise<string | null> {
  * Remove a foto do armazenamento local
  */
 export async function deletePhotoBlob(id: string): Promise<void> {
-  const db = await getDb();
+  const db = await getOfflineDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);

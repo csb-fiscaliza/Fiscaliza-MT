@@ -28,6 +28,7 @@ interface MobileBottomNavProps {
   currentInspection: InspectionData;
   onOpenNavMenu?: () => void;
   isSaving?: boolean;
+  onOpenPhotoQueueModal?: () => void;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
@@ -37,8 +38,29 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   lastSavedAt,
   currentInspection,
   onOpenNavMenu,
-  isSaving = false
+  isSaving = false,
+  onOpenPhotoQueueModal
 }) => {
+  const [photoQueuePending, setPhotoQueuePending] = React.useState(0);
+
+  React.useEffect(() => {
+    let active = true;
+    import('../services/photoSyncQueueService').then(({ getPhotoQueueSummary, subscribePhotoQueue }) => {
+      const update = async () => {
+        try {
+          const sum = await getPhotoQueueSummary();
+          if (active) setPhotoQueuePending(sum.pending + sum.error);
+        } catch {}
+      };
+      update();
+      const unsub = subscribePhotoQueue(update);
+      return () => {
+        active = false;
+        unsub();
+      };
+    });
+  }, []);
+
   const photosCount = currentInspection.photos?.length || 0;
 
   const navItems = [
@@ -64,7 +86,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       step: 3,
       label: 'Fotos',
       icon: Camera,
-      badge: photosCount > 0 ? photosCount : null
+      badge: photoQueuePending > 0 ? `${photoQueuePending}!` : (photosCount > 0 ? photosCount : null)
     },
     {
       step: 4,
@@ -102,6 +124,19 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* Fila de Fotos no Topo da Barra Móvel */}
+          {photoQueuePending > 0 && onOpenPhotoQueueModal && (
+            <button
+              type="button"
+              onClick={onOpenPhotoQueueModal}
+              className="flex items-center gap-1 px-2 py-0.8 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-700 dark:text-amber-300 font-bold text-[10px] active:scale-95 transition animate-pulse"
+              title="Fotos aguardando upload no banco de dados"
+            >
+              <Camera className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+              <span>{photoQueuePending} na fila</span>
+            </button>
+          )}
+
           {/* Se estiver na Ficha (passo 1), botão direto para abrir menu de tópicos */}
           {activeStep === 1 && onOpenNavMenu && (
             <button

@@ -65,6 +65,35 @@ export type PhotoSyncStatus =
   | 'sincronizado'
   | 'falha_envio';
 
+export type PhotoQueueStatus = 'pending' | 'uploading' | 'completed' | 'error';
+
+export interface PhotoSyncQueueItem {
+  id: string; // ID único da foto
+  vistoriaId: string;
+  vistoriaNome?: string;
+  processoNumero?: string;
+  componentId: string;
+  componentName: string;
+  locationDescription?: string;
+  caption?: string;
+  timestamp: string;
+  enqueuedAt: string;
+  lastAttemptAt?: string;
+  status: PhotoQueueStatus;
+  retryCount: number;
+  errorMessage?: string;
+  fileSizeBytes?: number;
+  fileSizeFormatted?: string;
+  thumbnailUrl?: string;
+  remoteStorageUrl?: string;
+  coordinates?: {
+    latitude?: number;
+    longitude?: number;
+    accuracyMeters?: number;
+    altitudeMeters?: number | null;
+  };
+}
+
 // Registro de Localização Geográfica Rigorosa
 export interface LocationRecord {
   latitude: number | null;

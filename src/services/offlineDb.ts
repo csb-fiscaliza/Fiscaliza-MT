@@ -5,13 +5,14 @@
 // prevenindo perda de dados ou fotos durante vistorias em áreas rurais remotas.
 // ==============================================================================
 
-import { InspectionData } from '../types/inspection';
+import { InspectionData, PhotoSyncQueueItem } from '../types/inspection';
 import { sanitizeDeepObject } from '../utils/securityCrypto';
 
 const DB_NAME = 'FiscalizaCSB_OfflineStore';
-const DB_VERSION = 2;
-const STORE_INSPECTIONS = 'inspections';
-const STORE_PHOTOS = 'photo_blobs';
+const DB_VERSION = 3;
+export const STORE_INSPECTIONS = 'inspections';
+export const STORE_PHOTOS = 'photo_blobs';
+export const STORE_SYNC_QUEUE = 'photo_sync_queue';
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -32,6 +33,12 @@ export function getOfflineDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_INSPECTIONS)) {
         db.createObjectStore(STORE_INSPECTIONS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_SYNC_QUEUE)) {
+        const queueStore = db.createObjectStore(STORE_SYNC_QUEUE, { keyPath: 'id' });
+        queueStore.createIndex('vistoriaId', 'vistoriaId', { unique: false });
+        queueStore.createIndex('status', 'status', { unique: false });
+        queueStore.createIndex('enqueuedAt', 'enqueuedAt', { unique: false });
       }
     };
 
@@ -134,4 +141,122 @@ export async function getStorageQuotaEstimate(): Promise<{
     }
   }
   return { usedMb: 0, quotaMb: 0, percentageUsed: 0, isAvailable: false };
+}
+
+/**
+ * Salva ou atualiza um item na fila de sincronização de fotos no IndexedDB
+ */
+export async function savePhotoSyncQueueItem(item: PhotoSyncQueueItem): Promise<void> {
+  try {
+    const db = await getOfflineDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SYNC_QUEUE, 'readwrite');
+      const store = tx.objectStore(STORE_SYNC_QUEUE);
+      const request = store.put(sanitizeDeepObject(item));
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => {
+        console.warn('[OfflineDB] Erro ao salvar na fila de fotos:', request.error);
+        reject(request.error);
+      };
+    });
+  } catch (err) {
+    console.warn('[OfflineDB] Falha ao gravar item na fila de fotos:', err);
+  }
+}
+
+/**
+ * Recupera todos os itens da fila de sincronização de fotos do IndexedDB
+ */
+export async function getAllPhotoSyncQueueItems(): Promise<PhotoSyncQueueItem[]> {
+  try {
+    const db = await getOfflineDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SYNC_QUEUE, 'readonly');
+      const store = tx.objectStore(STORE_SYNC_QUEUE);
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const results = request.result || [];
+        resolve(results.map(item => sanitizeDeepObject(item) as PhotoSyncQueueItem));
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.warn('[OfflineDB] Erro ao listar itens da fila de fotos:', err);
+    return [];
+  }
+}
+
+/**
+ * Obtém um item específico da fila pelo ID da foto
+ */
+export async function getPhotoSyncQueueItem(id: string): Promise<PhotoSyncQueueItem | null> {
+  try {
+    const db = await getOfflineDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SYNC_QUEUE, 'readonly');
+      const store = tx.objectStore(STORE_SYNC_QUEUE);
+      const request = store.get(id);
+
+      request.onsuccess = () => {
+        if (request.result) {
+          resolve(sanitizeDeepObject(request.result) as PhotoSyncQueueItem);
+        } else {
+          resolve(null);
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.warn('[OfflineDB] Erro ao buscar item da fila:', err);
+    return null;
+  }
+}
+
+/**
+ * Remove um item da fila de sincronização de fotos
+ */
+export async function deletePhotoSyncQueueItem(id: string): Promise<void> {
+  try {
+    const db = await getOfflineDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SYNC_QUEUE, 'readwrite');
+      const store = tx.objectStore(STORE_SYNC_QUEUE);
+      const request = store.delete(id);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.warn('[OfflineDB] Erro ao deletar item da fila:', err);
+  }
+}
+
+/**
+ * Remove itens já concluídos/sincronizados da fila
+ */
+export async function clearCompletedPhotoSyncQueueItems(): Promise<number> {
+  try {
+    const all = await getAllPhotoSyncQueueItems();
+    const completed = all.filter(item => item.status === 'completed');
+    const db = await getOfflineDb();
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SYNC_QUEUE, 'readwrite');
+      const store = tx.objectStore(STORE_SYNC_QUEUE);
+      let count = 0;
+
+      completed.forEach(item => {
+        store.delete(item.id);
+        count++;
+      });
+
+      tx.oncomplete = () => resolve(count);
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn('[OfflineDB] Erro ao limpar concluídos da fila:', err);
+    return 0;
+  }
 }

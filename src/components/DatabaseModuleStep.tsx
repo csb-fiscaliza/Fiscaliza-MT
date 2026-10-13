@@ -29,10 +29,13 @@ import {
   FolderOpen,
   Lock,
   CloudCheck,
-  AlertCircle
+  AlertCircle,
+  CloudUpload
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { InspectionDetailModal } from './InspectionDetailModal';
+import { PhotoSyncQueueModal } from './PhotoSyncQueueModal';
+import { getPhotoQueueSummary, subscribePhotoQueue } from '../services/photoSyncQueueService';
 import { exportInspectionToJson } from '../services/storage';
 import { exportAnonymizedJsonFile } from '../utils/anonymizer';
 
@@ -72,6 +75,24 @@ export const DatabaseModuleStep: React.FC<Props> = ({
   // Modal de detalhes
   const [detailInspection, setDetailInspection] = useState<InspectionData | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [showPhotoQueueModal, setShowPhotoQueueModal] = useState(false);
+  const [photoQueuePending, setPhotoQueuePending] = useState(0);
+
+  React.useEffect(() => {
+    let active = true;
+    const updateStats = async () => {
+      try {
+        const sum = await getPhotoQueueSummary();
+        if (active) setPhotoQueuePending(sum.pending + sum.error);
+      } catch {}
+    };
+    updateStats();
+    const unsub = subscribePhotoQueue(updateStats);
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, []);
 
   // Confirmação de exclusão
   const [inspectionToDelete, setInspectionToDelete] = useState<InspectionData | null>(null);
@@ -229,11 +250,24 @@ export const DatabaseModuleStep: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-0.5 transition-colors">
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">Registros Fotográficos</span>
+          <div 
+            onClick={() => setShowPhotoQueueModal(true)}
+            className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-0.5 transition-colors cursor-pointer hover:border-emerald-500/50 group"
+            title="Clique para visualizar a Fila de Fotos IndexedDB"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">Registros Fotográficos</span>
+              <Camera className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
+            </div>
             <div className="flex items-baseline gap-2">
               <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums">{totalPhotosCount}</span>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">fotos técnicas</span>
+              {photoQueuePending > 0 ? (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-400/40 animate-pulse">
+                  {photoQueuePending} na fila
+                </span>
+              ) : (
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">fotos técnicas</span>
+              )}
             </div>
           </div>
 
@@ -610,6 +644,13 @@ export const DatabaseModuleStep: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* Central de Fila de Sincronização Persistente de Fotos - IndexedDB */}
+      <PhotoSyncQueueModal
+        isOpen={showPhotoQueueModal}
+        onClose={() => setShowPhotoQueueModal(false)}
+        isOnline={typeof navigator !== 'undefined' ? navigator.onLine : true}
+      />
     </div>
   );
 };
