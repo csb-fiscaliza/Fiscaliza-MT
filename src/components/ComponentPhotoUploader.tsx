@@ -37,6 +37,7 @@ import {
 import { savePhotoBlob, deletePhotoBlob } from '../services/photoStorage';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { DeviceCameraCaptureModal } from './DeviceCameraCaptureModal';
+import { SpeechTextarea } from './SpeechTextarea';
 
 interface ComponentPhotoUploaderProps {
   componentId: string;
@@ -735,19 +736,14 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
 
               {/* Campo de Legenda (se marcado) */}
               {pendingModalData.hasCaption && (
-                <div>
-                  <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1">
-                    Legenda da Fotografia:
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={pendingModalData.caption}
-                    onChange={e => setPendingModalData({ ...pendingModalData, caption: e.target.value })}
-                    placeholder="ex: Vista geral do elemento inspecionado em campo..."
-                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 text-xs"
-                    autoFocus
-                  />
-                </div>
+                <SpeechTextarea
+                  label="Legenda da Fotografia:"
+                  rows={2}
+                  value={pendingModalData.caption}
+                  onChange={e => setPendingModalData({ ...pendingModalData, caption: e.target.value })}
+                  placeholder="ex: Vista geral do elemento inspecionado em campo..."
+                  autoFocus
+                />
               )}
 
               {/* Bloco de Timestamp e Coordenadas Editáveis / Capturáveis */}

@@ -15,6 +15,7 @@ import {
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { InspectionData, SeverityCondition, InspectionPhoto } from '../types/inspection';
 import { ComponentPhotoUploader } from './ComponentPhotoUploader';
+import { SpeechTextarea } from './SpeechTextarea';
 
 interface Props {
   data: InspectionData;
@@ -305,19 +306,14 @@ export const ComponentsInspectionStep: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Observations and Notes Textarea */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Observações e Descrição Circunstanciada do Servidor:
-            </label>
-            <textarea
-              rows={4}
-              placeholder="Descreva detalhes específicos observados em campo (localização exata no elemento, extensão da anomalia, dimensões de trincas, se há água escorrendo, se há árvores, etc.)."
-              value={activeComponentData.notes}
-              onChange={e => updateNotes(e.target.value)}
-              className="w-full text-xs sm:text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40"
-            />
-          </div>
+          {/* Observations and Notes Textarea com Web Speech API */}
+          <SpeechTextarea
+            label="Observações e Descrição Circunstanciada do Servidor:"
+            rows={4}
+            placeholder="Descreva detalhes específicos observados em campo (localização exata no elemento, extensão da anomalia, dimensões de trincas, se há água escorrendo, se há árvores, etc.)."
+            value={activeComponentData.notes}
+            onChange={e => updateNotes(e.target.value)}
+          />
 
           {/* Upload e Registro Fotográfico Direto deste Componente */}
           <ComponentPhotoUploader

@@ -14,6 +14,7 @@ import { InspectionData } from '../types/inspection';
 
 import { NOTIFICATION_TEMPLATES } from '../config/notificationTemplates';
 import { NotificacaoModelType } from '../types/inspection';
+import { SpeechTextarea } from './SpeechTextarea';
 
 interface Props {
   data: InspectionData;
@@ -102,45 +103,30 @@ export const ConclusionsStep: React.FC<Props> = ({ data, onChange, onNext, onPre
           </h2>
         </div>
 
-        <div>
-          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-            Síntese das Constatações da Vistoria de Campo:
-          </label>
-          <textarea
-            rows={3}
-            placeholder="Descreva o panorama geral das condições de segurança e conservação do barramento observadas pela equipe durante a vistoria..."
-            value={c.generalFindings}
-            onChange={e => updateConclusions('generalFindings', e.target.value)}
-            className="w-full text-xs sm:text-sm p-3 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40 dark:bg-slate-950/70 text-slate-800 dark:text-slate-100"
-          />
-        </div>
+        <SpeechTextarea
+          label="Síntese das Constatações da Vistoria de Campo:"
+          rows={3}
+          placeholder="Descreva o panorama geral das condições de segurança e conservação do barramento observadas pela equipe durante a vistoria..."
+          value={c.generalFindings}
+          onChange={e => updateConclusions('generalFindings', e.target.value)}
+        />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Medidas Imediatas de Segurança Orientadas no Local:
-            </label>
-            <textarea
-              rows={3}
-              placeholder="ex: Desobstrução imediata do vertedouro; cessar tráfego de maquinário na crista; rebaixamento de nível caso haja risco de galgamento..."
-              value={c.immediateSafetyMeasures}
-              onChange={e => updateConclusions('immediateSafetyMeasures', e.target.value)}
-              className="w-full text-xs sm:text-sm p-3 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40 dark:bg-slate-950/70 text-slate-800 dark:text-slate-100"
-            />
-          </div>
+          <SpeechTextarea
+            label="Medidas Imediatas de Segurança Orientadas no Local:"
+            rows={3}
+            placeholder="ex: Desobstrução imediata do vertedouro; cessar tráfego de maquinário na crista; rebaixamento de nível caso haja risco de galgamento..."
+            value={c.immediateSafetyMeasures}
+            onChange={e => updateConclusions('immediateSafetyMeasures', e.target.value)}
+          />
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Recomendações Técnicas ao Responsável pelo Empreendimento:
-            </label>
-            <textarea
-              rows={3}
-              placeholder="ex: Contratação de responsável técnico habilitado para emissão de laudo de estabilidade; protocolo de processo de outorga junto à SEMA-MT..."
-              value={c.recommendationsToOwner}
-              onChange={e => updateConclusions('recommendationsToOwner', e.target.value)}
-              className="w-full text-xs sm:text-sm p-3 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-slate-50/40 dark:bg-slate-950/70 text-slate-800 dark:text-slate-100"
-            />
-          </div>
+          <SpeechTextarea
+            label="Recomendações Técnicas ao Responsável pelo Empreendimento:"
+            rows={3}
+            placeholder="ex: Contratação de responsável técnico habilitado para emissão de laudo de estabilidade; protocolo de processo de outorga junto à SEMA-MT..."
+            value={c.recommendationsToOwner}
+            onChange={e => updateConclusions('recommendationsToOwner', e.target.value)}
+          />
         </div>
       </div>
 
@@ -357,12 +343,13 @@ export const ConclusionsStep: React.FC<Props> = ({ data, onChange, onNext, onPre
                 </button>
               </div>
 
-              <textarea
+              <SpeechTextarea
+                label="Exigências da Notificação:"
                 rows={4}
                 placeholder="Insira as exigências que constarão na Notificação..."
                 value={notif.solicitacoesTexto || ''}
                 onChange={e => updateNotificationDetails('solicitacoesTexto', e.target.value)}
-                className="w-full text-xs font-mono p-2.5 border border-slate-300 rounded-lg bg-slate-50/40 focus:ring-2 focus:ring-emerald-500"
+                className="font-mono"
               />
             </div>
           </div>

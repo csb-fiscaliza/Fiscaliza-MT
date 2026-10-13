@@ -37,6 +37,7 @@ import {
 } from '../utils/photoCaptureUtils';
 import { savePhotoBlob } from '../services/photoStorage';
 import { DeviceCameraCaptureModal } from './DeviceCameraCaptureModal';
+import { VoiceInputButton } from './VoiceInputButton';
 
 interface Props {
   componentCode: string;
@@ -389,11 +390,21 @@ export const EvaluationItemCard: React.FC<Props> = ({
 
       {/* Conditional: Se "Sim" e requer localização */}
       {currentResponse === 'sim' && showLocationOnYes && (
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-1">
-          <label className="text-[11px] font-semibold text-rose-700 dark:text-rose-400 flex items-center gap-1">
-            <MapPin className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-            <span>Localização da anomalia constatada:</span>
-          </label>
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-semibold text-rose-700 dark:text-rose-400 flex items-center gap-1">
+              <MapPin className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+              <span>Localização da anomalia constatada:</span>
+            </label>
+            <VoiceInputButton
+              currentValue={value?.localizacaoDetalhe || ''}
+              onValueChange={val => updateField('localizacaoDetalhe', val)}
+              size="xs"
+              label="Ditar"
+              showLabel={true}
+              title="Ditar localização da anomalia (Web Speech API)"
+            />
+          </div>
           <input
             type="text"
             value={value?.localizacaoDetalhe || ''}
@@ -424,15 +435,25 @@ export const EvaluationItemCard: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Conditional: Se "Impossível observar", exige/permite o motivo do impedimento */}
+      {/* Conditional: Se "Impossível observar", exige/permite o motivo do impedimento (justificativa) */}
       {currentResponse === 'impossivel_observar' && (
-        <div className="pt-2 border-t border-amber-100 dark:border-amber-900/40 flex flex-col gap-1 bg-amber-50/50 dark:bg-amber-950/30 p-2.5 rounded-lg border border-amber-200 dark:border-amber-800/50">
-          <label className="text-[11px] font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1">
-            <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span>Motivo que impediu a observação deste item:</span>
-          </label>
-          <input
-            type="text"
+        <div className="pt-2 border-t border-amber-100 dark:border-amber-900/40 flex flex-col gap-1.5 bg-amber-50/50 dark:bg-amber-950/30 p-2.5 rounded-lg border border-amber-200 dark:border-amber-800/50">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>Motivo/Justificativa do impedimento de observação:</span>
+            </label>
+            <VoiceInputButton
+              currentValue={value?.observacaoComplementar || ''}
+              onValueChange={val => updateField('observacaoComplementar', val)}
+              size="xs"
+              label="Ditar"
+              showLabel={true}
+              title="Ditar justificativa de impedimento de observação"
+            />
+          </div>
+          <textarea
+            rows={2}
             value={value?.observacaoComplementar || ''}
             onChange={e => updateField('observacaoComplementar', e.target.value)}
             placeholder="ex: Cobertura vegetal espessa impenetrável; nível d'água cobrindo a estrutura; ausência de acesso seguro..."
@@ -443,13 +464,26 @@ export const EvaluationItemCard: React.FC<Props> = ({
 
       {/* Observação complementar opcional para qualquer outro estado se o servidor desejar detalhar */}
       {currentResponse !== 'impossivel_observar' && (
-        <div className="pt-1">
-          <input
-            type="text"
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+              Observações / Dimensões da anomalia em campo:
+            </label>
+            <VoiceInputButton
+              currentValue={value?.observacaoComplementar || ''}
+              onValueChange={val => updateField('observacaoComplementar', val)}
+              size="xs"
+              label="Ditar"
+              showLabel={true}
+              title="Ditar observações da anomalia (Web Speech API)"
+            />
+          </div>
+          <textarea
+            rows={2}
             value={value?.observacaoComplementar || ''}
             onChange={e => updateField('observacaoComplementar', e.target.value)}
-            placeholder="Observações complementares deste item (opcional)..."
-            className="w-full text-[11px] px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950/50 text-slate-700 dark:text-slate-200 focus:bg-white dark:focus:bg-slate-900 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            placeholder="Observações complementares deste item, dimensões aproximadas, extensão visual da anomalia..."
+            className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950/50 text-slate-700 dark:text-slate-200 focus:bg-white dark:focus:bg-slate-900 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
           />
         </div>
       )}

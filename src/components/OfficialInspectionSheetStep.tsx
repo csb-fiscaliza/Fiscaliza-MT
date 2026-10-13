@@ -45,6 +45,7 @@ import { FiscalizaLogo } from './FiscalizaLogo';
 import { FloatingSheetNavMenu } from './FloatingSheetNavMenu';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionPhoto } from '../types/inspection';
+import { SpeechTextarea } from './SpeechTextarea';
 
 interface Props {
   data: InspectionData;
@@ -84,6 +85,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     sec12: true,
     secFotos: true
   });
+
+  // Estado dos comentários das seções e componentes com suporte a ditado por voz
+  const [sectionComments, setSectionComments] = useState<Record<string, string>>({});
+  const updateSectionComment = (key: string, text: string) => {
+    setSectionComments(prev => ({ ...prev, [key]: text }));
+  };
 
   const toggleSection = (key: string) => {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
@@ -654,13 +661,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Comentários da Seção 2:
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Comentários da Seção 2:"
                 rows={2}
+                value={sectionComments.sec2 || ''}
+                onValueChange={val => updateSectionComment('sec2', val)}
                 placeholder="Anotações sobre documentação, posse, arrendamento..."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
           </div>
@@ -904,13 +910,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Comentários da Seção 4:
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Comentários da Seção 4:"
                 rows={2}
+                value={sectionComments.sec4 || ''}
+                onValueChange={val => updateSectionComment('sec4', val)}
                 placeholder="Particularidades das medições em campo..."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
           </div>
@@ -1059,13 +1064,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Comentários - Talude de Montante:
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Comentários - Talude de Montante:"
                 rows={2}
+                value={sectionComments.talude_montante || ''}
+                onValueChange={val => updateSectionComment('talude_montante', val)}
                 placeholder="Observações complementares deste talude..."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
 
@@ -1217,13 +1221,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Comentários - Coroamento:
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Comentários - Coroamento:"
                 rows={2}
+                value={sectionComments.crista || ''}
+                onValueChange={val => updateSectionComment('crista', val)}
                 placeholder="Observações complementares do coroamento..."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
 
@@ -1355,13 +1358,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Comentários - Talude de Jusante:
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Comentários - Talude de Jusante:"
                 rows={2}
+                value={sectionComments.talude_jusante || ''}
+                onValueChange={val => updateSectionComment('talude_jusante', val)}
                 placeholder="Observações complementares de surgências, minadouros..."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
 
@@ -1442,13 +1444,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Comentários - Região a Jusante:
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Comentários - Região a Jusante:"
                 rows={2}
+                value={sectionComments.area_jusante || ''}
+                onValueChange={val => updateSectionComment('area_jusante', val)}
                 placeholder="Presença de pontes, casas, estradas vicinais..."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
 
@@ -1499,13 +1500,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Comentários - Instrumentação:
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Comentários - Instrumentação:"
                 rows={2}
+                value={sectionComments.instrumentacao || ''}
+                onValueChange={val => updateSectionComment('instrumentacao', val)}
                 placeholder="Leituras realizadas, conservação dos instrumentos..."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
 
@@ -1540,13 +1540,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         {openSections.sec10 && (
           <div className="p-4 sm:p-5 space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-800 mb-1">
-                Descrição (Quantidade, Dimensões e Localização):
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Descrição (Quantidade, Dimensões e Localização):"
                 rows={4}
+                value={sectionComments.vertedouro || ''}
+                onValueChange={val => updateSectionComment('vertedouro', val)}
                 placeholder="ex: Vertedouro lateral escavado em rocha/solo na ombreira direita, largura de soleira 6,0m, canal de restituição com 40m de extensão. Desobstruído e funcional..."
-                className="w-full text-xs sm:text-sm p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
 
@@ -1636,13 +1635,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Comentários - Reservatório:
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Comentários - Reservatório:"
                 rows={2}
+                value={sectionComments.reservatorio || ''}
+                onValueChange={val => updateSectionComment('reservatorio', val)}
                 placeholder="Qualidade da água, espelho d'água, encostas marginais..."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
 
@@ -1681,13 +1679,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         {openSections.sec12 && (
           <div className="p-4 sm:p-5 space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-800 mb-1">
-                Outros Problemas Existentes:
-              </label>
-              <textarea
+              <SpeechTextarea
+                label="Outros Problemas Existentes:"
                 rows={3}
+                value={sectionComments.outros_problemas || ''}
+                onValueChange={val => updateSectionComment('outros_problemas', val)}
                 placeholder="Anomalias ou questões não abordadas nos itens anteriores..."
-                className="w-full text-xs p-3 border border-slate-300 rounded-lg bg-slate-50/50"
               />
             </div>
 

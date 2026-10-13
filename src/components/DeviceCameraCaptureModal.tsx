@@ -31,6 +31,7 @@ import {
 } from '../utils/photoCaptureUtils';
 import { savePhotoBlob } from '../services/photoStorage';
 import { formatGmsString } from '../utils/geoCoordinates';
+import { VoiceInputButton } from './VoiceInputButton';
 
 interface DeviceCameraCaptureModalProps {
   isOpen: boolean;
@@ -595,13 +596,23 @@ export const DeviceCameraCaptureModal: React.FC<DeviceCameraCaptureModalProps> =
                   <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
                     Legenda da Fotografia:
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setCaption(defaultCaptionText)}
-                    className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-medium cursor-pointer"
-                  >
-                    Restaurar padrão
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <VoiceInputButton
+                      currentValue={caption}
+                      onValueChange={val => setCaption(val)}
+                      size="xs"
+                      label="Ditar Legenda"
+                      showLabel={true}
+                      title="Ditar legenda da foto (Web Speech API)"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setCaption(defaultCaptionText)}
+                      className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-medium cursor-pointer"
+                    >
+                      Restaurar padrão
+                    </button>
+                  </div>
                 </div>
                 <input
                   type="text"

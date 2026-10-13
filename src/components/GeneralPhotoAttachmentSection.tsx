@@ -30,6 +30,7 @@ import {
 } from '../utils/photoCaptureUtils';
 import { savePhotoBlob, deletePhotoBlob } from '../services/photoStorage';
 import { formatGmsString } from '../utils/geoCoordinates';
+import { SpeechTextarea } from './SpeechTextarea';
 
 interface GeneralPhotoAttachmentSectionProps {
   allPhotos: InspectionPhoto[];
@@ -323,14 +324,12 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
                     <div>
                       {isEditing ? (
                         <div className="space-y-1.5">
-                          <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300">
-                            Editar Legenda:
-                          </label>
-                          <textarea
+                          <SpeechTextarea
+                            label="Editar Legenda:"
                             rows={2}
                             value={editingCaption}
                             onChange={e => setEditingCaption(e.target.value)}
-                            className="w-full text-xs p-1.5 border border-emerald-500 rounded bg-emerald-50/40 dark:bg-slate-800 text-slate-800 dark:text-slate-100"
+                            className="text-xs p-1.5"
                           />
                           <div className="flex justify-end gap-1">
                             <button
@@ -502,19 +501,14 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
               </div>
 
               {/* CAMPO DE LEGENDA SEMPRE ABERTO */}
-              <div>
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                  Legenda da Fotografia:
-                </label>
-                <textarea
-                  rows={3}
-                  value={pendingModalPhoto.caption}
-                  onChange={e => setPendingModalPhoto({ ...pendingModalPhoto, caption: e.target.value })}
-                  placeholder="Descreva a constatação observada nesta foto (ex: Crista da barragem observando-se pista de tráfego, ausência de trincas)..."
-                  className="w-full text-xs sm:text-sm p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
-                  autoFocus
-                />
-              </div>
+              <SpeechTextarea
+                label="Legenda da Fotografia:"
+                rows={3}
+                value={pendingModalPhoto.caption}
+                onChange={e => setPendingModalPhoto({ ...pendingModalPhoto, caption: e.target.value })}
+                placeholder="Descreva a constatação observada nesta foto (ex: Crista da barragem observando-se pista de tráfego, ausência de trincas)..."
+                autoFocus
+              />
             </div>
 
             {/* Ações */}
