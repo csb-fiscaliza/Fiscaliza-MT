@@ -36,7 +36,7 @@ export const SpeechTextarea: React.FC<SpeechTextareaProps> = ({
   const [liveInterim, setLiveInterim] = useState<string>('');
   const [isDictating, setIsDictating] = useState<boolean>(false);
 
-  const stringValue = typeof value === 'string' ? value : '';
+  const stringValue = typeof value === 'string' ? value : (value !== undefined && value !== null ? String(value) : '');
 
   const handleSpeechChange = (newVal: string) => {
     if (onValueChange) {
@@ -61,10 +61,19 @@ export const SpeechTextarea: React.FC<SpeechTextareaProps> = ({
     }
   };
 
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (onValueChange) {
+      onValueChange(e.target.value);
+    }
+    if (onChange) {
+      onChange(e);
+    }
+  };
+
   return (
     <div className={`space-y-1.5 ${containerClassName}`}>
       {/* Barra de cabeçalho: Rótulo + Botão de Voz */}
-      {(label || !disabled) && (
+      {(label || (!disabled && !rest.readOnly)) && (
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             {typeof label === 'string' ? (
@@ -77,7 +86,7 @@ export const SpeechTextarea: React.FC<SpeechTextareaProps> = ({
             {badge}
           </div>
 
-          {!disabled && (
+          {!disabled && !rest.readOnly && (
             <div className="flex items-center gap-1">
               <VoiceInputButton
                 currentValue={stringValue}
@@ -98,8 +107,8 @@ export const SpeechTextarea: React.FC<SpeechTextareaProps> = ({
       <div className="relative">
         <textarea
           rows={rows}
-          value={value}
-          onChange={onChange}
+          value={stringValue}
+          onChange={handleTextareaChange}
           placeholder={placeholder}
           disabled={disabled}
           className={`w-full text-xs sm:text-sm p-3 rounded-lg border transition-all ${
