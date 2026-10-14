@@ -277,39 +277,140 @@ export async function ensureAuthenticatedSession(): Promise<{ authenticated: boo
   return { authenticated: false };
 }
 
+const SESSION_STORAGE_KEY = 'fiscaliza_csb_active_session_v1';
+const LOCAL_PWD_PREFIX = 'fiscaliza_csb_pwd_';
+
 /**
  * Autenticação do Fiscal de Barragens (Login com e-mail e senha)
  */
-export async function signInInspector(email: string, password: string): Promise<{ success: boolean; error?: string; email?: string }> {
-  if (!supabase) {
-    return { success: false, error: 'Serviço de banco de dados não configurado.' };
+export async function signInInspector(
+  email: string, 
+  password: string
+): Promise<{ success: boolean; error?: string; email?: string; fullName?: string }> {
+  const cleanEmail = email.trim().toLowerCase();
+  
+  if (!cleanEmail) {
+    return { success: false, error: 'Informe o e-mail institucional.' };
   }
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password
-    });
-    if (error) throw error;
-    return { success: true, email: data.user?.email };
-  } catch (err: any) {
-    return { success: false, error: err.message || 'Falha ao autenticar fiscal.' };
+  if (!password) {
+    return { success: false, error: 'Informe a senha de acesso.' };
+  }
+
+  // Verifica validação local de contingência offline
+  const checkLocalCredentials = (): boolean => {
+    const storedPwd = localStorage.getItem(LOCAL_PWD_PREFIX + cleanEmail);
+    // Se ainda não houve troca de senha ou cadastro customizado, a senha institucional padrão é @12345
+    const expectedPwd = storedPwd || '@12345';
+    return password === expectedPwd;
+  };
+
+  const createLocalSession = (isFieldMode = false) => {
+    const isYara = cleanEmail === 'yarageologa@gmail.com';
+    const localSession = {
+      authenticated: true,
+      email: cleanEmail,
+      fullName: isYara ? 'Yara Dias' : cleanEmail.split('@')[0],
+      role: isFieldMode ? 'Fiscal Técnico CSB (Modo Campo)' : 'Fiscal Técnico CSB',
+      loggedAt: new Date().toISOString()
+    };
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(localSession));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: localSession }));
+    }
+    return { success: true, email: cleanEmail, fullName: localSession.fullName };
+  };
+
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password
+      });
+      if (error) throw error;
+      
+      const user = data.user;
+      const fullName = user?.user_metadata?.full_name || user?.user_metadata?.name || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : 'Fiscal SEMA-MT');
+      const role = user?.user_metadata?.cargo || user?.role || 'Fiscal Técnico';
+      
+      // Salva senha localmente para viabilizar login offline subsequente
+      localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, password);
+
+      const sessionData = {
+        authenticated: true,
+        email: user?.email || cleanEmail,
+        fullName,
+        role,
+        loggedAt: new Date().toISOString()
+      };
+      
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: sessionData }));
+      }
+      return { success: true, email: user?.email, fullName };
+    } catch (err: any) {
+      // Em áreas rurais de Mato Grosso sem sinal de internet ou falha de rede, verifica credenciais salvas
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      const networkIssue = err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      
+      if (isOffline || networkIssue) {
+        if (checkLocalCredentials()) {
+          return createLocalSession(true);
+        }
+      }
+      return { success: false, error: err.message || 'Credenciais inválidas. Verifique seu e-mail e senha institucional.' };
+    }
+  } else {
+    // Modo local / contingência de campo sem backend configurado
+    if (checkLocalCredentials()) {
+      return createLocalSession(false);
+    }
+    return { success: false, error: 'Credenciais inválidas. Verifique seu e-mail e senha institucional.' };
   }
 }
 
 /**
  * Cadastro de novo Fiscal de Campo
+ * Todo novo usuário criado recebe a senha padrão institucional @12345 se não informada
  */
-export async function signUpInspector(email: string, password: string, fullName?: string): Promise<{ success: boolean; error?: string; message?: string }> {
+export async function signUpInspector(
+  email: string, 
+  password?: string, 
+  fullName?: string
+): Promise<{ success: boolean; error?: string; message?: string }> {
+  const cleanEmail = email.trim().toLowerCase();
+  const finalPassword = (password && password.trim()) ? password.trim() : '@12345';
+  const finalName = fullName?.trim() || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : cleanEmail.split('@')[0]);
+
+  // Registra senha local para contingência e modo offline
+  localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, finalPassword);
+
   if (!supabase) {
-    return { success: false, error: 'Serviço de banco de dados não configurado.' };
+    // Registro em modo contingência local
+    const localSession = {
+      authenticated: true,
+      email: cleanEmail,
+      fullName: finalName,
+      role: 'Fiscal Técnico CSB',
+      loggedAt: new Date().toISOString()
+    };
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(localSession));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: localSession }));
+    }
+    return {
+      success: true,
+      message: 'Fiscal cadastrado com sucesso! Acesso liberado ao sistema.'
+    };
   }
+
   try {
     const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
+      email: cleanEmail,
+      password: finalPassword,
       options: {
         data: {
-          full_name: fullName || 'Fiscal SEMA-MT',
+          full_name: finalName,
           cargo: 'Fiscal Técnico CSB'
         }
       }
@@ -317,7 +418,9 @@ export async function signUpInspector(email: string, password: string, fullName?
     if (error) throw error;
     return { 
       success: true, 
-      message: data.session ? 'Fiscal autenticado com sucesso!' : 'Cadastro realizado! Verifique a confirmação ou acesse.' 
+      message: data.session 
+        ? 'Fiscal autenticado com sucesso!' 
+        : 'Cadastro realizado no banco de dados! Acesso liberado.' 
     };
   } catch (err: any) {
     return { success: false, error: err.message || 'Falha ao cadastrar fiscal.' };
@@ -325,34 +428,97 @@ export async function signUpInspector(email: string, password: string, fullName?
 }
 
 /**
+ * Atualiza a senha do Fiscal logado no sistema
+ */
+export async function updateInspectorPassword(newPassword: string): Promise<{ success: boolean; error?: string }> {
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, error: 'A nova senha deve possuir pelo menos 6 caracteres.' };
+  }
+
+  // Identifica e-mail ativo da sessão
+  let sessionEmail = '';
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      sessionEmail = parsed.email || '';
+    }
+  } catch {}
+
+  if (sessionEmail) {
+    localStorage.setItem(LOCAL_PWD_PREFIX + sessionEmail.trim().toLowerCase(), newPassword);
+  }
+
+  if (supabase) {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      if (error) throw error;
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Falha ao alterar senha no servidor.' };
+    }
+  }
+
+  // Modo local
+  return { success: true };
+}
+
+/**
  * Encerra a sessão do Fiscal
  */
 export async function signOutInspector(): Promise<void> {
-  if (!supabase) return;
   try {
-    await supabase.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
   } catch (e) {
     console.error('Erro ao deslogar:', e);
+  } finally {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: { authenticated: false } }));
+    }
   }
 }
 
 /**
  * Retorna o estado atual da sessão do Fiscal
  */
-export async function getInspectorSession(): Promise<{ authenticated: boolean; email?: string; role?: string }> {
-  if (!supabase) return { authenticated: false };
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      return {
-        authenticated: true,
-        email: session.user.email,
-        role: session.user.user_metadata?.cargo || session.user.role || 'Fiscal Técnico'
-      };
+export async function getInspectorSession(): Promise<{ 
+  authenticated: boolean; 
+  email?: string; 
+  fullName?: string;
+  role?: string; 
+}> {
+  if (supabase) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        return {
+          authenticated: true,
+          email: session.user.email,
+          fullName: session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'Fiscal SEMA-MT',
+          role: session.user.user_metadata?.cargo || session.user.role || 'Fiscal Técnico'
+        };
+      }
+    } catch {
+      // fallback to offline local session
     }
-  } catch {
-    // offline
   }
+
+  // Verifica sessão persistente local para suporte a campo offline
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.authenticated) {
+        return parsed;
+      }
+    }
+  } catch {}
+
   return { authenticated: false };
 }
 

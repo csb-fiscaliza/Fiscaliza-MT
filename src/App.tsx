@@ -17,10 +17,14 @@ import { DatabaseModuleStep } from './components/DatabaseModuleStep';
 import { OperationalReviewModal } from './components/OperationalReviewModal';
 import { InspectorAuthModal } from './components/InspectorAuthModal';
 import { PhotoSyncQueueModal } from './components/PhotoSyncQueueModal';
+import { LoginPage } from './components/LoginPage';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { FiscalizaLogo } from './components/FiscalizaLogo';
 import { OfficialFooter } from './components/OfficialFooter';
 import { InspectionProgressBar } from './components/InspectionProgressBar';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { InspectionData } from './types/inspection';
+import { getInspectorSession, signOutInspector } from './services/supabase';
 import { 
   processAllPendingPhotoQueue, 
   enqueuePhotosFromInspection 
@@ -111,9 +115,51 @@ function AppContent() {
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [showPhotoQueueModal, setShowPhotoQueueModal] = useState<boolean>(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState<boolean>(false);
+  const [session, setSession] = useState<{ authenticated: boolean; email?: string; fullName?: string; role?: string } | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; type: 'success' | 'info' | 'error'; isRls?: boolean } | null>(null);
   const saveTimeoutRef = useRef<any>(null);
+
+  // Monitora sessão ativa do Fiscal e mudanças de autenticação
+  useEffect(() => {
+    let mounted = true;
+    getInspectorSession()
+      .then(sess => {
+        if (!mounted) return;
+        if (sess && sess.authenticated) {
+          setSession(sess);
+        } else {
+          setSession(null);
+        }
+      })
+      .catch(() => {
+        if (mounted) setSession(null);
+      })
+      .finally(() => {
+        if (mounted) setIsAuthLoading(false);
+      });
+
+    const handleAuthChanged = (e: any) => {
+      if (e.detail?.authenticated) {
+        setSession(e.detail);
+      } else {
+        setSession(null);
+      }
+    };
+
+    window.addEventListener('csb:auth_state_changed', handleAuthChanged);
+    return () => {
+      mounted = false;
+      window.removeEventListener('csb:auth_state_changed', handleAuthChanged);
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    await signOutInspector();
+    setSession(null);
+  };
 
   // Monitora conectividade para resiliência no campo e sincronização automática ao restabelecer rede
   useEffect(() => {
@@ -516,6 +562,38 @@ function AppContent() {
     setActiveStep(3);
   };
 
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 selection:bg-emerald-500 selection:text-white">
+        <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl flex flex-col items-center gap-4 text-center max-w-xs w-full backdrop-blur-md">
+          <div className="p-2 rounded-2xl bg-white/5 border border-slate-700/60 shadow-inner">
+            <FiscalizaLogo size="lg" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-base font-black text-white tracking-tight">Fiscaliza MT</h2>
+            <p className="text-xs text-slate-400 font-medium">Iniciando ambiente seguro CSB/SEMA-MT...</p>
+          </div>
+          <div className="w-5 h-5 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mt-1" />
+        </div>
+      </div>
+    );
+  }
+
+  // Página de Login Institucional: protege todo o sistema e exige autenticação
+  if (!session || !session.authenticated) {
+    return (
+      <LoginPage
+        onLoginSuccess={(newSession) => {
+          setSession({
+            authenticated: true,
+            ...newSession
+          });
+        }}
+        isOnline={isOnline}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Alerta de Modo Offline */}
@@ -566,7 +644,7 @@ function AppContent() {
         </div>
       )}
 
-      {/* Header com Navegação */}
+      {/* Header com Navegação e Perfil do Fiscal */}
       <Header
         currentInspection={currentInspection}
         activeStep={activeStep}
@@ -585,6 +663,9 @@ function AppContent() {
         isSyncing={isSyncing}
         onOpenAuthModal={() => setShowAuthModal(true)}
         onOpenPhotoQueueModal={() => setShowPhotoQueueModal(true)}
+        currentUser={session}
+        onLogout={handleLogout}
+        onOpenChangePassword={() => setShowChangePasswordModal(true)}
       />
 
       {/* Barra de Progresso Visual de Preenchimento da Inspeção de Campo (visível apenas na Nova Ficha) */}
@@ -765,6 +846,13 @@ function AppContent() {
         onClose={() => setShowPhotoQueueModal(false)}
         currentInspection={currentInspection}
         isOnline={isOnline}
+      />
+
+      {/* Modal Seguro de Alteração de Senha do Fiscal */}
+      <ChangePasswordModal
+        isOpen={showChangePasswordModal}
+        onClose={() => setShowChangePasswordModal(false)}
+        userEmail={session?.email}
       />
     </div>
   );
