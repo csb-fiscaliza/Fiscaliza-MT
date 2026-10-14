@@ -38,6 +38,7 @@ import { PhotoSyncQueueModal } from './PhotoSyncQueueModal';
 import { getPhotoQueueSummary, subscribePhotoQueue } from '../services/photoSyncQueueService';
 import { exportInspectionToJson } from '../services/storage';
 import { exportAnonymizedJsonFile } from '../utils/anonymizer';
+import { canUserEditInspection, canUserDeleteInspection, canUserCreateInspection } from '../services/userService';
 
 interface Props {
   inspections: InspectionData[];
@@ -51,6 +52,7 @@ interface Props {
   onSyncAll?: () => void;
   isSyncing?: boolean;
   onOpenAuthModal?: () => void;
+  currentUser?: { email?: string; fullName?: string; role?: string; id?: string } | null;
 }
 
 export const DatabaseModuleStep: React.FC<Props> = ({
@@ -64,7 +66,8 @@ export const DatabaseModuleStep: React.FC<Props> = ({
   onSyncSingle,
   onSyncAll,
   isSyncing = false,
-  onOpenAuthModal
+  onOpenAuthModal,
+  currentUser
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCondition, setFilterCondition] = useState<'all' | 'critico' | 'alerta' | 'adequado'>('all');
@@ -500,56 +503,93 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                             <span>Componentes em condição adequada</span>
                           </span>
                         )}
-                      </div>
+                      {/* Identificação de Autoria e Equipe */}
+                      {insp.createdByEmail && (
+                        <div className="pt-0.5">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            currentUser?.email && insp.createdByEmail.toLowerCase() === currentUser.email.toLowerCase()
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                          }`}>
+                            {currentUser?.email && insp.createdByEmail.toLowerCase() === currentUser.email.toLowerCase()
+                              ? 'Sua Ficha'
+                              : `Autor: ${insp.createdByName || insp.createdByEmail.split('@')[0]}`}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Botões de Ação Direta: Visualizar, Editar, Excluir */}
-                    <div className="flex items-center flex-wrap md:flex-col lg:flex-row gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
-                      {/* Visualizar */}
-                      <button
-                        type="button"
-                        onClick={() => handleOpenDetail(insp)}
-                        className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                        title="Visualizar resumo completo da vistoria"
-                      >
-                        <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                        <span>Visualizar</span>
-                      </button>
+                    {/* Botões de Ação Direta: Visualizar, Editar, Excluir com RBAC */}
+                    {(() => {
+                      const editCheck = canUserEditInspection(currentUser || null, insp);
+                      const canEdit = editCheck.allowed;
+                      const deleteCheck = canUserDeleteInspection(currentUser || null, insp);
+                      const canDelete = deleteCheck.allowed;
 
-                      {/* Sincronizar individual se pendente */}
-                      {onSyncSingle && (!insp.syncStatus || insp.syncStatus === 'local' || insp.syncStatus === 'error') && (
-                        <button
-                          type="button"
-                          onClick={() => onSyncSingle(insp.id)}
-                          disabled={isSyncing}
-                          className="px-2.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                          title="Sincronizar esta vistoria com o banco de dados agora"
-                        >
-                          <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                          <span>Sync</span>
-                        </button>
-                      )}
+                      return (
+                        <div className="flex items-center flex-wrap md:flex-col lg:flex-row gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
+                          {/* Visualizar */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDetail(insp)}
+                            className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                            title="Visualizar resumo completo da vistoria"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                            <span>Visualizar</span>
+                          </button>
 
-                      {/* Editar */}
-                      <button
-                        type="button"
-                        onClick={() => onSelectAndEdit(insp.id)}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                        title="Carregar para edição na Ficha de Inspeção"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>Editar</span>
-                      </button>
+                          {/* Sincronizar individual se pendente */}
+                          {onSyncSingle && (!insp.syncStatus || insp.syncStatus === 'local' || insp.syncStatus === 'error') && (
+                            <button
+                              type="button"
+                              onClick={() => onSyncSingle(insp.id)}
+                              disabled={isSyncing}
+                              className="px-2.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                              title="Sincronizar esta vistoria com o banco de dados agora"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                              <span>Sync</span>
+                            </button>
+                          )}
 
-                      {/* Excluir */}
-                      <button
-                        type="button"
-                        onClick={() => setInspectionToDelete(insp)}
-                        className="p-1.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-400 transition cursor-pointer"
-                        title="Excluir esta vistoria"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                          {/* Editar ou Ver Ficha */}
+                          {canEdit ? (
+                            <button
+                              type="button"
+                              onClick={() => onSelectAndEdit(insp.id)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                              title="Carregar para edição na Ficha de Inspeção"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Editar</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onSelectAndEdit(insp.id)}
+                              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                              title={editCheck.reason || 'Modo somente leitura'}
+                            >
+                              <Lock className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Ver Ficha</span>
+                            </button>
+                          )}
+
+                          {/* Excluir */}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => setInspectionToDelete(insp)}
+                              className="p-1.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-400 transition cursor-pointer"
+                              title="Excluir esta vistoria"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                     </div>
                   </div>
                 </div>

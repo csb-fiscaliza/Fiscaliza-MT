@@ -30,7 +30,14 @@ function generateUUID(): string {
   });
 }
 
-export function createEmptyInspection(): InspectionData {
+export function createEmptyInspection(creatorUser?: { 
+  email?: string; 
+  fullName?: string; 
+  matricula?: string; 
+  cargo?: string; 
+  sector?: string; 
+  id?: string;
+}): InspectionData {
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
   const timeStr = now.toTimeString().slice(0, 5);
@@ -54,6 +61,9 @@ export function createEmptyInspection(): InspectionData {
     id: vistoriaId,
     barragemId,
     empreendedorId,
+    createdByEmail: creatorUser?.email,
+    createdByName: creatorUser?.fullName,
+    createdByUserId: creatorUser?.id,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     isDraft: true,
@@ -66,10 +76,10 @@ export function createEmptyInspection(): InspectionData {
       inspectors: [
         {
           id: generateUUID(),
-          name: '',
-          role: 'Analista de Meio Ambiente / Fiscal',
-          registrationNumber: '',
-          sector: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
+          name: creatorUser?.fullName || '',
+          role: creatorUser?.cargo || 'Analista de Meio Ambiente / Fiscal',
+          registrationNumber: creatorUser?.matricula || '',
+          sector: creatorUser?.sector || 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
         }
       ],
       accompaniedBy: {

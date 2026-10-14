@@ -67,6 +67,23 @@ export type PhotoSyncStatus =
 
 export type PhotoQueueStatus = 'pending' | 'uploading' | 'completed' | 'error';
 
+export type UserRole = 'administrador' | 'analista' | 'visualizador';
+export type UserStatus = 'ativo' | 'inativo';
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  status: UserStatus;
+  cargo?: string;
+  matricula?: string;
+  setor?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+}
+
 export interface PhotoSyncQueueItem {
   id: string; // ID único da foto
   vistoriaId: string;
@@ -351,6 +368,9 @@ export interface InspectionData {
   id: string;
   barragemId?: string;
   empreendedorId?: string;
+  createdByEmail?: string;
+  createdByName?: string;
+  createdByUserId?: string;
   createdAt: string;
   updatedAt: string;
   isDraft: boolean;

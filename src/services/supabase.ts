@@ -279,6 +279,39 @@ export async function ensureAuthenticatedSession(): Promise<{ authenticated: boo
 
 const SESSION_STORAGE_KEY = 'fiscaliza_csb_active_session_v1';
 const LOCAL_PWD_PREFIX = 'fiscaliza_csb_pwd_';
+const USERS_STORAGE_KEY = 'fiscaliza_csb_users_catalog_v1';
+
+export function getLocalUserProfile(email: string): { role: string; name?: string; status?: string; cargo?: string } | null {
+  const cleanEmail = email.trim().toLowerCase();
+  if (cleanEmail === 'yarageologa@gmail.com') {
+    return {
+      role: 'administrador',
+      name: 'Yara Dias',
+      status: 'ativo',
+      cargo: 'Coordenadora de Segurança de Barragens'
+    };
+  }
+
+  try {
+    const raw = localStorage.getItem(USERS_STORAGE_KEY);
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const found = list.find((u: any) => u.email?.toLowerCase() === cleanEmail);
+        if (found) {
+          return {
+            role: found.role || 'analista',
+            name: found.name,
+            status: found.status || 'ativo',
+            cargo: found.cargo
+          };
+        }
+      }
+    }
+  } catch {}
+
+  return null;
+}
 
 /**
  * Autenticação do Fiscal de Barragens (Login com e-mail e senha)
@@ -296,6 +329,17 @@ export async function signInInspector(
     return { success: false, error: 'Informe a senha de acesso.' };
   }
 
+  // Verifica perfil e status do usuário no catálogo institucional
+  const profile = getLocalUserProfile(cleanEmail);
+  if (profile && profile.status === 'inativo') {
+    return { success: false, error: 'Usuário inativo. Seu acesso foi suspenso pela administração da CSB/SEMA-MT.' };
+  }
+
+  const resolvedRole = (cleanEmail === 'yarageologa@gmail.com') 
+    ? 'administrador' 
+    : (profile?.role || 'analista');
+  const resolvedFullName = profile?.name || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : cleanEmail.split('@')[0]);
+
   // Verifica validação local de contingência offline
   const checkLocalCredentials = (): boolean => {
     const storedPwd = localStorage.getItem(LOCAL_PWD_PREFIX + cleanEmail);
@@ -305,12 +349,12 @@ export async function signInInspector(
   };
 
   const createLocalSession = (isFieldMode = false) => {
-    const isYara = cleanEmail === 'yarageologa@gmail.com';
     const localSession = {
       authenticated: true,
       email: cleanEmail,
-      fullName: isYara ? 'Yara Dias' : cleanEmail.split('@')[0],
-      role: isFieldMode ? 'Fiscal Técnico CSB (Modo Campo)' : 'Fiscal Técnico CSB',
+      fullName: resolvedFullName,
+      role: resolvedRole,
+      cargo: profile?.cargo || (resolvedRole === 'administrador' ? 'Coordenadora CSB' : 'Fiscal Técnico CSB'),
       loggedAt: new Date().toISOString()
     };
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(localSession));
@@ -329,8 +373,8 @@ export async function signInInspector(
       if (error) throw error;
       
       const user = data.user;
-      const fullName = user?.user_metadata?.full_name || user?.user_metadata?.name || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : 'Fiscal SEMA-MT');
-      const role = user?.user_metadata?.cargo || user?.role || 'Fiscal Técnico';
+      const fullName = profile?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : 'Fiscal SEMA-MT');
+      const role = resolvedRole;
       
       // Salva senha localmente para viabilizar login offline subsequente
       localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, password);
@@ -340,6 +384,7 @@ export async function signInInspector(
         email: user?.email || cleanEmail,
         fullName,
         role,
+        cargo: profile?.cargo || (resolvedRole === 'administrador' ? 'Coordenadora CSB' : 'Fiscal Técnico CSB'),
         loggedAt: new Date().toISOString()
       };
       
@@ -492,34 +537,61 @@ export async function getInspectorSession(): Promise<{
   fullName?: string;
   role?: string; 
 }> {
+  let sessionEmail = '';
+  let sessionFullName = '';
+  let sessionRole = '';
+
   if (supabase) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        return {
-          authenticated: true,
-          email: session.user.email,
-          fullName: session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'Fiscal SEMA-MT',
-          role: session.user.user_metadata?.cargo || session.user.role || 'Fiscal Técnico'
-        };
+        sessionEmail = session.user.email || '';
+        sessionFullName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || '';
+        sessionRole = session.user.user_metadata?.cargo || session.user.role || '';
       }
     } catch {
       // fallback to offline local session
     }
   }
 
-  // Verifica sessão persistente local para suporte a campo offline
-  try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.authenticated) {
-        return parsed;
+  // Se não obteve do Supabase, tenta local storage
+  if (!sessionEmail) {
+    try {
+      const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.authenticated && parsed.email) {
+          sessionEmail = parsed.email;
+          sessionFullName = parsed.fullName || '';
+          sessionRole = parsed.role || '';
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
-  return { authenticated: false };
+  if (!sessionEmail) {
+    return { authenticated: false };
+  }
+
+  // Verifica o catálogo de usuários institucional para resolver o perfil (administrador, analista, visualizador)
+  const profile = getLocalUserProfile(sessionEmail);
+  if (profile && profile.status === 'inativo') {
+    signOutInspector();
+    return { authenticated: false };
+  }
+
+  const finalRole = (sessionEmail.toLowerCase() === 'yarageologa@gmail.com')
+    ? 'administrador'
+    : (profile?.role || sessionRole || 'analista');
+
+  const finalName = profile?.name || sessionFullName || (sessionEmail.toLowerCase() === 'yarageologa@gmail.com' ? 'Yara Dias' : sessionEmail.split('@')[0]);
+
+  return {
+    authenticated: true,
+    email: sessionEmail,
+    fullName: finalName,
+    role: finalRole
+  };
 }
 
 /**

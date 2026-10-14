@@ -36,6 +36,7 @@ import { InspectionData } from '../types/inspection';
 import { FiscalizaLogo } from './FiscalizaLogo';
 import { InspectionDetailModal } from './InspectionDetailModal';
 import { InteractiveMap } from './InteractiveMap';
+import { canUserEditInspection, canUserDeleteInspection, canUserCreateInspection } from '../services/userService';
 
 interface Props {
   currentInspection: InspectionData;
@@ -53,6 +54,7 @@ interface Props {
   onSyncSingle?: (id: string) => void;
   onSyncAll?: () => void;
   isSyncing?: boolean;
+  currentUser?: { email?: string; fullName?: string; role?: string; id?: string } | null;
 }
 
 export const DashboardStep: React.FC<Props> = ({
@@ -68,7 +70,8 @@ export const DashboardStep: React.FC<Props> = ({
   lastSavedAt,
   onSyncSingle,
   onSyncAll,
-  isSyncing = false
+  isSyncing = false,
+  currentUser
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'critical' | 'adequate' | 'photos'>('all');
@@ -579,57 +582,96 @@ export const DashboardStep: React.FC<Props> = ({
                           <span>Condição estável</span>
                         </span>
                       )}
+
+                      {/* Identificação de Autoria e Equipe */}
+                      {insp.createdByEmail && (
+                        <>
+                          <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            currentUser?.email && insp.createdByEmail.toLowerCase() === currentUser.email.toLowerCase()
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                          }`}>
+                            {currentUser?.email && insp.createdByEmail.toLowerCase() === currentUser.email.toLowerCase()
+                              ? 'Sua Ficha'
+                              : `Autor: ${insp.createdByName || insp.createdByEmail.split('@')[0]}`}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
 
                   {/* AÇÕES DIRETAS: VISUALIZAR, EDITAR, EXCLUIR */}
-                  <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0">
-                    {/* Visualizar */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenDetail(insp)}
-                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                      title="Visualizar ficha técnica e relatório completo"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
-                      <span>Visualizar</span>
-                    </button>
+                  {(() => {
+                    const editCheck = canUserEditInspection(currentUser || null, insp);
+                    const canEdit = editCheck.allowed;
+                    const deleteCheck = canUserDeleteInspection(currentUser || null, insp);
+                    const canDelete = deleteCheck.allowed;
 
-                    {/* Sincronizar individual se pendente */}
-                    {onSyncSingle && (!insp.syncStatus || insp.syncStatus === 'local' || insp.syncStatus === 'error') && (
-                      <button
-                        type="button"
-                        onClick={() => onSyncSingle(insp.id)}
-                        disabled={isSyncing}
-                        className="px-2.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                        title="Sincronizar esta ficha com o banco de dados agora"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                        <span>Sync</span>
-                      </button>
-                    )}
+                    return (
+                      <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0">
+                        {/* Visualizar */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDetail(insp)}
+                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                          title="Visualizar ficha técnica e relatório completo"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
+                          <span>Visualizar</span>
+                        </button>
 
-                    {/* Editar */}
-                    <button
-                      type="button"
-                      onClick={() => onSelectAndEdit && onSelectAndEdit(insp.id)}
-                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                      title="Carregar esta barragem na Ficha de Inspeção"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Editar</span>
-                    </button>
+                        {/* Sincronizar individual se pendente */}
+                        {onSyncSingle && (!insp.syncStatus || insp.syncStatus === 'local' || insp.syncStatus === 'error') && (
+                          <button
+                            type="button"
+                            onClick={() => onSyncSingle(insp.id)}
+                            disabled={isSyncing}
+                            className="px-2.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                            title="Sincronizar esta ficha com o banco de dados agora"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                            <span>Sync</span>
+                          </button>
+                        )}
 
-                    {/* Excluir */}
-                    <button
-                      type="button"
-                      onClick={() => setInspectionToDelete(insp)}
-                      className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-rose-300 dark:hover:border-rose-900 bg-white dark:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
-                      title="Excluir vistoria desta barragem"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                        {/* Editar ou Ver Ficha restrita */}
+                        {canEdit ? (
+                          <button
+                            type="button"
+                            onClick={() => onSelectAndEdit && onSelectAndEdit(insp.id)}
+                            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                            title="Carregar esta barragem na Ficha de Inspeção para edição"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Editar</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onSelectAndEdit && onSelectAndEdit(insp.id)}
+                            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                            title={editCheck.reason || 'Visualizar em modo somente leitura'}
+                          >
+                            <Lock className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Ver Ficha</span>
+                          </button>
+                        )}
+
+                        {/* Excluir (somente se permitido pelas regras de autoria/perfil) */}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => setInspectionToDelete(insp)}
+                            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-rose-300 dark:hover:border-rose-900 bg-white dark:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                            title="Excluir vistoria desta barragem"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

@@ -16,7 +16,8 @@ import {
   Save,
   CheckCircle2,
   RefreshCw,
-  Compass
+  Compass,
+  Users
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 
@@ -29,6 +30,7 @@ interface MobileBottomNavProps {
   onOpenNavMenu?: () => void;
   isSaving?: boolean;
   onOpenPhotoQueueModal?: () => void;
+  currentUser?: { email?: string; fullName?: string; role?: string; id?: string } | null;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
@@ -39,7 +41,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   currentInspection,
   onOpenNavMenu,
   isSaving = false,
-  onOpenPhotoQueueModal
+  onOpenPhotoQueueModal,
+  currentUser
 }) => {
   const [photoQueuePending, setPhotoQueuePending] = React.useState(0);
 
@@ -108,6 +111,18 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     }
   ];
 
+  const userRole = (currentUser?.role || '').toLowerCase();
+  const isAdmin = userRole === 'administrador' || userRole === 'admin' || currentUser?.email?.toLowerCase() === 'yarageologa@gmail.com';
+
+  if (isAdmin) {
+    navItems.push({
+      step: 7,
+      label: 'Usuários',
+      icon: Users,
+      badge: 'Admin'
+    });
+  }
+
   return (
     <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] print:hidden select-none">
       {/* Barra de utilitários rápidos com toque no topo da barra inferior */}
@@ -169,7 +184,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       </div>
 
       {/* Grid de Ícones de Navegação das Etapas */}
-      <nav className="grid grid-cols-7 gap-0.5 px-1 py-1 max-w-lg mx-auto">
+      <nav className={`grid ${isAdmin ? 'grid-cols-8' : 'grid-cols-7'} gap-0.5 px-1 py-1 max-w-lg mx-auto`}>
         {navItems.map(item => {
           const isActive = activeStep === item.step;
           const Icon = item.icon;

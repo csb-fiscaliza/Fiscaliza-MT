@@ -19,6 +19,7 @@ import { InspectorAuthModal } from './components/InspectorAuthModal';
 import { PhotoSyncQueueModal } from './components/PhotoSyncQueueModal';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { UsersManagementStep } from './components/UsersManagementStep';
 import { FiscalizaLogo } from './components/FiscalizaLogo';
 import { OfficialFooter } from './components/OfficialFooter';
 import { InspectionProgressBar } from './components/InspectionProgressBar';
@@ -26,11 +27,18 @@ import { MobileBottomNav } from './components/MobileBottomNav';
 import { InspectionData } from './types/inspection';
 import { getInspectorSession, signOutInspector } from './services/supabase';
 import { 
+  canUserCreateInspection, 
+  canUserEditInspection, 
+  canUserDeleteInspection,
+  canUserManageUsers 
+} from './services/userService';
+import { 
   processAllPendingPhotoQueue, 
   enqueuePhotosFromInspection 
 } from './services/photoSyncQueueService';
 import { 
-  WifiOff 
+  WifiOff,
+  Lock
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ThemeProvider } from './context/ThemeContext';
@@ -318,6 +326,10 @@ function AppContent() {
   useEffect(() => {
     if (!currentInspection?.id) return;
 
+    // Se o usuário atual não tem permissão para editar esta vistoria, NÃO auto-salva modificações acidentais
+    const editCheck = canUserEditInspection(session, currentInspection);
+    if (!editCheck.allowed) return;
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
@@ -335,7 +347,7 @@ function AppContent() {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [currentInspection]);
+  }, [currentInspection, session]);
 
   // Captura geolocalização do dispositivo via API do navegador para o local da barragem
   const captureBrowserLocation = (): Promise<{
@@ -372,6 +384,11 @@ function AppContent() {
   };
 
   const handleNewInspection = async () => {
+    if (!canUserCreateInspection(session?.role)) {
+      alert('Perfil Visualizador: Acesso apenas para consulta. Seu perfil não possui permissão para criar novas fichas de vistoria.');
+      return;
+    }
+
     let proceed = true;
     try {
       proceed = window.confirm('Deseja iniciar uma nova vistoria em branco? Os dados da vistoria atual foram salvos automaticamente.');
@@ -379,7 +396,13 @@ function AppContent() {
       proceed = true;
     }
     if (proceed) {
-      const fresh = createEmptyInspection();
+      const fresh = createEmptyInspection({
+        email: session?.email,
+        fullName: session?.fullName || (session?.email ? session.email.split('@')[0] : 'Fiscal Técnico'),
+        id: (session as any)?.id,
+        cargo: (session as any)?.cargo || 'Fiscal Técnico CSB',
+        sector: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
+      });
       saveInspection(fresh);
       setCurrentInspection(fresh);
       setInspections(getAllInspections());
@@ -417,6 +440,18 @@ function AppContent() {
   };
 
   const handleSaveInspection = async () => {
+    const editCheck = canUserEditInspection(session, currentInspection);
+    if (!editCheck.allowed) {
+      alert(editCheck.reason || 'Você não possui permissão para salvar alterações nesta vistoria.');
+      return;
+    }
+
+    // Se a ficha atual ainda não tiver autor registrado, vincula ao usuário logado
+    if (!currentInspection.createdByEmail && session?.email) {
+      currentInspection.createdByEmail = session.email;
+      currentInspection.createdByName = session.fullName || session.email;
+    }
+
     const coords = currentInspection.damIdentification.coordinates;
     const isManual = coords.isManualEdit;
     const hasLat = !!coords.latitude?.trim();
@@ -496,6 +531,15 @@ function AppContent() {
   };
 
   const handleDeleteInspection = (id: string) => {
+    const target = inspections.find(i => i.id === id);
+    if (target) {
+      const deleteCheck = canUserDeleteInspection(session, target);
+      if (!deleteCheck.allowed) {
+        alert(deleteCheck.reason || 'Você não possui permissão para excluir esta vistoria.');
+        return;
+      }
+    }
+
     deleteInspection(id);
     const remaining = getAllInspections();
     setInspections(remaining);
@@ -504,7 +548,11 @@ function AppContent() {
       if (remaining.length > 0) {
         setCurrentInspection(remaining[0]);
       } else {
-        const fresh = createEmptyInspection();
+        const fresh = createEmptyInspection({
+          email: session?.email,
+          fullName: session?.fullName,
+          id: (session as any)?.id
+        });
         saveInspection(fresh);
         setCurrentInspection(fresh);
         setInspections([fresh]);
@@ -561,6 +609,17 @@ function AppContent() {
     setPhotoFilterComponent(componentId);
     setActiveStep(3);
   };
+
+  // Protege a etapa 7 (Módulo de Usuários): exclusivo para Administrador
+  useEffect(() => {
+    if (activeStep === 7) {
+      const role = (session?.role || '').toLowerCase();
+      const isAdmin = role === 'administrador' || role === 'admin' || session?.email?.toLowerCase() === 'yarageologa@gmail.com';
+      if (!isAdmin) {
+        setActiveStep(0);
+      }
+    }
+  }, [activeStep, session]);
 
   if (isAuthLoading) {
     return (
@@ -677,6 +736,34 @@ function AppContent() {
         />
       )}
 
+      {/* Banner de Proteção contra Alterações Acidentais (Modo Somente Leitura) */}
+      {activeStep >= 1 && activeStep <= 5 && !canUserEditInspection(session, currentInspection).allowed && (
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-3">
+          <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3.5 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-bold shrink-0 flex items-center justify-center">
+                <Lock className="w-4 h-4" />
+              </span>
+              <div>
+                <p className="font-bold text-xs sm:text-sm">
+                  Ficha em Modo Somente Leitura
+                </p>
+                <p className="text-[11px] sm:text-xs text-amber-800 dark:text-amber-300/90">
+                  {canUserEditInspection(session, currentInspection).reason || 'Você está visualizando os dados de um colega sem permissão de edição.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveStep(0)}
+              className="px-3 py-1.5 rounded-xl bg-amber-200 dark:bg-amber-800 hover:bg-amber-300 dark:hover:bg-amber-700 text-amber-950 dark:text-amber-100 font-bold text-xs shrink-0 cursor-pointer transition"
+            >
+              Voltar ao Painel
+            </button>
+          </div>
+        </div>
+      )}
+
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-28 lg:pb-8 overflow-x-hidden">
         <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
           <motion.div
@@ -697,6 +784,7 @@ function AppContent() {
               <DashboardStep
                 currentInspection={currentInspection}
                 allInspections={inspections}
+                currentUser={session}
                 onGoToSheet={() => setActiveStep(1)}
                 onGoToDatabase={() => setActiveStep(6)}
                 onGoToDocuments={() => setActiveStep(5)}
@@ -784,6 +872,7 @@ function AppContent() {
               <DatabaseModuleStep
                 inspections={inspections}
                 currentInspectionId={currentInspection.id}
+                currentUser={session}
                 onSelectAndEdit={handleSelectAndEdit}
                 onDeleteInspection={handleDeleteInspection}
                 onNewInspection={handleNewInspection}
@@ -804,6 +893,14 @@ function AppContent() {
                 onSyncAll={handleSyncNow}
                 isSyncing={isSyncing}
                 onOpenAuthModal={() => setShowAuthModal(true)}
+              />
+            )}
+
+            {/* PASSO 7: MÓDULO DE USUÁRIOS (EXCLUSIVO ADMINISTRADOR) */}
+            {activeStep === 7 && (
+              <UsersManagementStep
+                currentUser={session}
+                onGoToDashboard={() => setActiveStep(0)}
               />
             )}
           </motion.div>
@@ -838,6 +935,7 @@ function AppContent() {
         currentInspection={currentInspection}
         onOpenNavMenu={() => window.dispatchEvent(new CustomEvent('csb:toggle_nav_menu'))}
         onOpenPhotoQueueModal={() => setShowPhotoQueueModal(true)}
+        currentUser={session}
       />
 
       {/* Central de Fila de Sincronização Persistente de Fotos - IndexedDB */}

@@ -27,7 +27,9 @@ import {
   CloudUpload,
   KeyRound,
   LogOut,
-  User
+  User,
+  Users,
+  ShieldCheck
 } from 'lucide-react';
 import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionData } from '../types/inspection';
@@ -97,7 +99,12 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
   const isPanelActive = activeStep === 0;
   const isDatabaseActive = activeStep === 6;
+  const isUsersActive = activeStep === 7;
   const isSheetActive = activeStep >= 1 && activeStep <= 5;
+
+  const userRole = (currentUser?.role || '').toLowerCase();
+  const isAdmin = userRole === 'administrador' || userRole === 'admin' || currentUser?.email?.toLowerCase() === 'yarageologa@gmail.com';
+  const isVisualizador = userRole === 'visualizador';
 
   // Contagem de fichas locais pendentes de sincronização
   const pendingCount = allInspections.filter(i => !i.syncStatus || i.syncStatus === 'local' || i.syncStatus === 'error').length;
@@ -300,29 +307,33 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Painel</span>
             </button>
 
-            {/* Atalho 2: Nova Ficha */}
-            <button
-              type="button"
-              onClick={onNewInspection}
-              className="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-emerald-500 transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
-              title="Iniciar uma nova ficha de vistoria em branco com captura de coordenadas"
-            >
-              <PlusCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>Nova Ficha</span>
-            </button>
+            {/* Atalho 2: Nova Ficha (Apenas Administrador e Analista) */}
+            {!isVisualizador && (
+              <button
+                type="button"
+                onClick={onNewInspection}
+                className="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-emerald-500 transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
+                title="Iniciar uma nova ficha de vistoria em branco com captura de coordenadas"
+              >
+                <PlusCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Nova Ficha</span>
+              </button>
+            )}
 
-            {/* Atalho 3: Salvar Vistoria */}
-            <button
-              type="button"
-              onClick={onSave}
-              className="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-800 border border-emerald-300 dark:border-emerald-800 hover:border-emerald-500 transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
-              title="Salvar dados da vistoria e registrar localização precisa da barragem"
-            >
-              <Save className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>Salvar</span>
-            </button>
+            {/* Atalho 3: Salvar Vistoria (Apenas quando não for somente leitura) */}
+            {!isVisualizador && (
+              <button
+                type="button"
+                onClick={onSave}
+                className="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-800 border border-emerald-300 dark:border-emerald-800 hover:border-emerald-500 transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
+                title="Salvar dados da vistoria e registrar localização precisa da barragem"
+              >
+                <Save className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Salvar</span>
+              </button>
+            )}
 
-            {/* Atalho 3: Banco de Dados */}
+            {/* Atalho 4: Banco de Dados */}
             <button
               type="button"
               onClick={() => setActiveStep(6)}
@@ -345,6 +356,30 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               )}
             </button>
+
+            {/* Atalho 5: Módulo Usuários (Visível APENAS para Administrador) */}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveStep(7)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer shadow-2xs ${
+                  isUsersActive
+                    ? 'bg-purple-600 text-white shadow-purple-600/20'
+                    : 'bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-slate-800 border border-purple-200 dark:border-purple-900/60'
+                }`}
+                title="Módulo Institucional de Gestão de Usuários e Perfis (Exclusivo Administrador)"
+              >
+                <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <span>Usuários</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold uppercase ${
+                  isUsersActive 
+                    ? 'bg-white/20 text-white' 
+                    : 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
+                }`}>
+                  Admin
+                </span>
+              </button>
+            )}
 
             {/* Indicador de Ficha Ativa quando estiver preenchendo/editando */}
             {isSheetActive && (
