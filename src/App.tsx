@@ -53,7 +53,9 @@ import {
   exportInspectionToJson,
   syncAllPendingInspections,
   syncSingleInspection,
-  loadAllInspectionsWithFallback
+  loadAllInspectionsWithFallback,
+  getStorageQuotaEstimate,
+  isInspectionEmpty
 } from './services/storage';
 import { formatGmsString } from './utils/geoCoordinates';
 import { 
@@ -99,12 +101,27 @@ function AppContent() {
   const [activeStep, setActiveStepState] = useState<number>(0);
   const [slideDirection, setSlideDirection] = useState<number>(1);
   const prevStepRef = useRef<number>(0);
+  const previousInspectionBeforeNewRef = useRef<InspectionData | null>(null);
 
   // Navegação entre etapas com cálculo de direção para animação suave de deslize (slide)
   const setActiveStep = (stepOrUpdater: number | ((prev: number) => number)) => {
     setActiveStepState(current => {
       const next = typeof stepOrUpdater === 'function' ? stepOrUpdater(current) : stepOrUpdater;
       if (next !== current) {
+        // Se o usuário entrar em "Nova Ficha" mas sair sem preencher nada,
+        // desconsiderar e não salvar automaticamente quando o preenchimento for zero (0%)
+        if (current >= 1 && current <= 4 && (next === 0 || next >= 5)) {
+          if (currentInspection && isInspectionEmpty(currentInspection)) {
+            deleteInspection(currentInspection.id);
+            const validList = getAllInspections();
+            const fallback = previousInspectionBeforeNewRef.current && !isInspectionEmpty(previousInspectionBeforeNewRef.current)
+              ? previousInspectionBeforeNewRef.current
+              : (validList.length > 0 ? validList[0] : createSampleInspection());
+            setCurrentInspection(fallback);
+            setInspections(validList);
+          }
+        }
+
         setSlideDirection(next > current ? 1 : -1);
         prevStepRef.current = current;
         try {
@@ -165,6 +182,9 @@ function AppContent() {
   }, []);
 
   const handleLogout = async () => {
+    if (currentInspection && isInspectionEmpty(currentInspection)) {
+      deleteInspection(currentInspection.id);
+    }
     await signOutInspector();
     setSession(null);
   };
@@ -313,7 +333,7 @@ function AppContent() {
   // Proteção contra fechamento acidental da aba durante preenchimento em campo no tablet/celular
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (currentInspection && (currentInspection.damIdentification.damName || currentInspection.generalInfo.recordNumber)) {
+      if (currentInspection && !isInspectionEmpty(currentInspection) && (currentInspection.damIdentification.damName || currentInspection.generalInfo.recordNumber)) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -329,6 +349,11 @@ function AppContent() {
     // Se o usuário atual não tem permissão para editar esta vistoria, NÃO auto-salva modificações acidentais
     const editCheck = canUserEditInspection(session, currentInspection);
     if (!editCheck.allowed) return;
+
+    // Se o preenchimento for zero (0%), desconsiderar e NÃO salvar automaticamente
+    if (isInspectionEmpty(currentInspection)) {
+      return;
+    }
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -391,11 +416,16 @@ function AppContent() {
 
     let proceed = true;
     try {
-      proceed = window.confirm('Deseja iniciar uma nova vistoria em branco? Os dados da vistoria atual foram salvos automaticamente.');
+      proceed = window.confirm('Deseja iniciar uma nova vistoria em branco?');
     } catch {
       proceed = true;
     }
     if (proceed) {
+      // Se a vistoria anterior não for vazia, salva a referência para restauração caso saia sem preencher
+      if (currentInspection && !isInspectionEmpty(currentInspection)) {
+        previousInspectionBeforeNewRef.current = currentInspection;
+      }
+
       const fresh = createEmptyInspection({
         email: session?.email,
         fullName: session?.fullName || (session?.email ? session.email.split('@')[0] : 'Fiscal Técnico'),
@@ -403,9 +433,8 @@ function AppContent() {
         cargo: (session as any)?.cargo || 'Fiscal Técnico CSB',
         sector: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
       });
-      saveInspection(fresh);
+      // NÃO salva automaticamente no storage quando o preenchimento for zero (0%)
       setCurrentInspection(fresh);
-      setInspections(getAllInspections());
       setActiveStep(1); // Direciona para a Ficha
 
       // Captura precisa de coordenadas do navegador ao iniciar a inspeção
@@ -429,8 +458,7 @@ function AppContent() {
                 }
               }
             };
-            saveInspection(updated);
-            setInspections(getAllInspections());
+            // Não salva automaticamente com preenchimento 0%
             return updated;
           }
           return prev;
@@ -443,6 +471,12 @@ function AppContent() {
     const editCheck = canUserEditInspection(session, currentInspection);
     if (!editCheck.allowed) {
       alert(editCheck.reason || 'Você não possui permissão para salvar alterações nesta vistoria.');
+      return;
+    }
+
+    // Se o preenchimento for 0%, alerta o usuário
+    if (isInspectionEmpty(currentInspection)) {
+      alert('A ficha de vistoria está vazia (0% de preenchimento). Preencha ao menos o nome da barragem, empreendimento ou constatações antes de salvar.');
       return;
     }
 
@@ -518,6 +552,10 @@ function AppContent() {
   };
 
   const handleSelectInspection = (id: string) => {
+    // Se a ficha atual estiver com preenchimento zero (0%) e o usuário selecionar outra vistoria, desconsidera
+    if (currentInspection && currentInspection.id !== id && isInspectionEmpty(currentInspection)) {
+      deleteInspection(currentInspection.id);
+    }
     const found = inspections.find(i => i.id === id);
     if (found) {
       setActiveInspectionId(id);

@@ -30,6 +30,78 @@ function generateUUID(): string {
   });
 }
 
+/**
+ * Verifica se a ficha está com preenchimento zero (0%) sem dados preenchidos pelo fiscal
+ */
+export function isInspectionEmpty(inspection?: InspectionData | null): boolean {
+  if (!inspection) return true;
+
+  // 1. Dados principais da barragem e empreendimento
+  if (inspection.damIdentification?.damName?.trim()) return false;
+  if (inspection.damIdentification?.propertyOrBusinessName?.trim()) return false;
+  if (inspection.damIdentification?.waterCourse?.trim()) return false;
+  if (inspection.damIdentification?.coordinates?.isManualEdit) return false;
+
+  // 2. Número do auto / termo da vistoria ou horário de término
+  if (inspection.generalInfo?.recordNumber?.trim()) return false;
+  if (inspection.generalInfo?.endTime?.trim()) return false;
+  if (inspection.generalInfo?.accompaniedBy?.name?.trim()) return false;
+  if (inspection.generalInfo?.accompaniedBy?.hasAccompaniment) return false;
+
+  // 3. Fotos de campo
+  if (inspection.photos && inspection.photos.length > 0) return false;
+
+  // 4. Dimensões estimadas
+  const dims = inspection.damIdentification?.estimatedDimensions;
+  if (
+    dims?.heightMeters?.trim() ||
+    dims?.crestLengthMeters?.trim() ||
+    dims?.crestWidthMeters?.trim() ||
+    dims?.reservoirAreaHectares?.trim() ||
+    dims?.reservoirVolumeM3?.trim() ||
+    dims?.freeboardMeters?.trim()
+  ) {
+    return false;
+  }
+
+  // 5. Situação regulatória
+  const reg = inspection.damIdentification?.regulatoryStatus;
+  if (reg?.permitNumber?.trim() || reg?.licenseNumber?.trim() || reg?.carNumber?.trim() || reg?.notes?.trim()) {
+    return false;
+  }
+  if (reg?.hasWaterPermit && reg.hasWaterPermit !== 'nao_informado') return false;
+  if (reg?.hasEnvironmentalLicense && reg.hasEnvironmentalLicense !== 'nao_informado') return false;
+  if (reg?.hasCar && reg.hasCar !== 'nao_informado') return false;
+
+  // 6. Componentes estruturais (se fiscal adicionou observação ou anomalia)
+  const comps = inspection.componentsData || {};
+  const hasCompData = Object.values(comps).some(comp => {
+    if (comp.selectedAnomalies && comp.selectedAnomalies.length > 0) return true;
+    if (comp.notes && comp.notes.trim()) return true;
+    if (comp.condition && comp.condition !== 'adequado' && comp.condition !== 'nao_inspecionado') return true;
+    return false;
+  });
+  if (hasCompData) return false;
+
+  // 7. Conclusões e recomendações
+  const conc = inspection.conclusions;
+  if (conc?.generalFindings?.trim()) return false;
+  if (conc?.immediateSafetyMeasures?.trim()) return false;
+  if ((conc as any)?.outrosProblemasDescricao?.trim()) return false;
+  if ((conc as any)?.sinteseFatica?.trim()) return false;
+  if ((conc as any)?.requiresNotification || (conc as any)?.requerNotificacao) return false;
+  if (conc?.notificationDetails?.numeroNotificacao?.trim()) return false;
+  if (conc?.notificationDetails?.solicitacoesTexto?.trim()) return false;
+
+  // 8. Rascunhos de documentos
+  const drafts = inspection.drafts;
+  if (drafts?.inspectionNotice?.trim() || drafts?.technicalReport?.trim() || drafts?.notificationLetter?.trim()) {
+    return false;
+  }
+
+  return true;
+}
+
 export function createEmptyInspection(creatorUser?: { 
   email?: string; 
   fullName?: string; 
@@ -397,7 +469,16 @@ export function getAllInspections(): InspectionData[] {
     if (!Array.isArray(parsed)) return [];
 
     // Sanitização profunda anti-poluição de protótipo e anti-injeção
-    return parsed.map(item => sanitizeDeepObject(item) as InspectionData);
+    const sanitized = parsed.map(item => sanitizeDeepObject(item) as InspectionData);
+    // Descarta eventuais fichas vazias com 0% de preenchimento
+    const valid = sanitized.filter(item => !isInspectionEmpty(item));
+    if (valid.length !== sanitized.length) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(valid));
+      } catch {}
+      return valid;
+    }
+    return sanitized;
   } catch (err) {
     console.error('Erro ao ler vistorias do storage:', err);
     return [];
@@ -406,6 +487,16 @@ export function getAllInspections(): InspectionData[] {
 
 export function saveInspection(inspection: InspectionData): void {
   try {
+    // Se o preenchimento for zero (0%) sem dados preenchidos pelo fiscal, desconsiderar e não salvar
+    if (isInspectionEmpty(inspection)) {
+      const list = getAllInspections();
+      const existingIndex = list.findIndex(i => i.id === inspection.id);
+      if (existingIndex >= 0) {
+        deleteInspection(inspection.id);
+      }
+      return;
+    }
+
     const list = getAllInspections();
     const existingIndex = list.findIndex(i => i.id === inspection.id);
     const now = new Date().toISOString();
@@ -530,10 +621,10 @@ export async function loadAllInspectionsWithFallback(): Promise<InspectionData[]
         mergedMap.set(item.id, item);
       }
     });
-    const combined = Array.from(mergedMap.values());
+    const combined = Array.from(mergedMap.values()).filter(item => !isInspectionEmpty(item));
     return combined;
   } catch {
-    return localList;
+    return localList.filter(item => !isInspectionEmpty(item));
   }
 }
 
