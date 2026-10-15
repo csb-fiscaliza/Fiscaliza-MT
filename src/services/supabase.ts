@@ -319,7 +319,7 @@ export function getLocalUserProfile(email: string): { role: string; name?: strin
 export async function signInInspector(
   email: string, 
   password: string
-): Promise<{ success: boolean; error?: string; email?: string; fullName?: string }> {
+): Promise<{ success: boolean; error?: string; email?: string; fullName?: string; role?: string }> {
   const cleanEmail = email.trim().toLowerCase();
   
   if (!cleanEmail) {
@@ -375,7 +375,7 @@ export async function signInInspector(
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: localSession }));
     }
-    return { success: true, email: cleanEmail, fullName: localSession.fullName };
+    return { success: true, email: cleanEmail, fullName: localSession.fullName, role: resolvedRole };
   };
 
   if (supabase) {
@@ -406,7 +406,7 @@ export async function signInInspector(
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: sessionData }));
       }
-      return { success: true, email: user?.email, fullName };
+      return { success: true, email: user?.email, fullName, role };
     } catch (err: any) {
       // Em áreas rurais de Mato Grosso sem sinal de internet ou falha de rede, verifica credenciais salvas
       const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
@@ -446,12 +446,38 @@ export async function signUpInspector(
   const finalMatricula = matricula?.trim() || 'CSB-' + Math.floor(100 + Math.random() * 900);
 
   // Registra senha local para contingência quando o acesso for liberado
-  localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, finalPassword);
+  try {
+    localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, finalPassword);
+  } catch {}
+
+  // Gera UUID válido padrão RFC4122 v4 para total compatibilidade com PostgreSQL
+  const validId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
 
   // Registra solicitação pendente no catálogo local de usuários
   try {
     const raw = localStorage.getItem('fiscaliza_csb_users_catalog_v1');
-    const list = raw ? JSON.parse(raw) : [];
+    let list = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list) || list.length === 0) {
+      list = [
+        {
+          id: 'usr-admin-yara-001',
+          email: 'yarageologa@gmail.com',
+          name: 'Yara Dias',
+          role: 'administrador',
+          status: 'ativo',
+          cargo: 'Coordenadora de Segurança de Barragens',
+          matricula: 'CSB-001',
+          setor: 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
+          createdAt: '2026-01-10T08:00:00.000Z',
+          updatedAt: '2026-10-14T12:00:00.000Z'
+        }
+      ];
+    }
     const exists = list.find((u: any) => u.email?.toLowerCase() === cleanEmail);
     if (exists) {
       if (exists.status === 'pendente') {
@@ -470,7 +496,7 @@ export async function signUpInspector(
 
     const now = new Date().toISOString();
     const newEntry = {
-      id: 'usr-req-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now().toString(36),
+      id: validId,
       email: cleanEmail,
       name: finalName,
       role: 'analista',
@@ -496,7 +522,8 @@ export async function signUpInspector(
   // Tenta persistir solicitação no Supabase se houver conexão
   if (supabase) {
     try {
-      await supabase.from('perfis_usuarios').upsert({
+      const { error: insErr } = await supabase.from('perfis_usuarios').insert({
+        id: validId,
         email: cleanEmail,
         nome: finalName,
         perfil: 'analista',
@@ -505,7 +532,22 @@ export async function signUpInspector(
         matricula: finalMatricula,
         setor: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
       });
-    } catch {}
+      if (insErr) {
+        if (insErr.code === '23505' || insErr.message?.includes('duplicate key') || insErr.message?.includes('unique')) {
+          await supabase.from('perfis_usuarios').update({
+            nome: finalName,
+            status: 'pendente',
+            cargo: finalCargo,
+            matricula: finalMatricula,
+            updated_at: new Date().toISOString()
+          }).eq('email', cleanEmail);
+        } else {
+          console.warn('Falha ao inserir solicitação no Supabase:', insErr);
+        }
+      }
+    } catch (e) {
+      console.warn('Falha ao persistir solicitação no Supabase:', e);
+    }
   }
 
   return {

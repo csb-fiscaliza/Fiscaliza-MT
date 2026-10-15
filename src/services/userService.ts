@@ -54,10 +54,16 @@ const INITIAL_USERS: UserProfile[] = [
 ];
 
 function generateUUID(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try {
+      return crypto.randomUUID();
+    } catch {}
   }
-  return 'usr-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now().toString(36);
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
 }
 
 /**
@@ -80,16 +86,20 @@ export async function getUsers(): Promise<UserProfile[]> {
     localUsers = [...INITIAL_USERS];
     localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(localUsers));
   } else {
-    // Garante que Yara Dias sempre existe como administrador
+    // Garante que os usuários institucionais iniciais estejam presentes e Yara Dias seja sempre administradora
+    INITIAL_USERS.forEach(initUser => {
+      const exists = localUsers.some(u => u.email.toLowerCase() === initUser.email.toLowerCase());
+      if (!exists) {
+        localUsers.push(initUser);
+      }
+    });
+
     const yaraIdx = localUsers.findIndex(u => u.email.toLowerCase() === 'yarageologa@gmail.com');
-    if (yaraIdx === -1) {
-      localUsers.unshift(INITIAL_USERS[0]);
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(localUsers));
-    } else if (localUsers[yaraIdx].role !== 'administrador') {
+    if (yaraIdx !== -1) {
       localUsers[yaraIdx].role = 'administrador';
       localUsers[yaraIdx].status = 'ativo';
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(localUsers));
     }
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(localUsers));
   }
 
   // Se Supabase estiver disponível, tenta buscar/sincronizar da tabela remota perfis_usuarios
@@ -118,7 +128,21 @@ export async function getUsers(): Promise<UserProfile[]> {
         // Mescla com locais garantindo completude
         const mergedMap = new Map<string, UserProfile>();
         localUsers.forEach(u => mergedMap.set(u.email.toLowerCase(), u));
-        remoteUsers.forEach(u => mergedMap.set(u.email.toLowerCase(), u));
+        remoteUsers.forEach(u => {
+          const local = mergedMap.get(u.email.toLowerCase());
+          if (!local) {
+            mergedMap.set(u.email.toLowerCase(), u);
+          } else {
+            // Mescla preservando campos preenchidos
+            mergedMap.set(u.email.toLowerCase(), {
+              ...local,
+              ...u,
+              cargo: u.cargo || local.cargo,
+              matricula: u.matricula || local.matricula,
+              status: u.status || local.status
+            });
+          }
+        });
         
         const merged = Array.from(mergedMap.values());
         localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(merged));
@@ -405,7 +429,7 @@ export async function requestUserAccess(data: {
   cargo: string;
   matricula: string;
   password?: string;
-}): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+}): Promise<{ success: boolean; user?: UserProfile; error?: string; message?: string }> {
   const cleanEmail = data.email.trim().toLowerCase();
   if (!cleanEmail) {
     return { success: false, error: 'O e-mail institucional é obrigatório.' };
@@ -463,10 +487,10 @@ export async function requestUserAccess(data: {
   const updatedList = [newRequest, ...users.filter(u => u.email.toLowerCase() !== cleanEmail)];
   localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedList));
 
-  // Tenta sincronizar com o Supabase se disponível
+  // Tenta sincronizar com o Supabase se disponível usando INSERT em conformidade com RLS
   if (supabase) {
     try {
-      await supabase.from('perfis_usuarios').upsert({
+      const { error: insErr } = await supabase.from('perfis_usuarios').insert({
         id: newRequest.id,
         email: newRequest.email,
         nome: newRequest.name,
@@ -478,13 +502,30 @@ export async function requestUserAccess(data: {
         created_at: newRequest.createdAt,
         updated_at: newRequest.updatedAt
       });
+      if (insErr) {
+        if (insErr.code === '23505' || insErr.message?.includes('duplicate key') || insErr.message?.includes('unique')) {
+          await supabase.from('perfis_usuarios').update({
+            nome: newRequest.name,
+            status: 'pendente',
+            cargo: newRequest.cargo,
+            matricula: newRequest.matricula,
+            updated_at: newRequest.updatedAt
+          }).eq('email', newRequest.email);
+        } else {
+          console.warn('Falha ao inserir solicitação no Supabase:', insErr);
+        }
+      }
     } catch (e) {
       console.warn('Falha ao persistir solicitação no Supabase:', e);
     }
   }
 
   emitUsersUpdated();
-  return { success: true, user: newRequest };
+  return { 
+    success: true, 
+    user: newRequest,
+    message: 'Solicitação de acesso enviada com sucesso! O cadastro foi encaminhado para análise da Administração da CSB/SEMA-MT. Aguarde a liberação do seu acesso.'
+  };
 }
 
 /**

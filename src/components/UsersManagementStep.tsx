@@ -289,8 +289,11 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
     }
   };
 
-  // Filtragem da lista
-  const filteredUsers = users.filter(user => {
+  // Usuários cadastrados no sistema (ativos, inativos, etc. - exclui pendentes de aprovação)
+  const registeredUsers = users.filter(u => u.status !== 'pendente');
+
+  // Filtragem da lista de usuários cadastrados
+  const filteredUsers = registeredUsers.filter(user => {
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch = 
       !q ||
@@ -305,7 +308,7 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
     return matchesSearch && matchesRole && matchesStatus;
   });
 
-  // Solicitações pendentes de acesso
+  // Solicitações pendentes de acesso (fiscais que solicitaram na tela de login)
   const pendingUsers = users.filter(u => u.status === 'pendente');
   const pendingCount = pendingUsers.length;
 

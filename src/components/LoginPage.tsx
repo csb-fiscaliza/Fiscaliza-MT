@@ -91,7 +91,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
             onLoginSuccess({
               email: res.email || email,
               fullName: res.fullName,
-              role: 'Fiscal Técnico CSB'
+              role: res.role || ((res.email || email).toLowerCase() === 'yarageologa@gmail.com' ? 'administrador' : 'analista')
             });
           }, 400);
         } else {
