@@ -31,7 +31,10 @@ import {
   Mail,
   Building2,
   BadgeAlert,
-  Info
+  Info,
+  Clock,
+  Send,
+  ExternalLink
 } from 'lucide-react';
 import { UserProfile, UserRole, UserStatus } from '../types/inspection';
 import { 
@@ -41,6 +44,10 @@ import {
   deleteUser, 
   toggleUserStatus, 
   resetUserPasswordToDefault,
+  approveUserAccess,
+  rejectUserAccess,
+  generateApprovalEmail,
+  ApprovalEmailPayload,
   subscribeUsers 
 } from '../services/userService';
 
@@ -64,6 +71,12 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [showSqlModal, setShowSqlModal] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+
+  // Modais de Aprovação e Notificação por E-mail
+  const [approvalModalUser, setApprovalModalUser] = useState<UserProfile | null>(null);
+  const [approvalRole, setApprovalRole] = useState<UserRole>('analista');
+  const [emailModalData, setEmailModalData] = useState<{ user: UserProfile; payload: ApprovalEmailPayload } | null>(null);
+  const [copiedEmailText, setCopiedEmailText] = useState(false);
   
   // Feedback
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -142,7 +155,7 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
     if (res.success) {
       setFeedback({ 
         type: 'success', 
-        message: `Usuário ${formData.name} cadastrado com sucesso! A senha padrão é @12345.` 
+        message: `Usuário ${formData.name} cadastrado com sucesso com a senha padrão institucional.` 
       });
       setShowCreateModal(false);
       setTimeout(() => setFeedback(null), 6000);
@@ -206,7 +219,7 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
   };
 
   const handleResetPassword = async (user: UserProfile) => {
-    if (!window.confirm(`Deseja redefinir a senha de "${user.name}" para a senha institucional padrão @12345?`)) {
+    if (!window.confirm(`Deseja redefinir a senha de "${user.name}" para a senha institucional padrão?`)) {
       return;
     }
 
@@ -214,11 +227,65 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
     if (res.success) {
       setFeedback({ 
         type: 'success', 
-        message: `Senha de ${user.name} redefinida com sucesso para o padrão institucional @12345.` 
+        message: `Senha de ${user.name} redefinida com sucesso para o padrão institucional.` 
       });
       setTimeout(() => setFeedback(null), 6000);
     } else {
       setFeedback({ type: 'error', message: res.error || 'Falha ao redefinir senha.' });
+    }
+  };
+
+  const handleOpenApproveModal = (user: UserProfile) => {
+    setApprovalModalUser(user);
+    setApprovalRole('analista');
+  };
+
+  const handleConfirmApproval = async () => {
+    if (!approvalModalUser) return;
+    const userToApprove = approvalModalUser;
+    const res = await approveUserAccess(userToApprove.id, approvalRole, currentUser?.email);
+
+    if (res.success && res.emailPayload) {
+      setApprovalModalUser(null);
+      setEmailModalData({
+        user: res.user || userToApprove,
+        payload: res.emailPayload
+      });
+
+      // Tenta acionar o envio via cliente padrão de e-mail do sistema (mailto)
+      try {
+        const mailAnchor = document.createElement('a');
+        mailAnchor.href = res.emailPayload.mailtoUrl;
+        mailAnchor.target = '_blank';
+        mailAnchor.rel = 'noopener noreferrer';
+        mailAnchor.click();
+      } catch {
+        window.location.href = res.emailPayload.mailtoUrl;
+      }
+
+      setFeedback({
+        type: 'success',
+        message: `Acesso liberado com sucesso para ${userToApprove.name}! O e-mail com as informações de login e orientações foi preparado.`
+      });
+      setTimeout(() => setFeedback(null), 8000);
+    } else {
+      setFeedback({ type: 'error', message: res.error || 'Erro ao aprovar solicitação de acesso.' });
+    }
+  };
+
+  const handleReject = async (user: UserProfile) => {
+    if (!window.confirm(`Tem certeza de que deseja reprovar a solicitação de acesso do fiscal "${user.name}" (${user.email})?`)) {
+      return;
+    }
+    const res = await rejectUserAccess(user.id, 'Indeferido pela Administração CSB/SEMA-MT');
+    if (res.success) {
+      setFeedback({
+        type: 'info',
+        message: `Solicitação de acesso de ${user.name} foi indeferida.`
+      });
+      setTimeout(() => setFeedback(null), 5000);
+    } else {
+      setFeedback({ type: 'error', message: res.error || 'Erro ao reprovar solicitação.' });
     }
   };
 
@@ -238,6 +305,10 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
     return matchesSearch && matchesRole && matchesStatus;
   });
 
+  // Solicitações pendentes de acesso
+  const pendingUsers = users.filter(u => u.status === 'pendente');
+  const pendingCount = pendingUsers.length;
+
   // Métricas
   const totalCount = users.length;
   const adminCount = users.filter(u => u.role === 'administrador').length;
@@ -247,84 +318,210 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
 
   const sqlToTransformYaraAdmin = `-- ==============================================================================
 -- GOVERNO DO ESTADO DE MATO GROSSO / SEMA-MT / CSB
--- SCRIPT DE ELEVAÇÃO DE PRIVILÉGIOS PARA ADMINISTRADOR: YARA DIAS
--- Execute este script no SQL Editor do seu projeto Supabase:
+-- ATUALIZAÇÃO RESILIENTE DO BANCO DE DADOS (SUPABASE / POSTGRESQL)
+-- GESTÃO DE USUÁRIOS, RBAC E ELEVAÇÃO DE ADMINISTRADOR: YARA DIAS
 -- ==============================================================================
 
--- 1. Cria tabela pública de perfis com RBAC se ainda não existir
+-- 1. Cria a tabela pública se não existir com identificadores estáveis
 CREATE TABLE IF NOT EXISTS public.perfis_usuarios (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT UNIQUE NOT NULL,
   nome TEXT NOT NULL,
-  perfil TEXT NOT NULL CHECK (perfil IN ('administrador', 'analista', 'visualizador')),
-  status TEXT NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
+  perfil TEXT NOT NULL DEFAULT 'analista',
+  status TEXT NOT NULL DEFAULT 'pendente',
   cargo TEXT,
   matricula TEXT,
-  setor TEXT DEFAULT 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT',
+  setor TEXT DEFAULT 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 2. Habilita segurança em nível de linha (RLS)
-ALTER TABLE public.perfis_usuarios ENABLE ROW LEVEL SECURITY;
+-- 2. Adiciona colunas que possam faltar caso a tabela já tenha sido criada anteriormente
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid();
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS nome TEXT;
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS perfil TEXT DEFAULT 'analista';
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pendente';
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS cargo TEXT;
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS matricula TEXT;
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS setor TEXT DEFAULT 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT';
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
+ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 
--- 3. Define políticas de segurança RLS
-DROP POLICY IF EXISTS "Leitura de perfis por usuários autenticados" ON public.perfis_usuarios;
-CREATE POLICY "Leitura de perfis por usuários autenticados" 
-  ON public.perfis_usuarios FOR SELECT TO authenticated USING (true);
+-- 3. Garante que id tenha valor padrão automático gen_random_uuid()
+DO $$
+BEGIN
+  ALTER TABLE public.perfis_usuarios ALTER COLUMN id SET DEFAULT gen_random_uuid();
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
 
-DROP POLICY IF EXISTS "Administradores gerenciam perfis" ON public.perfis_usuarios;
-CREATE POLICY "Administradores gerenciam perfis" 
-  ON public.perfis_usuarios FOR ALL TO authenticated 
-  USING (
-    auth.jwt() ->> 'email' = 'yarageologa@gmail.com'
+-- 4. Remove chave estrangeira estrita para auth.users se existir (para permitir pré-cadastro de fiscais)
+DO $$
+BEGIN
+  ALTER TABLE public.perfis_usuarios DROP CONSTRAINT IF EXISTS perfis_usuarios_id_fkey;
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
+
+-- 5. Normaliza e atualiza constraints de perfil e status
+DO $$
+BEGIN
+  UPDATE public.perfis_usuarios SET status = 'ativo' WHERE status IS NULL;
+  UPDATE public.perfis_usuarios SET perfil = 'analista' WHERE perfil IS NULL;
+
+  ALTER TABLE public.perfis_usuarios DROP CONSTRAINT IF EXISTS perfis_usuarios_perfil_check;
+  ALTER TABLE public.perfis_usuarios DROP CONSTRAINT IF EXISTS perfis_usuarios_status_check;
+
+  ALTER TABLE public.perfis_usuarios ADD CONSTRAINT perfis_usuarios_perfil_check 
+    CHECK (perfil IN ('administrador', 'analista', 'visualizador'));
+
+  ALTER TABLE public.perfis_usuarios ADD CONSTRAINT perfis_usuarios_status_check 
+    CHECK (status IN ('ativo', 'inativo', 'pendente', 'reprovado'));
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
+
+-- 6. Cria função auxiliar SECURITY DEFINER para verificar se o usuário atual é admin sem recursão
+CREATE OR REPLACE FUNCTION public.check_is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT (
+    coalesce(auth.jwt() ->> 'email', '') IN ('yarageologa@gmail.com', 'csb.fiscaliza@sema.mt.gov.br')
+    OR coalesce(auth.jwt() -> 'user_metadata' ->> 'perfil', '') = 'administrador'
+    OR coalesce(auth.jwt() -> 'user_metadata' ->> 'role', '') = 'administrador'
     OR EXISTS (
-      SELECT 1 FROM public.perfis_usuarios 
-      WHERE id = auth.uid() AND perfil = 'administrador'
+      SELECT 1 FROM public.perfis_usuarios p
+      WHERE lower(trim(p.email)) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
+        AND p.perfil = 'administrador'
+        AND p.status = 'ativo'
     )
   );
+$$;
 
--- 4. Atualiza metadados no Supabase Auth GoTrue para yarageologa@gmail.com
-UPDATE auth.users
-SET raw_user_meta_data = jsonb_set(
-  coalesce(raw_user_meta_data, '{}'::jsonb),
-  '{role}',
-  '"administrador"'
-) || jsonb_build_object(
-  'perfil', 'administrador',
-  'cargo', 'Coordenadora de Segurança de Barragens / Administradora',
-  'full_name', 'Yara Dias',
-  'name', 'Yara Dias'
-)
-WHERE email = 'yarageologa@gmail.com';
+-- 7. Configura RLS (Row Level Security) sem recursão infinita
+ALTER TABLE public.perfis_usuarios ENABLE ROW LEVEL SECURITY;
 
--- 5. Insere ou atualiza o perfil institucional na tabela pública
-INSERT INTO public.perfis_usuarios (
-  id,
-  email,
-  nome,
-  perfil,
-  status,
-  cargo,
-  matricula,
-  setor
-)
-SELECT 
-  id,
-  'yarageologa@gmail.com',
-  'Yara Dias',
-  'administrador',
-  'ativo',
-  'Coordenadora de Segurança de Barragens',
-  'CSB-001',
-  'CSB / SURH / SEMA-MT'
-FROM auth.users
-WHERE email = 'yarageologa@gmail.com'
-ON CONFLICT (email) DO UPDATE SET
-  perfil = 'administrador',
-  status = 'ativo',
-  cargo = 'Coordenadora de Segurança de Barragens',
-  updated_at = now();`;
+DROP POLICY IF EXISTS "Leitura de perfis por usuários autenticados" ON public.perfis_usuarios;
+DROP POLICY IF EXISTS "Administradores gerenciam perfis" ON public.perfis_usuarios;
+DROP POLICY IF EXISTS "perfis_select_policy" ON public.perfis_usuarios;
+DROP POLICY IF EXISTS "perfis_insert_policy" ON public.perfis_usuarios;
+DROP POLICY IF EXISTS "perfis_update_policy" ON public.perfis_usuarios;
+DROP POLICY IF EXISTS "perfis_delete_policy" ON public.perfis_usuarios;
+
+CREATE POLICY "perfis_select_policy" 
+  ON public.perfis_usuarios 
+  FOR SELECT 
+  TO authenticated 
+  USING (true);
+
+CREATE POLICY "perfis_insert_policy" 
+  ON public.perfis_usuarios 
+  FOR INSERT 
+  TO authenticated, anon 
+  WITH CHECK (true);
+
+CREATE POLICY "perfis_update_policy" 
+  ON public.perfis_usuarios 
+  FOR UPDATE 
+  TO authenticated 
+  USING (public.check_is_admin())
+  WITH CHECK (public.check_is_admin());
+
+CREATE POLICY "perfis_delete_policy" 
+  ON public.perfis_usuarios 
+  FOR DELETE 
+  TO authenticated 
+  USING (public.check_is_admin());
+
+-- 8. Insere ou Atualiza o usuário Yara Dias (yarageologa@gmail.com) como Administradora Ativa
+DO $$
+DECLARE
+  v_auth_id UUID;
+BEGIN
+  SELECT id INTO v_auth_id FROM auth.users WHERE lower(trim(email)) = 'yarageologa@gmail.com' LIMIT 1;
+
+  IF v_auth_id IS NOT NULL THEN
+    UPDATE auth.users
+    SET raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object(
+      'role', 'administrador',
+      'perfil', 'administrador',
+      'cargo', 'Coordenadora de Segurança de Barragens',
+      'full_name', 'Yara Dias',
+      'name', 'Yara Dias'
+    )
+    WHERE id = v_auth_id;
+  END IF;
+
+  INSERT INTO public.perfis_usuarios (
+    id,
+    email,
+    nome,
+    perfil,
+    status,
+    cargo,
+    matricula,
+    setor,
+    created_at,
+    updated_at
+  )
+  VALUES (
+    coalesce(v_auth_id, gen_random_uuid()),
+    'yarageologa@gmail.com',
+    'Yara Dias',
+    'administrador',
+    'ativo',
+    'Coordenadora de Segurança de Barragens',
+    'CSB-001',
+    'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
+    now(),
+    now()
+  )
+  ON CONFLICT (email) DO UPDATE SET
+    perfil = 'administrador',
+    status = 'ativo',
+    cargo = 'Coordenadora de Segurança de Barragens',
+    matricula = 'CSB-001',
+    updated_at = now();
+
+  INSERT INTO public.perfis_usuarios (
+    id,
+    email,
+    nome,
+    perfil,
+    status,
+    cargo,
+    matricula,
+    setor,
+    created_at,
+    updated_at
+  )
+  VALUES (
+    gen_random_uuid(),
+    'csb.fiscaliza@sema.mt.gov.br',
+    'Fiscaliza CSB Admin',
+    'administrador',
+    'ativo',
+    'Administrador Institucional CSB',
+    'CSB-000',
+    'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
+    now(),
+    now()
+  )
+  ON CONFLICT (email) DO UPDATE SET
+    perfil = 'administrador',
+    status = 'ativo',
+    updated_at = now();
+END $$;
+
+-- 9. Concede permissões para as roles padrão do Supabase
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT ALL ON TABLE public.perfis_usuarios TO authenticated;
+GRANT SELECT, INSERT ON TABLE public.perfis_usuarios TO anon;`;
 
   const copySqlToClipboard = () => {
     navigator.clipboard.writeText(sqlToTransformYaraAdmin);
@@ -512,6 +709,92 @@ ON CONFLICT (email) DO UPDATE SET
         </div>
       </div>
 
+      {/* SEÇÃO: Solicitações Prévias de Acesso de Novos Fiscais */}
+      {pendingCount > 0 && (
+        <div className="bg-amber-50/90 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold">
+                <BadgeAlert className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm sm:text-base font-black text-amber-950 dark:text-amber-100 uppercase tracking-tight">
+                    Solicitações de Acesso Pendentes (Novos Fiscais)
+                  </h3>
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500 text-white">
+                    {pendingCount} {pendingCount === 1 ? 'pendência' : 'pendências'}
+                  </span>
+                </div>
+                <p className="text-xs text-amber-800/90 dark:text-amber-300/90 mt-0.5">
+                  Cadastros solicitados diretamente na tela de login pelo formulário de "Novo Fiscal". Analise e aprove ou reprove para liberar o acesso ao sistema.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            {pendingUsers.map(req => (
+              <div 
+                key={req.id} 
+                className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 rounded-xl p-3.5 sm:p-4 shadow-xs flex flex-col justify-between gap-3"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-black text-slate-900 dark:text-white">
+                      {req.name}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      <span>Aguardando Análise</span>
+                    </span>
+                  </div>
+
+                  <div className="space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
+                    <div className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+                      <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{req.email}</span>
+                    </div>
+                    {req.cargo && (
+                      <div className="font-medium text-slate-800 dark:text-slate-200">
+                        Cargo: <span className="font-semibold">{req.cargo}</span>
+                      </div>
+                    )}
+                    {req.matricula && (
+                      <div className="font-mono text-[11px] text-slate-500">
+                        Matrícula: {req.matricula}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => handleReject(req)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 transition cursor-pointer flex items-center gap-1.5"
+                    title="Reprovar solicitação de acesso"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>Reprovar</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenApproveModal(req)}
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                    title="Aprovar solicitação e disparar e-mail de acesso liberado"
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Aprovar e Liberar Acesso</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Barra de Filtros e Busca */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-4 shadow-2xs flex flex-wrap items-center justify-between gap-3">
         {/* Campo de Busca */}
@@ -548,7 +831,7 @@ ON CONFLICT (email) DO UPDATE SET
         {/* Filtro por Status */}
         <div className="flex items-center gap-1.5 text-xs">
           <span className="text-slate-500 font-semibold hidden sm:inline">Status:</span>
-          {(['todos', 'ativo', 'inativo'] as const).map(status => (
+          {(['todos', 'ativo', 'pendente', 'inativo', 'reprovado'] as const).map(status => (
             <button
               key={status}
               type="button"
@@ -580,6 +863,8 @@ ON CONFLICT (email) DO UPDATE SET
               const isAnalista = user.role === 'analista';
               const isVisualizador = user.role === 'visualizador';
               const isActive = user.status === 'ativo';
+              const isPending = user.status === 'pendente';
+              const isReproved = user.status === 'reprovado';
               const isCurrentUser = currentUser?.email?.toLowerCase() === user.email.toLowerCase();
 
               return (
@@ -624,9 +909,13 @@ ON CONFLICT (email) DO UPDATE SET
                         <span className={`text-[10px] font-bold px-2 py-0.2 rounded-full border ${
                           isActive
                             ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
-                            : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
+                            : isPending
+                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+                            : isReproved
+                            ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
+                            : 'bg-slate-500/10 text-slate-700 dark:text-slate-400 border-slate-500/20'
                         }`}>
-                          {user.status}
+                          {isPending ? 'Aguardando Aprovação' : user.status}
                         </span>
                       </div>
 
@@ -647,57 +936,82 @@ ON CONFLICT (email) DO UPDATE SET
 
                   {/* Ações do Administrador */}
                   <div className="flex items-center gap-1.5 shrink-0 pl-14 sm:pl-0">
-                    {/* Botão Redefinir Senha */}
-                    <button
-                      type="button"
-                      onClick={() => handleResetPassword(user)}
-                      className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                      title="Redefinir senha para o padrão institucional @12345"
-                    >
-                      <KeyRound className="w-4 h-4" />
-                    </button>
+                    {isPending ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenApproveModal(user)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                          title="Aprovar cadastro e liberar acesso ao sistema"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>Aprovar</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReject(user)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 text-rose-600 dark:text-rose-400 text-xs font-semibold border border-rose-200 dark:border-rose-900/60 transition cursor-pointer"
+                          title="Reprovar solicitação de acesso"
+                        >
+                          <UserX className="w-3.5 h-3.5" />
+                          <span>Reprovar</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {/* Botão Redefinir Senha */}
+                        <button
+                          type="button"
+                          onClick={() => handleResetPassword(user)}
+                          className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          title="Redefinir senha para o padrão institucional"
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </button>
 
-                    {/* Botão Alternar Status (Ativo / Inativo) */}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleStatus(user)}
-                      disabled={user.email.toLowerCase() === 'yarageologa@gmail.com'}
-                      className={`p-2 rounded-xl transition cursor-pointer ${
-                        isActive
-                          ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
-                          : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
-                      } disabled:opacity-40 disabled:cursor-not-allowed`}
-                      title={isActive ? 'Inativar usuário (suspender acesso)' : 'Reativar usuário'}
-                    >
-                      <Power className="w-4 h-4" />
-                    </button>
+                        {/* Botão Alternar Status (Ativo / Inativo) */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStatus(user)}
+                          disabled={user.email.toLowerCase() === 'yarageologa@gmail.com'}
+                          className={`p-2 rounded-xl transition cursor-pointer ${
+                            isActive
+                              ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                              : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          } disabled:opacity-40 disabled:cursor-not-allowed`}
+                          title={isActive ? 'Inativar usuário (suspender acesso)' : 'Reativar usuário'}
+                        >
+                          <Power className="w-4 h-4" />
+                        </button>
 
-                    {/* Botão Editar */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEdit(user)}
-                      className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                      title="Editar dados e perfil do usuário"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
+                        {/* Botão Editar */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(user)}
+                          className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          title="Editar dados e perfil do usuário"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
 
-                    {/* Botão Excluir */}
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(user)}
-                      disabled={user.email.toLowerCase() === 'yarageologa@gmail.com' || isCurrentUser}
-                      className="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={
-                        user.email.toLowerCase() === 'yarageologa@gmail.com' 
-                          ? 'Usuária titular protegida' 
-                          : isCurrentUser 
-                          ? 'Não é possível auto-excluir' 
-                          : 'Excluir usuário'
-                      }
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                        {/* Botão Excluir */}
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(user)}
+                          disabled={user.email.toLowerCase() === 'yarageologa@gmail.com' || isCurrentUser}
+                          className="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={
+                            user.email.toLowerCase() === 'yarageologa@gmail.com' 
+                              ? 'Usuária titular protegida' 
+                              : isCurrentUser 
+                              ? 'Não é possível auto-excluir' 
+                              : 'Excluir usuário'
+                          }
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -869,7 +1183,7 @@ ON CONFLICT (email) DO UPDATE SET
                   <span>Senha Padrão Institucional Aplicada</span>
                 </div>
                 <p className="text-purple-700 dark:text-purple-400">
-                  O usuário é criado com a senha padrão <strong>@12345</strong>. No primeiro acesso, poderá alterar sua senha pelo menu superior.
+                  O usuário é criado com a credencial inicial institucional configurada pela administração. No primeiro acesso, o fiscal poderá alterar sua senha pelo menu superior.
                 </p>
               </div>
 
@@ -1112,6 +1426,201 @@ ON CONFLICT (email) DO UPDATE SET
                 >
                   Fechar
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL: APROVAÇÃO DE SOLICITAÇÃO DE ACESSO */}
+      {/* ===================================================================== */}
+      {approvalModalUser && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in duration-200">
+            <div className="bg-emerald-950/40 text-white p-5 sm:p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Aprovar Solicitação de Acesso
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Defina o perfil de acesso e homologue a conta do fiscal
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setApprovalModalUser(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-4">
+              {/* Resumo do Usuário Solicitante */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 dark:text-white text-sm">
+                    {approvalModalUser.name}
+                  </span>
+                  {approvalModalUser.matricula && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                      Matrícula: {approvalModalUser.matricula}
+                    </span>
+                  )}
+                </div>
+                <div className="text-slate-600 dark:text-slate-400 space-y-0.5">
+                  <div>E-mail: <strong className="text-slate-900 dark:text-white">{approvalModalUser.email}</strong></div>
+                  <div>Cargo: <strong className="text-slate-900 dark:text-white">{approvalModalUser.cargo || 'Fiscal Técnico CSB'}</strong></div>
+                </div>
+              </div>
+
+              {/* Escolha do Perfil de Acesso */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Atribuir Perfil de Acesso ao Fiscal *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['analista', 'administrador', 'visualizador'] as const).map(role => (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => setApprovalRole(role)}
+                      className={`p-2.5 rounded-xl text-xs font-bold capitalize border transition-all cursor-pointer text-center ${
+                        approvalRole === role
+                          ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {role}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
+                  {approvalRole === 'analista' && 'Analista: preenche e edita vistorias próprias ou nas quais participe na equipe.'}
+                  {approvalRole === 'administrador' && 'Administrador: acesso total irrestrito a todas as vistorias e à gestão de usuários.'}
+                  {approvalRole === 'visualizador' && 'Visualizador: somente visualização e relatórios, sem permissão de edição.'}
+                </p>
+              </div>
+
+              {/* Informação do Disparo do E-mail */}
+              <div className="p-3.5 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 text-xs text-blue-900 dark:text-blue-300 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <Send className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span>Disparo de E-mail de Acesso Liberado</span>
+                </div>
+                <p className="text-[11px] text-blue-800 dark:text-blue-300/90 leading-relaxed">
+                  Ao confirmar, o acesso será homologado e uma notificação oficial será disparada com os dados do usuário, link de login e orientações institucionais.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setApprovalModalUser(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmApproval}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer flex items-center gap-2"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>Aprovar e Disparar E-mail</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL: PREVIEW E DISPARO DO E-MAIL OFICIAL DE LIBERAÇÃO */}
+      {/* ===================================================================== */}
+      {emailModalData && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in duration-200">
+            <div className="bg-emerald-600 text-white p-5 sm:p-6 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/20 text-white flex items-center justify-center font-bold">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    E-mail de Notificação de Acesso Liberado
+                  </h3>
+                  <p className="text-xs text-emerald-100">
+                    Notificação gerada para {emailModalData.payload.to}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEmailModalData(null)}
+                className="p-2 rounded-xl text-white/80 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-4 text-xs">
+              <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                  <span><strong>Destinatário:</strong> {emailModalData.payload.to}</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                    Acesso Ativo
+                  </span>
+                </div>
+                <div className="text-slate-700 dark:text-slate-300">
+                  <strong>Assunto:</strong> {emailModalData.payload.subject}
+                </div>
+              </div>
+
+              {/* Corpo Formatado do E-mail */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 font-mono text-xs whitespace-pre-line leading-relaxed max-h-60 overflow-y-auto">
+                {emailModalData.payload.body}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(emailModalData.payload.body);
+                    setCopiedEmailText(true);
+                    setTimeout(() => setCopiedEmailText(false), 2500);
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer flex items-center gap-1.5"
+                >
+                  {copiedEmailText ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedEmailText ? 'Texto Copiado!' : 'Copiar Texto do E-mail'}</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href={emailModalData.payload.mailtoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>Abrir no Cliente de E-mail</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => setEmailModalData(null)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer"
+                  >
+                    Concluir
+                  </button>
+                </div>
               </div>
             </div>
           </div>

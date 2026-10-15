@@ -331,8 +331,22 @@ export async function signInInspector(
 
   // Verifica perfil e status do usuário no catálogo institucional
   const profile = getLocalUserProfile(cleanEmail);
-  if (profile && profile.status === 'inativo') {
-    return { success: false, error: 'Usuário inativo. Seu acesso foi suspenso pela administração da CSB/SEMA-MT.' };
+  if (profile) {
+    if (profile.status === 'inativo') {
+      return { success: false, error: 'Usuário inativo. Seu acesso foi suspenso pela administração da CSB/SEMA-MT.' };
+    }
+    if (profile.status === 'pendente') {
+      return { 
+        success: false, 
+        error: 'Solicitação de acesso em análise. Seu cadastro prévio aguarda aprovação de um Administrador da CSB/SEMA-MT.' 
+      };
+    }
+    if (profile.status === 'reprovado') {
+      return { 
+        success: false, 
+        error: 'Solicitação de acesso indeferida pela administração. Entre em contato com a coordenação da CSB/SEMA-MT.' 
+      };
+    }
   }
 
   const resolvedRole = (cleanEmail === 'yarageologa@gmail.com') 
@@ -415,61 +429,89 @@ export async function signInInspector(
 }
 
 /**
- * Cadastro de novo Fiscal de Campo
- * Todo novo usuário criado recebe a senha padrão institucional @12345 se não informada
+ * Solicitação prévia de acesso de novo Fiscal de Campo
+ * Registra o pedido como pendente para análise e aprovação de um Administrador
  */
 export async function signUpInspector(
   email: string, 
   password?: string, 
-  fullName?: string
+  fullName?: string,
+  cargo?: string,
+  matricula?: string
 ): Promise<{ success: boolean; error?: string; message?: string }> {
   const cleanEmail = email.trim().toLowerCase();
   const finalPassword = (password && password.trim()) ? password.trim() : '@12345';
   const finalName = fullName?.trim() || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : cleanEmail.split('@')[0]);
+  const finalCargo = cargo?.trim() || 'Fiscal Técnico CSB';
+  const finalMatricula = matricula?.trim() || 'CSB-' + Math.floor(100 + Math.random() * 900);
 
-  // Registra senha local para contingência e modo offline
+  // Registra senha local para contingência quando o acesso for liberado
   localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, finalPassword);
 
-  if (!supabase) {
-    // Registro em modo contingência local
-    const localSession = {
-      authenticated: true,
-      email: cleanEmail,
-      fullName: finalName,
-      role: 'Fiscal Técnico CSB',
-      loggedAt: new Date().toISOString()
-    };
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(localSession));
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: localSession }));
+  // Registra solicitação pendente no catálogo local de usuários
+  try {
+    const raw = localStorage.getItem('fiscaliza_csb_users_catalog_v1');
+    const list = raw ? JSON.parse(raw) : [];
+    const exists = list.find((u: any) => u.email?.toLowerCase() === cleanEmail);
+    if (exists) {
+      if (exists.status === 'pendente') {
+        return { 
+          success: false, 
+          error: 'Já existe uma solicitação de acesso em análise para este e-mail institucional.' 
+        };
+      }
+      if (exists.status === 'ativo') {
+        return { 
+          success: false, 
+          error: 'Este e-mail já possui cadastro ativo no sistema. Faça o login diretamente.' 
+        };
+      }
     }
-    return {
-      success: true,
-      message: 'Fiscal cadastrado com sucesso! Acesso liberado ao sistema.'
+
+    const now = new Date().toISOString();
+    const newEntry = {
+      id: 'usr-req-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now().toString(36),
+      email: cleanEmail,
+      name: finalName,
+      role: 'analista',
+      status: 'pendente',
+      cargo: finalCargo,
+      matricula: finalMatricula,
+      setor: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT',
+      createdAt: now,
+      updatedAt: now,
+      requestedAt: now
     };
+
+    const updatedList = [newEntry, ...list.filter((u: any) => u.email?.toLowerCase() !== cleanEmail)];
+    localStorage.setItem('fiscaliza_csb_users_catalog_v1', JSON.stringify(updatedList));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('csb:users_updated'));
+    }
+  } catch (e) {
+    console.warn('Erro ao atualizar catálogo local:', e);
   }
 
-  try {
-    const { data, error } = await supabase.auth.signUp({
-      email: cleanEmail,
-      password: finalPassword,
-      options: {
-        data: {
-          full_name: finalName,
-          cargo: 'Fiscal Técnico CSB'
-        }
-      }
-    });
-    if (error) throw error;
-    return { 
-      success: true, 
-      message: data.session 
-        ? 'Fiscal autenticado com sucesso!' 
-        : 'Cadastro realizado no banco de dados! Acesso liberado.' 
-    };
-  } catch (err: any) {
-    return { success: false, error: err.message || 'Falha ao cadastrar fiscal.' };
+  // Tenta persistir solicitação no Supabase se houver conexão
+  if (supabase) {
+    try {
+      await supabase.from('perfis_usuarios').upsert({
+        email: cleanEmail,
+        nome: finalName,
+        perfil: 'analista',
+        status: 'pendente',
+        cargo: finalCargo,
+        matricula: finalMatricula,
+        setor: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
+      });
+    } catch {}
   }
+
+  return {
+    success: true,
+    message: 'Solicitação de acesso enviada com sucesso! O cadastro foi encaminhado para análise da Administração da CSB/SEMA-MT. Aguarde a liberação do seu acesso.'
+  };
 }
 
 /**

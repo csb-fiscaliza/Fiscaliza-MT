@@ -324,7 +324,7 @@ export async function toggleUserStatus(
 }
 
 /**
- * Redefine a senha do usuário para a senha institucional padrão @12345
+ * Redefine a senha do usuário para a senha institucional padrão
  */
 export async function resetUserPasswordToDefault(
   email: string
@@ -337,6 +337,246 @@ export async function resetUserPasswordToDefault(
   } catch (err: any) {
     return { success: false, error: err.message || 'Falha ao redefinir senha do usuário.' };
   }
+}
+
+export interface ApprovalEmailPayload {
+  to: string;
+  subject: string;
+  body: string;
+  mailtoUrl: string;
+}
+
+/**
+ * Gera os dados e o corpo do e-mail oficial de notificação de acesso liberado
+ */
+export function generateApprovalEmail(user: UserProfile, customAppUrl?: string): ApprovalEmailPayload {
+  const appUrl = customAppUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://fiscaliza-csb-sema.web.app');
+  const roleName = user.role === 'administrador' 
+    ? 'Administrador' 
+    : user.role === 'analista' 
+    ? 'Analista de Vistorias' 
+    : 'Visualizador Institucional';
+
+  const subject = `[CSB/SEMA-MT] Acesso Liberado ao Sistema Fiscaliza MT - ${user.name}`;
+  
+  const body = `Olá, ${user.name}!
+
+Sua solicitação de acesso prévio ao Fiscaliza MT (Sistema Oficial de Fiscalização de Segurança de Barragens - CSB/SEMA-MT) foi APROVADA pela Administração.
+
+Dados do seu cadastro institucional:
+• Nome Completo: ${user.name}
+• E-mail: ${user.email}
+• Cargo: ${user.cargo || 'Fiscal Técnico CSB'}
+• Matrícula Funcional: ${user.matricula || 'N/A'}
+• Perfil de Acesso: ${roleName}
+• Status: Acesso Liberado / Ativo
+
+Link de Acesso ao Sistema:
+${appUrl}
+
+Instruções de Acesso:
+1. Acesse o link acima com o seu e-mail institucional (${user.email}).
+2. Utilize a sua senha cadastrada no momento da solicitação de acesso.
+3. Caso esqueça a senha, solicite para algum administrador resetar, e informe a senha padrão @12345.
+
+Atenciosamente,
+Coordenadoria de Segurança de Barragens – CSB
+Superintendência de Recursos Hídricos (SURH)
+Secretaria de Estado de Meio Ambiente – SEMA-MT
+Governo do Estado de Mato Grosso`;
+
+  const mailtoUrl = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  return {
+    to: user.email,
+    subject,
+    body,
+    mailtoUrl
+  };
+}
+
+/**
+ * Solicitação Prévia de Acesso (Novo Fiscal)
+ * Cadastra o fiscal com status 'pendente' para análise prévia do administrador
+ */
+export async function requestUserAccess(data: {
+  name: string;
+  email: string;
+  cargo: string;
+  matricula: string;
+  password?: string;
+}): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+  const cleanEmail = data.email.trim().toLowerCase();
+  if (!cleanEmail) {
+    return { success: false, error: 'O e-mail institucional é obrigatório.' };
+  }
+  if (!data.name.trim()) {
+    return { success: false, error: 'O nome completo é obrigatório.' };
+  }
+  if (!data.cargo.trim()) {
+    return { success: false, error: 'O cargo é obrigatório.' };
+  }
+  if (!data.matricula.trim()) {
+    return { success: false, error: 'A matrícula funcional é obrigatória.' };
+  }
+
+  const users = await getUsers();
+  const existing = users.find(u => u.email.toLowerCase() === cleanEmail);
+  if (existing) {
+    if (existing.status === 'pendente') {
+      return { 
+        success: false, 
+        error: 'Já existe uma solicitação de acesso em análise para este e-mail. Aguarde a avaliação de um Administrador.' 
+      };
+    }
+    if (existing.status === 'ativo') {
+      return { 
+        success: false, 
+        error: 'Este e-mail já possui cadastro ativo no sistema. Por favor, acesse utilizando sua senha.' 
+      };
+    }
+  }
+
+  const now = new Date().toISOString();
+  const initialPassword = (data.password && data.password.trim()) ? data.password.trim() : '@12345';
+
+  const newRequest: UserProfile = {
+    id: generateUUID(),
+    email: cleanEmail,
+    name: data.name.trim(),
+    role: 'analista',
+    status: 'pendente',
+    cargo: data.cargo.trim(),
+    matricula: data.matricula.trim(),
+    setor: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT',
+    createdAt: now,
+    updatedAt: now,
+    requestedAt: now
+  };
+
+  // Salva credencial no storage local para quando o acesso for liberado
+  try {
+    const LOCAL_PWD_PREFIX = 'fiscaliza_csb_pwd_';
+    localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, initialPassword);
+  } catch {}
+
+  const updatedList = [newRequest, ...users.filter(u => u.email.toLowerCase() !== cleanEmail)];
+  localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedList));
+
+  // Tenta sincronizar com o Supabase se disponível
+  if (supabase) {
+    try {
+      await supabase.from('perfis_usuarios').upsert({
+        id: newRequest.id,
+        email: newRequest.email,
+        nome: newRequest.name,
+        perfil: newRequest.role,
+        status: newRequest.status,
+        cargo: newRequest.cargo,
+        matricula: newRequest.matricula,
+        setor: newRequest.setor,
+        created_at: newRequest.createdAt,
+        updated_at: newRequest.updatedAt
+      });
+    } catch (e) {
+      console.warn('Falha ao persistir solicitação no Supabase:', e);
+    }
+  }
+
+  emitUsersUpdated();
+  return { success: true, user: newRequest };
+}
+
+/**
+ * Aprova a solicitação prévia de acesso do usuário e gera o e-mail de notificação
+ */
+export async function approveUserAccess(
+  id: string,
+  role: UserRole = 'analista',
+  approvedByEmail?: string
+): Promise<{ success: boolean; user?: UserProfile; emailPayload?: ApprovalEmailPayload; error?: string }> {
+  const users = await getUsers();
+  const idx = users.findIndex(u => u.id === id);
+  if (idx === -1) {
+    return { success: false, error: 'Solicitação de usuário não localizada.' };
+  }
+
+  const target = users[idx];
+  const now = new Date().toISOString();
+
+  const updatedUser: UserProfile = {
+    ...target,
+    role,
+    status: 'ativo',
+    approvedAt: now,
+    approvedBy: approvedByEmail || 'Administrador CSB',
+    updatedAt: now
+  };
+
+  users[idx] = updatedUser;
+  localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+
+  if (supabase) {
+    try {
+      await supabase.from('perfis_usuarios').upsert({
+        id: updatedUser.id,
+        email: updatedUser.email,
+        nome: updatedUser.name,
+        perfil: updatedUser.role,
+        status: updatedUser.status,
+        cargo: updatedUser.cargo,
+        matricula: updatedUser.matricula,
+        setor: updatedUser.setor,
+        updated_at: updatedUser.updatedAt
+      });
+    } catch (e) {
+      console.warn('Falha ao sincronizar aprovação no Supabase:', e);
+    }
+  }
+
+  const emailPayload = generateApprovalEmail(updatedUser);
+
+  emitUsersUpdated();
+  return { success: true, user: updatedUser, emailPayload };
+}
+
+/**
+ * Reprova a solicitação de acesso do usuário
+ */
+export async function rejectUserAccess(
+  id: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
+  const users = await getUsers();
+  const idx = users.findIndex(u => u.id === id);
+  if (idx === -1) {
+    return { success: false, error: 'Solicitação não localizada.' };
+  }
+
+  const now = new Date().toISOString();
+  users[idx] = {
+    ...users[idx],
+    status: 'reprovado',
+    rejectionReason: reason || 'Indeferido pela Administração',
+    updatedAt: now
+  };
+
+  localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+
+  if (supabase) {
+    try {
+      await supabase.from('perfis_usuarios').upsert({
+        id: users[idx].id,
+        status: 'reprovado',
+        updated_at: now
+      });
+    } catch (e) {
+      console.warn('Falha ao atualizar reprovação no Supabase:', e);
+    }
+  }
+
+  emitUsersUpdated();
+  return { success: true };
 }
 
 /**

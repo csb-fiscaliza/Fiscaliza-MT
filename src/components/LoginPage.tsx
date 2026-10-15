@@ -35,9 +35,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [cargo, setCargo] = useState('');
+  const [matricula, setMatricula] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
+
+  // Ao alternar para o modo de solicitação de acesso de Novo Fiscal, inicializa a senha pré-preenchida
+  const handleSwitchMode = (newMode: 'login' | 'register') => {
+    setMode(newMode);
+    setFeedback(null);
+    if (newMode === 'register') {
+      setPassword('@12345');
+    } else {
+      setPassword('');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,6 +62,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
     if (mode === 'login' && !password) {
       setFeedback({ type: 'error', text: 'Por favor, informe sua senha de acesso.' });
       return;
+    }
+
+    if (mode === 'register') {
+      if (!fullName.trim()) {
+        setFeedback({ type: 'error', text: 'Por favor, preencha o seu nome completo.' });
+        return;
+      }
+      if (!cargo.trim()) {
+        setFeedback({ type: 'error', text: 'Por favor, informe o seu cargo (ex: Fiscal de Obras, Engenheiro Civil, etc.).' });
+        return;
+      }
+      if (!matricula.trim()) {
+        setFeedback({ type: 'error', text: 'Por favor, informe sua matrícula funcional.' });
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -73,22 +101,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
           });
         }
       } else {
-        // Cadastro de Novo Fiscal
-        // Senha padrão institucional aplicada se não digitada pelo usuário
-        const res = await signUpInspector(email, password, fullName);
+        // Solicitação Prévia de Acesso de Novo Fiscal
+        const res = await signUpInspector(email, password, fullName, cargo, matricula);
         if (res.success) {
           setFeedback({ 
             type: 'success', 
-            text: res.message || 'Cadastro realizado com sucesso! Você já pode acessar o sistema.' 
+            text: res.message || 'Solicitação de acesso enviada com sucesso! Seu cadastro foi encaminhado para análise da Administração da CSB/SEMA-MT. Você receberá um e-mail com as instruções de acesso assim que for aprovado.' 
           });
-          // Alterna para tela de login após cadastro
+          // Limpa campos e alterna para tela de login após 3.5 segundos
           setTimeout(() => {
             setMode('login');
-          }, 1500);
+            setPassword('');
+          }, 3500);
         } else {
           setFeedback({ 
             type: 'error', 
-            text: res.error || 'Falha ao processar o cadastro do fiscal.' 
+            text: res.error || 'Falha ao processar a solicitação de acesso.' 
           });
         }
       }
@@ -139,14 +167,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
             </p>
           </div>
 
-          {/* Abas: Entrar vs Cadastrar Novo Fiscal */}
+          {/* Abas: Entrar vs Solicitação de Acesso (Novo Fiscal) */}
           <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-1.5 gap-1.5 text-xs font-bold">
             <button
               type="button"
-              onClick={() => {
-                setMode('login');
-                setFeedback(null);
-              }}
+              onClick={() => handleSwitchMode('login')}
               className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 mode === 'login'
                   ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
@@ -159,10 +184,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
 
             <button
               type="button"
-              onClick={() => {
-                setMode('register');
-                setFeedback(null);
-              }}
+              onClick={() => handleSwitchMode('register')}
               className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 mode === 'register'
                   ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
@@ -170,7 +192,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
               }`}
             >
               <UserCheck className="w-3.5 h-3.5" />
-              <span>Novo Fiscal</span>
+              <span>Novo Fiscal (Solicitar Acesso)</span>
             </button>
           </div>
 
@@ -196,6 +218,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
               </div>
             )}
 
+            {/* Aviso Informativo do Modo Solicitação de Acesso */}
+            {mode === 'register' && (
+              <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>Cadastro Prévio de Fiscal de Campo</span>
+                </div>
+                <p className="text-[11px] text-emerald-700/90 dark:text-emerald-400/90 leading-relaxed">
+                  Preencha seus dados institucionais abaixo. A solicitação de acesso será encaminhada para homologação de um Administrador da CSB/SEMA-MT.
+                </p>
+              </div>
+            )}
+
             {/* Campo Nome (Apenas Cadastro) */}
             {mode === 'register' && (
               <div>
@@ -208,7 +243,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
                     required
                     value={fullName}
                     onChange={e => setFullName(e.target.value)}
-                    placeholder="ex: Dr(a). Fiscal Técnico"
+                    placeholder="ex: Dr(a). Fiscal Técnico de Barragens"
                     className="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all"
                   />
                 </div>
@@ -234,41 +269,75 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
               </div>
             </div>
 
+            {/* Campos de Cargo e Matrícula (Exclusivos para Solicitação de Acesso) */}
+            {mode === 'register' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Cargo / Função *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={cargo}
+                    onChange={e => setCargo(e.target.value)}
+                    placeholder="ex: Fiscal de Obras, Engenheiro"
+                    className="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Matrícula Funcional *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={matricula}
+                    onChange={e => setMatricula(e.target.value)}
+                    placeholder="ex: CSB-018 ou SEMA-..."
+                    className="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Campo Senha */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {mode === 'login' ? 'Senha de Acesso *' : 'Senha Inicial (Opcional)'}
+                  {mode === 'login' ? 'Senha de Acesso *' : 'Senha Inicial de Acesso (Editável)'}
                 </label>
                 {mode === 'register' && (
                   <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                    Padrão institucional aplicado
+                    Pré-preenchida para agilidade
                   </span>
                 )}
               </div>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  required={mode === 'login'}
+                  required
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder={mode === 'login' ? '••••••••' : 'Deixe em branco para senha padrão'}
-                  className="w-full text-xs sm:text-sm pl-9 pr-10 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all"
+                  placeholder={mode === 'login' ? '••••••••' : '•••••••• (editável)'}
+                  className="w-full text-xs sm:text-sm pl-9 pr-10 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all font-mono"
                 />
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
                   tabIndex={-1}
+                  title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
               {mode === 'register' && (
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                  Todo novo usuário criado terá a senha padrão institucional, podendo alterá-la imediatamente após acessar o sistema.
+                  A senha inicial vem pré-preenchida no campo acima. Você pode alterá-la agora caso deseje definir uma senha própria.
                 </p>
               )}
             </div>
@@ -282,7 +351,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
               {isLoading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Autenticando...</span>
+                  <span>{mode === 'login' ? 'Autenticando...' : 'Enviando solicitação...'}</span>
                 </>
               ) : mode === 'login' ? (
                 <>
@@ -291,7 +360,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
                 </>
               ) : (
                 <>
-                  <span>Criar Cadastro de Fiscal</span>
+                  <span>Enviar Solicitação de Acesso</span>
                   <UserCheck className="w-4 h-4" />
                 </>
               )}

@@ -68,7 +68,7 @@ export type PhotoSyncStatus =
 export type PhotoQueueStatus = 'pending' | 'uploading' | 'completed' | 'error';
 
 export type UserRole = 'administrador' | 'analista' | 'visualizador';
-export type UserStatus = 'ativo' | 'inativo';
+export type UserStatus = 'ativo' | 'inativo' | 'pendente' | 'reprovado';
 
 export interface UserProfile {
   id: string;
@@ -82,6 +82,10 @@ export interface UserProfile {
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
+  requestedAt?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectionReason?: string;
 }
 
 export interface PhotoSyncQueueItem {
