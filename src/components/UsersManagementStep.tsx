@@ -385,6 +385,18 @@ EXCEPTION
   WHEN OTHERS THEN NULL;
 END $$;
 
+-- 5.1 Garante constraint única no campo de e-mail para permitir ON CONFLICT
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'perfis_usuarios_email_key'
+  ) THEN
+    ALTER TABLE public.perfis_usuarios ADD CONSTRAINT perfis_usuarios_email_key UNIQUE (email);
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
+
 -- 6. Cria função auxiliar SECURITY DEFINER para verificar se o usuário atual é admin sem recursão
 CREATE OR REPLACE FUNCTION public.check_is_admin()
 RETURNS BOOLEAN
@@ -419,7 +431,7 @@ DROP POLICY IF EXISTS "perfis_delete_policy" ON public.perfis_usuarios;
 CREATE POLICY "perfis_select_policy" 
   ON public.perfis_usuarios 
   FOR SELECT 
-  TO authenticated 
+  TO authenticated, anon 
   USING (true);
 
 CREATE POLICY "perfis_insert_policy" 
@@ -524,7 +536,7 @@ END $$;
 -- 9. Concede permissões para as roles padrão do Supabase
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON TABLE public.perfis_usuarios TO authenticated;
-GRANT SELECT, INSERT ON TABLE public.perfis_usuarios TO anon;`;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.perfis_usuarios TO anon;`;
 
   const copySqlToClipboard = () => {
     navigator.clipboard.writeText(sqlToTransformYaraAdmin);
@@ -712,91 +724,27 @@ GRANT SELECT, INSERT ON TABLE public.perfis_usuarios TO anon;`;
         </div>
       </div>
 
-      {/* SEÇÃO: Solicitações Prévias de Acesso de Novos Fiscais */}
-      {pendingCount > 0 && (
-        <div className="bg-amber-50/90 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold">
-                <BadgeAlert className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm sm:text-base font-black text-amber-950 dark:text-amber-100 uppercase tracking-tight">
-                    Solicitações de Acesso Pendentes (Novos Fiscais)
-                  </h3>
-                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500 text-white">
-                    {pendingCount} {pendingCount === 1 ? 'pendência' : 'pendências'}
-                  </span>
-                </div>
-                <p className="text-xs text-amber-800/90 dark:text-amber-300/90 mt-0.5">
-                  Cadastros solicitados diretamente na tela de login pelo formulário de "Novo Fiscal". Analise e aprove ou reprove para liberar o acesso ao sistema.
-                </p>
-              </div>
-            </div>
+      {/* ===================================================================== */}
+      {/* SEÇÃO 1: USUÁRIOS CADASTRADOS NO SISTEMA                              */}
+      {/* ===================================================================== */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold">
+            <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-            {pendingUsers.map(req => (
-              <div 
-                key={req.id} 
-                className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 rounded-xl p-3.5 sm:p-4 shadow-xs flex flex-col justify-between gap-3"
-              >
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-black text-slate-900 dark:text-white">
-                      {req.name}
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      <span>Aguardando Análise</span>
-                    </span>
-                  </div>
-
-                  <div className="space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
-                    <div className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
-                      <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span className="truncate">{req.email}</span>
-                    </div>
-                    {req.cargo && (
-                      <div className="font-medium text-slate-800 dark:text-slate-200">
-                        Cargo: <span className="font-semibold">{req.cargo}</span>
-                      </div>
-                    )}
-                    {req.matricula && (
-                      <div className="font-mono text-[11px] text-slate-500">
-                        Matrícula: {req.matricula}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => handleReject(req)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 transition cursor-pointer flex items-center gap-1.5"
-                    title="Reprovar solicitação de acesso"
-                  >
-                    <UserX className="w-3.5 h-3.5" />
-                    <span>Reprovar</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleOpenApproveModal(req)}
-                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer flex items-center gap-1.5"
-                    title="Aprovar solicitação e disparar e-mail de acesso liberado"
-                  >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span>Aprovar e Liberar Acesso</span>
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div>
+            <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
+              <span>Usuários Cadastrados no Sistema</span>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                {registeredUsers.length}
+              </span>
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Fiscais, analistas e administradores com acesso ao sistema.
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Barra de Filtros e Busca */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 sm:p-4 shadow-2xs flex flex-wrap items-center justify-between gap-3">
@@ -1019,6 +967,116 @@ GRANT SELECT, INSERT ON TABLE public.perfis_usuarios TO anon;`;
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      {/* ===================================================================== */}
+      {/* SEÇÃO 2 (LOGO ABAIXO): SOLICITAÇÕES DE CADASTRO PENDENTES             */}
+      {/* Conforme requisito: Listar informações dos usuários cadastrados e     */}
+      {/* logo abaixo mostrar a lista dos usuários que solicitaram cadastro     */}
+      {/* com opção de aprovar ou reprovar                                      */}
+      {/* ===================================================================== */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border-2 border-amber-300 dark:border-amber-700/80 p-4 sm:p-6 shadow-xs space-y-4 transition-colors">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200/80 dark:border-amber-800/60 pb-3.5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold shrink-0">
+              <BadgeAlert className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                  Solicitações de Cadastro Pendentes (Novos Fiscais)
+                </h3>
+                <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
+                  pendingCount > 0 
+                    ? 'bg-amber-500 text-white animate-pulse' 
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                }`}>
+                  {pendingCount} {pendingCount === 1 ? 'pendência' : 'pendências'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                Cadastros solicitados diretamente na tela de login pelo formulário de "Novo Fiscal". Analise e aprove ou reprove para liberar o acesso ao sistema.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {pendingUsers.length === 0 ? (
+          <div className="p-8 text-center bg-slate-50 dark:bg-slate-950/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 space-y-2">
+            <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500 opacity-90" />
+            <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+              Nenhuma solicitação de acesso pendente no momento
+            </h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+              Todas as solicitações de novos fiscais foram analisadas. Quando um novo fiscal preencher o formulário na tela de login, o pedido aparecerá imediatamente aqui para análise do administrador.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+            {pendingUsers.map(req => (
+              <div 
+                key={req.id} 
+                className="bg-slate-50/80 dark:bg-slate-950/70 border border-amber-300 dark:border-amber-800/80 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between gap-3.5 hover:border-amber-400 transition-colors"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                      {req.name}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      <span>Aguardando Análise</span>
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                    <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-medium">
+                      <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="font-semibold text-slate-900 dark:text-white truncate">{req.email}</span>
+                    </div>
+                    {req.cargo && (
+                      <div className="text-slate-600 dark:text-slate-400">
+                        Cargo / Função: <strong className="text-slate-800 dark:text-slate-200">{req.cargo}</strong>
+                      </div>
+                    )}
+                    {req.matricula && (
+                      <div className="font-mono text-[11px] text-slate-500">
+                        Matrícula Funcional: <strong className="text-slate-700 dark:text-slate-300">{req.matricula}</strong>
+                      </div>
+                    )}
+                    {req.setor && (
+                      <div className="text-[11px] text-slate-500 truncate">
+                        Setor: {req.setor}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => handleReject(req)}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 transition cursor-pointer flex items-center gap-1.5"
+                    title="Reprovar solicitação de acesso"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>Reprovar</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenApproveModal(req)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                    title="Aprovar solicitação, liberar acesso e disparar e-mail com instruções"
+                  >
+                    <UserCheck className="w-4 h-4" />
+                    <span>Aprovar e Liberar Acesso</span>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

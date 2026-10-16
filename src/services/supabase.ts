@@ -475,8 +475,31 @@ export async function signUpInspector(
           setor: 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
           createdAt: '2026-01-10T08:00:00.000Z',
           updatedAt: '2026-10-14T12:00:00.000Z'
+        },
+        {
+          id: 'usr-admin-csb-000',
+          email: 'csb.fiscaliza@sema.mt.gov.br',
+          name: 'Fiscaliza CSB Admin',
+          role: 'administrador',
+          status: 'ativo',
+          cargo: 'Administrador Institucional CSB',
+          matricula: 'CSB-000',
+          setor: 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
+          createdAt: '2026-01-10T08:00:00.000Z',
+          updatedAt: '2026-10-14T12:00:00.000Z'
         }
       ];
+    } else {
+      // Remove quaisquer usuários de exemplo legados
+      const LEGACY_EXAMPLE_EMAILS = [
+        'marcos.engenheiro@sema.mt.gov.br',
+        'auditoria.gestao@sema.mt.gov.br'
+      ];
+      list = list.filter((u: any) => 
+        !LEGACY_EXAMPLE_EMAILS.includes(u.email?.toLowerCase()) &&
+        !u.name?.toLowerCase().includes('marcos vinícius') &&
+        !u.name?.toLowerCase().includes('camila nogueira')
+      );
     }
     const exists = list.find((u: any) => u.email?.toLowerCase() === cleanEmail);
     if (exists) {

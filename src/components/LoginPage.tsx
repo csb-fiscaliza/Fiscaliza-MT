@@ -23,7 +23,8 @@ import {
   FileCheck2
 } from 'lucide-react';
 import { FiscalizaLogo } from './FiscalizaLogo';
-import { signInInspector, signUpInspector } from '../services/supabase';
+import { signInInspector } from '../services/supabase';
+import { requestUserAccess } from '../services/userService';
 
 interface LoginPageProps {
   onLoginSuccess: (session: { email?: string; fullName?: string; role?: string }) => void;
@@ -101,8 +102,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
           });
         }
       } else {
-        // Solicitação Prévia de Acesso de Novo Fiscal
-        const res = await signUpInspector(email, password, fullName, cargo, matricula);
+        // Solicitação Prévia de Acesso de Novo Fiscal (Sem exemplos, fluxo direto para o painel de aprovação)
+        const res = await requestUserAccess({
+          name: fullName?.trim() || email.split('@')[0],
+          email,
+          cargo: cargo?.trim() || 'Fiscal Técnico CSB',
+          matricula: matricula?.trim() || 'CSB-' + Math.floor(100 + Math.random() * 900),
+          password
+        });
         if (res.success) {
           setFeedback({ 
             type: 'success', 

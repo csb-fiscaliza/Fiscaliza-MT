@@ -12,7 +12,7 @@ import { supabase } from './supabase';
 const USERS_STORAGE_KEY = 'fiscaliza_csb_users_catalog_v1';
 const USERS_EVENT = 'csb:users_updated';
 
-// Usuários iniciais padrão do sistema CSB/SEMA-MT
+// Usuários institucionais oficiais (Administradores nativos da CSB/SEMA-MT - sem exemplos fictícios)
 const INITIAL_USERS: UserProfile[] = [
   {
     id: 'usr-admin-yara-001',
@@ -28,28 +28,17 @@ const INITIAL_USERS: UserProfile[] = [
     lastLoginAt: '2026-10-14T14:30:00.000Z'
   },
   {
-    id: 'usr-analista-marcos-002',
-    email: 'marcos.engenheiro@sema.mt.gov.br',
-    name: 'Marcos Vinícius Silva',
-    role: 'analista',
+    id: 'usr-admin-csb-000',
+    email: 'csb.fiscaliza@sema.mt.gov.br',
+    name: 'Fiscaliza CSB Admin',
+    role: 'administrador',
     status: 'ativo',
-    cargo: 'Engenheiro Civil - Fiscal de Campo',
-    matricula: 'CSB-014',
-    setor: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT',
-    createdAt: '2026-02-15T09:30:00.000Z',
-    updatedAt: '2026-09-20T10:00:00.000Z'
-  },
-  {
-    id: 'usr-vis-camila-003',
-    email: 'auditoria.gestao@sema.mt.gov.br',
-    name: 'Dra. Camila Nogueira',
-    role: 'visualizador',
-    status: 'ativo',
-    cargo: 'Auditora Governamental / Analista de Meio Ambiente',
-    matricula: 'SEMA-882',
-    setor: 'Superintendência de Recursos Hídricos (SURH)',
-    createdAt: '2026-03-01T14:00:00.000Z',
-    updatedAt: '2026-08-10T11:20:00.000Z'
+    cargo: 'Administrador Institucional CSB',
+    matricula: 'CSB-000',
+    setor: 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
+    createdAt: '2026-01-10T08:00:00.000Z',
+    updatedAt: '2026-10-14T12:00:00.000Z',
+    lastLoginAt: '2026-10-14T14:30:00.000Z'
   }
 ];
 
@@ -67,7 +56,7 @@ function generateUUID(): string {
 }
 
 /**
- * Carrega a lista de usuários com persistência resiliente
+ * Carrega a lista de usuários com persistência resiliente (sem cadastros de exemplo)
  */
 export async function getUsers(): Promise<UserProfile[]> {
   let localUsers: UserProfile[] = [];
@@ -81,24 +70,33 @@ export async function getUsers(): Promise<UserProfile[]> {
     console.warn('Erro ao ler usuários do armazenamento local:', e);
   }
 
-  // Se estiver vazio, inicializa com os usuários sementes
+  // Remove qualquer usuário de exemplo/teste legado do armazenamento local
+  const LEGACY_EXAMPLE_EMAILS = [
+    'marcos.engenheiro@sema.mt.gov.br',
+    'auditoria.gestao@sema.mt.gov.br'
+  ];
+  localUsers = localUsers.filter(u => 
+    !LEGACY_EXAMPLE_EMAILS.includes(u.email.toLowerCase()) &&
+    !u.name.toLowerCase().includes('marcos vinícius') &&
+    !u.name.toLowerCase().includes('camila nogueira')
+  );
+
+  // Se estiver vazio, inicializa apenas com os administradores oficiais
   if (!localUsers || localUsers.length === 0) {
     localUsers = [...INITIAL_USERS];
     localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(localUsers));
   } else {
-    // Garante que os usuários institucionais iniciais estejam presentes e Yara Dias seja sempre administradora
+    // Garante que os administradores institucionais estejam sempre presentes e ativos
     INITIAL_USERS.forEach(initUser => {
-      const exists = localUsers.some(u => u.email.toLowerCase() === initUser.email.toLowerCase());
-      if (!exists) {
+      const idx = localUsers.findIndex(u => u.email.toLowerCase() === initUser.email.toLowerCase());
+      if (idx === -1) {
         localUsers.push(initUser);
+      } else {
+        localUsers[idx].role = 'administrador';
+        localUsers[idx].status = 'ativo';
       }
     });
 
-    const yaraIdx = localUsers.findIndex(u => u.email.toLowerCase() === 'yarageologa@gmail.com');
-    if (yaraIdx !== -1) {
-      localUsers[yaraIdx].role = 'administrador';
-      localUsers[yaraIdx].status = 'ativo';
-    }
     localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(localUsers));
   }
 
