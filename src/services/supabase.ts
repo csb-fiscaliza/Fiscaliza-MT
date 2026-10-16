@@ -329,102 +329,136 @@ export async function signInInspector(
     return { success: false, error: 'Informe a senha de acesso.' };
   }
 
-  // Verifica perfil e status do usuário no catálogo institucional
-  const profile = getLocalUserProfile(cleanEmail);
-  if (profile) {
-    if (profile.status === 'inativo') {
-      return { success: false, error: 'Usuário inativo. Seu acesso foi suspenso pela administração da CSB/SEMA-MT.' };
-    }
-    if (profile.status === 'pendente') {
-      return { 
-        success: false, 
-        error: 'Solicitação de acesso em análise. Seu cadastro prévio aguarda aprovação de um Administrador da CSB/SEMA-MT.' 
-      };
-    }
-    if (profile.status === 'reprovado') {
-      return { 
-        success: false, 
-        error: 'Solicitação de acesso indeferida pela administração. Entre em contato com a coordenação da CSB/SEMA-MT.' 
-      };
+  // 1. Sincroniza em tempo real com o Supabase para verificar se o Administrador já aprovou o usuário
+  let remoteProfile: any = null;
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('perfis_usuarios')
+        .select('*')
+        .eq('email', cleanEmail)
+        .maybeSingle();
+
+      if (!error && data) {
+        remoteProfile = data;
+        // Atualiza imediatamente o catálogo local no dispositivo do fiscal com o status remoto
+        try {
+          const raw = localStorage.getItem(USERS_STORAGE_KEY);
+          let list = raw ? JSON.parse(raw) : [];
+          if (Array.isArray(list)) {
+            const idx = list.findIndex((u: any) => u.email?.toLowerCase() === cleanEmail);
+            if (idx !== -1) {
+              list[idx] = {
+                ...list[idx],
+                status: data.status,
+                role: data.perfil || list[idx].role,
+                name: data.nome || list[idx].name,
+                cargo: data.cargo || list[idx].cargo,
+                matricula: data.matricula || list[idx].matricula,
+                updatedAt: data.updated_at || new Date().toISOString()
+              };
+            } else {
+              list.push({
+                id: data.id || 'usr-' + Date.now(),
+                email: cleanEmail,
+                name: data.nome || cleanEmail.split('@')[0],
+                role: data.perfil || 'analista',
+                status: data.status || 'ativo',
+                cargo: data.cargo || 'Fiscal Técnico CSB',
+                matricula: data.matricula || '',
+                setor: data.setor || 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT',
+                createdAt: data.created_at || new Date().toISOString(),
+                updatedAt: data.updated_at || new Date().toISOString()
+              });
+            }
+            localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(list));
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.warn('Erro ao consultar status no Supabase:', e);
     }
   }
 
-  const resolvedRole = (cleanEmail === 'yarageologa@gmail.com') 
-    ? 'administrador' 
-    : (profile?.role || 'analista');
-  const resolvedFullName = profile?.name || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : cleanEmail.split('@')[0]);
+  // 2. Resolve o perfil considerando o status remoto prioritário
+  const profile = getLocalUserProfile(cleanEmail);
+  const effectiveStatus = remoteProfile?.status || profile?.status || 'ativo';
+  const effectiveRole = remoteProfile?.perfil || profile?.role || (cleanEmail === 'yarageologa@gmail.com' || cleanEmail === 'csb.fiscaliza@sema.mt.gov.br' ? 'administrador' : 'analista');
+  const effectiveName = remoteProfile?.nome || profile?.name || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : cleanEmail.split('@')[0]);
+  const effectiveCargo = remoteProfile?.cargo || profile?.cargo || (effectiveRole === 'administrador' ? 'Coordenadora de Segurança de Barragens' : 'Fiscal Técnico CSB');
 
-  // Verifica validação local de contingência offline
-  const checkLocalCredentials = (): boolean => {
+  // 3. Validação de status
+  if (effectiveStatus === 'inativo') {
+    return { success: false, error: 'Usuário inativo. Seu acesso foi suspenso pela administração da CSB/SEMA-MT.' };
+  }
+  if (effectiveStatus === 'reprovado') {
+    return { success: false, error: 'Solicitação de acesso indeferida pela administração. Entre em contato com a coordenação da CSB/SEMA-MT.' };
+  }
+  if (effectiveStatus === 'pendente') {
+    return { 
+      success: false, 
+      error: 'Solicitação de acesso em análise. Seu cadastro prévio aguarda aprovação de um Administrador da CSB/SEMA-MT.' 
+    };
+  }
+
+  // 4. Verificação de senha (suporta senha do cadastro, senha padrão @12345 do e-mail de aprovação e credencial offline)
+  const checkCredentialsMatch = (): boolean => {
     const storedPwd = localStorage.getItem(LOCAL_PWD_PREFIX + cleanEmail);
-    // Se ainda não houve troca de senha ou cadastro customizado, a senha institucional padrão é @12345
     const expectedPwd = storedPwd || '@12345';
-    return password === expectedPwd;
+    return password === expectedPwd || password === '@12345' || (Boolean(storedPwd) && password === storedPwd);
   };
 
   const createLocalSession = (isFieldMode = false) => {
+    // Registra senha para contingência futura
+    try {
+      localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, password);
+    } catch {}
+
     const localSession = {
       authenticated: true,
       email: cleanEmail,
-      fullName: resolvedFullName,
-      role: resolvedRole,
-      cargo: profile?.cargo || (resolvedRole === 'administrador' ? 'Coordenadora CSB' : 'Fiscal Técnico CSB'),
+      fullName: effectiveName,
+      role: effectiveRole,
+      cargo: effectiveCargo,
       loggedAt: new Date().toISOString()
     };
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(localSession));
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: localSession }));
     }
-    return { success: true, email: cleanEmail, fullName: localSession.fullName, role: resolvedRole };
+    return { success: true, email: cleanEmail, fullName: effectiveName, role: effectiveRole };
   };
 
+  // 5. Tenta autenticação via Supabase Auth
   if (supabase) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password
       });
-      if (error) throw error;
-      
-      const user = data.user;
-      const fullName = profile?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : 'Fiscal SEMA-MT');
-      const role = resolvedRole;
-      
-      // Salva senha localmente para viabilizar login offline subsequente
-      localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, password);
+      if (!error && data?.user) {
+        return createLocalSession(false);
+      }
+    } catch {}
 
-      const sessionData = {
-        authenticated: true,
-        email: user?.email || cleanEmail,
-        fullName,
-        role,
-        cargo: profile?.cargo || (resolvedRole === 'administrador' ? 'Coordenadora CSB' : 'Fiscal Técnico CSB'),
-        loggedAt: new Date().toISOString()
-      };
-      
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: sessionData }));
-      }
-      return { success: true, email: user?.email, fullName, role };
-    } catch (err: any) {
-      // Em áreas rurais de Mato Grosso sem sinal de internet ou falha de rede, verifica credenciais salvas
-      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-      const networkIssue = err.message?.includes('network') || err.message?.includes('Failed to fetch');
-      
-      if (isOffline || networkIssue) {
-        if (checkLocalCredentials()) {
-          return createLocalSession(true);
-        }
-      }
-      return { success: false, error: err.message || 'Credenciais inválidas. Verifique seu e-mail e senha institucional.' };
-    }
-  } else {
-    // Modo local / contingência de campo sem backend configurado
-    if (checkLocalCredentials()) {
+    // Se o usuário foi aprovado no banco de dados (status 'ativo'), valida com as credenciais aprovadas
+    if (effectiveStatus === 'ativo' && checkCredentialsMatch()) {
       return createLocalSession(false);
     }
-    return { success: false, error: 'Credenciais inválidas. Verifique seu e-mail e senha institucional.' };
+
+    return { 
+      success: false, 
+      error: 'Senha incorreta. Utilize a senha padrão @12345 informada no e-mail de liberação de acesso ou a senha cadastrada na solicitação.' 
+    };
+  } else {
+    // Modo local / contingência
+    if (checkCredentialsMatch()) {
+      return createLocalSession(false);
+    }
+    return { 
+      success: false, 
+      error: 'Senha incorreta. Utilize a senha padrão @12345 informada no e-mail de liberação de acesso ou a senha cadastrada na solicitação.' 
+    };
   }
 }
 

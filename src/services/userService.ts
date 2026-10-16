@@ -557,17 +557,29 @@ export async function approveUserAccess(
 
   if (supabase) {
     try {
-      await supabase.from('perfis_usuarios').upsert({
-        id: updatedUser.id,
-        email: updatedUser.email,
-        nome: updatedUser.name,
+      // Sincroniza a aprovação no banco remoto Supabase
+      const { error: updErr } = await supabase.from('perfis_usuarios').update({
         perfil: updatedUser.role,
-        status: updatedUser.status,
+        status: 'ativo',
         cargo: updatedUser.cargo,
         matricula: updatedUser.matricula,
         setor: updatedUser.setor,
         updated_at: updatedUser.updatedAt
-      });
+      }).eq('email', updatedUser.email);
+
+      if (updErr) {
+        await supabase.from('perfis_usuarios').upsert({
+          id: updatedUser.id,
+          email: updatedUser.email,
+          nome: updatedUser.name,
+          perfil: updatedUser.role,
+          status: 'ativo',
+          cargo: updatedUser.cargo,
+          matricula: updatedUser.matricula,
+          setor: updatedUser.setor,
+          updated_at: updatedUser.updatedAt
+        });
+      }
     } catch (e) {
       console.warn('Falha ao sincronizar aprovação no Supabase:', e);
     }
