@@ -544,6 +544,34 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.perfis_usuarios TO anon;`;
     setTimeout(() => setCopiedSql(false), 2500);
   };
 
+  const userRole = (currentUser?.role || '').toLowerCase();
+  const isAdmin = userRole === 'administrador' || userRole === 'admin' || 
+    currentUser?.email?.toLowerCase() === 'yarageologa@gmail.com' || 
+    currentUser?.email?.toLowerCase() === 'csb.fiscaliza@sema.mt.gov.br';
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-4xl mx-auto py-16 px-4 text-center">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 max-w-md mx-auto shadow-xl">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto mb-4">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Acesso Restrito ao Administrador</h2>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+            O módulo de Gestão de Usuários é reservado exclusivamente para o perfil Administrador da CSB/SEMA-MT.
+          </p>
+          <button
+            type="button"
+            onClick={onGoToDashboard}
+            className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition-all cursor-pointer shadow-md"
+          >
+            Voltar ao Painel Principal
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-20 sm:pb-12">
       {/* Topo com Navegação e Título Institucional */}

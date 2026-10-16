@@ -648,16 +648,17 @@ function AppContent() {
     setActiveStep(3);
   };
 
-  // Protege a etapa 7 (Módulo de Usuários): exclusivo para Administrador
+  const userRole = (session?.role || '').toLowerCase();
+  const isAdminUser = userRole === 'administrador' || userRole === 'admin' || 
+    session?.email?.toLowerCase() === 'yarageologa@gmail.com' || 
+    session?.email?.toLowerCase() === 'csb.fiscaliza@sema.mt.gov.br';
+
+  // Protege a etapa 7 (Módulo de Usuários): exclusivo para perfil Administrador
   useEffect(() => {
-    if (activeStep === 7) {
-      const role = (session?.role || '').toLowerCase();
-      const isAdmin = role === 'administrador' || role === 'admin' || session?.email?.toLowerCase() === 'yarageologa@gmail.com';
-      if (!isAdmin) {
-        setActiveStep(0);
-      }
+    if (activeStep === 7 && !isAdminUser) {
+      setActiveStep(0);
     }
-  }, [activeStep, session]);
+  }, [activeStep, isAdminUser]);
 
   if (isAuthLoading) {
     return (
@@ -935,7 +936,7 @@ function AppContent() {
             )}
 
             {/* PASSO 7: MÓDULO DE USUÁRIOS (EXCLUSIVO ADMINISTRADOR) */}
-            {activeStep === 7 && (
+            {activeStep === 7 && isAdminUser && (
               <UsersManagementStep
                 currentUser={session}
                 onGoToDashboard={() => setActiveStep(0)}

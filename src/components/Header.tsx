@@ -103,7 +103,9 @@ export const Header: React.FC<HeaderProps> = ({
   const isSheetActive = activeStep >= 1 && activeStep <= 5;
 
   const userRole = (currentUser?.role || '').toLowerCase();
-  const isAdmin = userRole === 'administrador' || userRole === 'admin' || currentUser?.email?.toLowerCase() === 'yarageologa@gmail.com';
+  const isAdmin = userRole === 'administrador' || userRole === 'admin' || 
+    currentUser?.email?.toLowerCase() === 'yarageologa@gmail.com' || 
+    currentUser?.email?.toLowerCase() === 'csb.fiscaliza@sema.mt.gov.br';
   const isVisualizador = userRole === 'visualizador';
 
   // Contagem de fichas locais pendentes de sincronização
