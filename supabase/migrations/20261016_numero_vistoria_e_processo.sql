@@ -82,6 +82,8 @@ FOR EACH ROW
 EXECUTE FUNCTION public.trg_set_numero_vistoria();
 
 -- 5. Atualização da View Gerencial de Vistorias para incluir processo_sema
+DROP VIEW IF EXISTS public.vw_resumo_vistorias CASCADE;
+
 CREATE OR REPLACE VIEW public.vw_resumo_vistorias AS
 SELECT 
     v.id AS vistoria_id,
@@ -111,3 +113,24 @@ LEFT JOIN public.empreendedores e ON e.id = b.empreendedor_id
 LEFT JOIN public.vistoria_fotos f ON f.vistoria_id = v.id
 LEFT JOIN public.vistoria_componentes_condicao c ON c.vistoria_id = v.id
 GROUP BY v.id, b.id, e.id;
+
+-- Garante também a recriação da view de barragens críticas caso CASCADE a tenha afetado
+CREATE OR REPLACE VIEW public.vw_barragens_criticas AS
+SELECT 
+    b.id AS barragem_id,
+    b.nome AS barragem_nome,
+    b.municipio,
+    e.nome_razao_social AS empreendedor,
+    v.numero_vistoria,
+    v.processo_sema AS processo_numero,
+    v.data_vistoria,
+    c.componente_nome,
+    c.condicao,
+    c.anomalias_selecionadas,
+    c.notas_observacoes
+FROM public.vistoria_componentes_condicao c
+JOIN public.vistorias v ON v.id = c.vistoria_id
+JOIN public.barragens b ON b.id = v.barragem_id
+LEFT JOIN public.empreendedores e ON e.id = b.empreendedor_id
+WHERE c.condicao IN ('critico', 'alerta')
+ORDER BY v.data_vistoria DESC, c.condicao DESC;
