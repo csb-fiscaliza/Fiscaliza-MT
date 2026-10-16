@@ -44,7 +44,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ThemeProvider } from './context/ThemeContext';
 import { 
   createEmptyInspection, 
-  createSampleInspection, 
   getAllInspections, 
   saveInspection, 
   deleteInspection,
@@ -116,7 +115,7 @@ function AppContent() {
             const validList = getAllInspections();
             const fallback = previousInspectionBeforeNewRef.current && !isInspectionEmpty(previousInspectionBeforeNewRef.current)
               ? previousInspectionBeforeNewRef.current
-              : (validList.length > 0 ? validList[0] : createSampleInspection());
+              : (validList.length > 0 ? validList[0] : createEmptyInspection());
             setCurrentInspection(fallback);
             setInspections(validList);
           }
@@ -318,10 +317,13 @@ function AppContent() {
       if (list.length > 0) {
         setCurrentInspection(list[0]);
       } else {
-        const sample = createSampleInspection();
-        saveInspection(sample);
-        setInspections([sample]);
-        setCurrentInspection(sample);
+        const fresh = createEmptyInspection({
+          email: session?.email,
+          fullName: session?.fullName,
+          id: (session as any)?.id
+        });
+        setCurrentInspection(fresh);
+        setInspections([]);
       }
     }).catch(() => {
       const list = getAllInspections();
@@ -553,22 +555,6 @@ function AppContent() {
     setLastSavedAt(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`);
   };
 
-  const handleLoadSample = () => {
-    let proceed = true;
-    try {
-      proceed = window.confirm('Carregar exemplo didático de teste de campo? (Fazenda Alvorada - Poconé/MT)');
-    } catch {
-      proceed = true;
-    }
-    if (proceed) {
-      const sample = createSampleInspection();
-      saveInspection(sample);
-      setCurrentInspection(sample);
-      setInspections(getAllInspections());
-      setActiveStep(0); // Mostra no painel
-    }
-  };
-
   const handleSelectInspection = (id: string) => {
     // Se a ficha atual estiver com preenchimento zero (0%) e o usuário selecionar outra vistoria, desconsidera
     if (currentInspection && currentInspection.id !== id && isInspectionEmpty(currentInspection)) {
@@ -766,7 +752,6 @@ function AppContent() {
         activeStep={activeStep}
         setActiveStep={setActiveStep}
         onNewInspection={handleNewInspection}
-        onLoadSample={handleLoadSample}
         onSave={handleSaveInspection}
         onExportJson={handleExportJson}
         onImportJson={handleImportJson}
@@ -847,7 +832,6 @@ function AppContent() {
                 onGoToDocuments={() => setActiveStep(5)}
                 onOpenSecurityModal={() => setShowSecurityModal(true)}
                 onNewInspection={handleNewInspection}
-                onLoadSample={handleLoadSample}
                 onSelectAndEdit={handleSelectAndEdit}
                 onDeleteInspection={handleDeleteInspection}
                 isOnline={isOnline}
@@ -933,7 +917,6 @@ function AppContent() {
                 onSelectAndEdit={handleSelectAndEdit}
                 onDeleteInspection={handleDeleteInspection}
                 onNewInspection={handleNewInspection}
-                onLoadSample={handleLoadSample}
                 onGoToSheet={() => setActiveStep(1)}
                 onSyncSingle={async (id) => {
                   const res = await syncSingleInspection(id);

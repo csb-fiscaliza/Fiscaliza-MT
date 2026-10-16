@@ -35,7 +35,6 @@ interface HeaderProps {
   activeStep: number;
   setActiveStep: (step: number) => void;
   onNewInspection: () => void;
-  onLoadSample: () => void;
   onSave: () => void;
   onExportJson: () => void;
   onImportJson: (e: React.ChangeEvent<HTMLInputElement>) => void;

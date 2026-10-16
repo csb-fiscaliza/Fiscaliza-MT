@@ -496,6 +496,19 @@ III. A manutenção deve ser pautada nos preceitos da Cartilha de Ações de Man
 const ENCRYPTION_STORAGE_KEY = 'fiscaliza_csb_sema_inspections_enc_v1';
 const VAULT_SALT_KEY = 'fiscaliza_csb_vault_key_2026';
 
+export function isSampleInspection(item?: InspectionData | null): boolean {
+  if (!item) return false;
+  const d = item.damIdentification;
+  const g = item.generalInfo;
+  return (
+    d?.damName === 'Barramento Fazenda Alvorada' ||
+    d?.propertyOrBusinessName === 'Fazenda Alvorada do Pantanal' ||
+    g?.recordNumber === 'PROC-2026/04812-SEMA' ||
+    (Array.isArray(g?.inspectors) && g.inspectors.some(insp => insp.name?.includes('(Exemplo)'))) ||
+    g?.accompaniedBy?.name?.includes('(Exemplo)') === true
+  );
+}
+
 export function getAllInspections(): InspectionData[] {
   try {
     // 1. Tenta carregar dados criptografados se existirem
@@ -521,15 +534,16 @@ export function getAllInspections(): InspectionData[] {
 
     // Sanitização profunda anti-poluição de protótipo e anti-injeção
     const sanitized = parsed.map(item => sanitizeDeepObject(item) as InspectionData);
-    // Descarta eventuais fichas vazias com 0% de preenchimento
-    const valid = sanitized.filter(item => !isInspectionEmpty(item));
+    // Descarta eventuais fichas vazias com 0% de preenchimento e expurga fichas de exemplo
+    const valid = sanitized.filter(item => !isInspectionEmpty(item) && !isSampleInspection(item));
     if (valid.length !== sanitized.length) {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(valid));
+        localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(JSON.stringify(valid)));
       } catch {}
       return valid;
     }
-    return sanitized;
+    return valid;
   } catch (err) {
     console.error('Erro ao ler vistorias do storage:', err);
     return [];
@@ -672,10 +686,10 @@ export async function loadAllInspectionsWithFallback(): Promise<InspectionData[]
         mergedMap.set(item.id, item);
       }
     });
-    const combined = Array.from(mergedMap.values()).filter(item => !isInspectionEmpty(item));
+    const combined = Array.from(mergedMap.values()).filter(item => !isInspectionEmpty(item) && !isSampleInspection(item));
     return combined;
   } catch {
-    return localList.filter(item => !isInspectionEmpty(item));
+    return localList.filter(item => !isInspectionEmpty(item) && !isSampleInspection(item));
   }
 }
 

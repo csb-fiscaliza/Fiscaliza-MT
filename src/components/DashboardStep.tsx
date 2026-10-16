@@ -46,7 +46,6 @@ interface Props {
   onGoToDocuments?: () => void;
   onOpenSecurityModal?: () => void;
   onNewInspection: () => void;
-  onLoadSample?: () => void;
   onSelectAndEdit?: (id: string) => void;
   onDeleteInspection?: (id: string) => void;
   isOnline: boolean;
@@ -63,7 +62,6 @@ export const DashboardStep: React.FC<Props> = ({
   onGoToSheet,
   onGoToDatabase,
   onNewInspection,
-  onLoadSample,
   onSelectAndEdit,
   onDeleteInspection,
   isOnline,
@@ -388,18 +386,6 @@ export const DashboardStep: React.FC<Props> = ({
               <span>Acessar Banco de Dados</span>
               <ArrowRight className="w-4 h-4" />
             </button>
-
-            {onLoadSample && (
-              <button
-                type="button"
-                onClick={onLoadSample}
-                className="w-full sm:w-auto py-3 px-4 rounded-2xl border border-amber-300/80 dark:border-amber-800/60 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 text-xs sm:text-sm font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer select-none"
-                title="Carregar exemplo didático de teste de campo"
-              >
-                <Sparkles className="w-4 h-4 text-amber-500" />
-                <span>Carregar Exemplo</span>
-              </button>
-            )}
           </div>
         </div>
       </div>

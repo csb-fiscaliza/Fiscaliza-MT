@@ -46,7 +46,6 @@ interface Props {
   onSelectAndEdit: (id: string) => void;
   onDeleteInspection: (id: string) => void;
   onNewInspection: () => void;
-  onLoadSample: () => void;
   onGoToSheet: () => void;
   onSyncSingle?: (id: string) => void;
   onSyncAll?: () => void;
@@ -61,7 +60,6 @@ export const DatabaseModuleStep: React.FC<Props> = ({
   onSelectAndEdit,
   onDeleteInspection,
   onNewInspection,
-  onLoadSample,
   onGoToSheet,
   onSyncSingle,
   onSyncAll,
@@ -213,16 +211,6 @@ export const DatabaseModuleStep: React.FC<Props> = ({
             >
               <PlusCircle className="w-4 h-4" />
               <span>Nova Vistoria</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onLoadSample}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-300 text-xs font-semibold transition cursor-pointer"
-              title="Carregar exemplo didático para testes"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>Exemplo Teste</span>
             </button>
 
             <button
@@ -613,13 +601,6 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                 className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition cursor-pointer"
               >
                 Cadastrar Nova Vistoria
-              </button>
-              <button
-                type="button"
-                onClick={onLoadSample}
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition cursor-pointer"
-              >
-                Carregar Exemplo Didático
               </button>
             </div>
           </div>
