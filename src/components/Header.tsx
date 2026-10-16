@@ -1,8 +1,8 @@
 // ==============================================================================
 // ARQUIVO: src/components/Header.tsx
 // Cabeçalho Oficial do Sistema Fiscaliza MT (CSB / SEMA-MT)
-// Nível Superior: Identidade Visual (Logo + Nome + Órgão), Saudação Personalizada
-// Nível Inferior: Barra de Navegação e Atalhos Rápidos do Sistema
+// Nível Superior: Logo, Identidade Institucional Completa e Saudação ao Usuário
+// Nível Inferior: Botões de Links e Ações Rápidas de Navegação
 // ==============================================================================
 
 import React from 'react';
@@ -13,27 +13,18 @@ import {
   FileSpreadsheet,
   MapPin,
   Clock,
-  Wifi,
-  WifiOff,
   Save,
   RefreshCw,
   CheckCircle2,
-  AlertCircle,
   Lock,
-  CloudCheck,
-  CloudOff,
-  UserCheck,
   Camera,
-  CloudUpload,
   KeyRound,
   LogOut,
-  User,
   Users,
-  ShieldCheck,
-  SunMedium,
-  Sparkles
+  Sun,
+  Moon,
+  Sunset
 } from 'lucide-react';
-import { formatGmsString } from '../utils/geoCoordinates';
 import { InspectionData } from '../types/inspection';
 import { getPhotoQueueSummary, subscribePhotoQueue } from '../services/photoSyncQueueService';
 import { ThemeToggle } from './ThemeToggle';
@@ -74,7 +65,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSecurityReview,
   onSyncNow,
   isSyncing = false,
-  onOpenAuthModal,
   onOpenPhotoQueueModal,
   currentUser,
   onLogout,
@@ -111,78 +101,97 @@ export const Header: React.FC<HeaderProps> = ({
     currentUser?.email?.toLowerCase() === 'csb.fiscaliza@sema.mt.gov.br';
   const isVisualizador = userRole === 'visualizador';
 
-  // Saudação dinâmica conforme horário oficial
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return 'bom dia';
-    if (hour >= 12 && hour < 18) return 'boa tarde';
-    return 'boa noite';
-  };
+  // Saudação dinâmica conforme o horário do dia
+  const currentHour = new Date().getHours();
+  let greetingPeriod = 'boa tarde';
+  let GreetingIcon = Sunset;
+
+  if (currentHour >= 5 && currentHour < 12) {
+    greetingPeriod = 'bom dia';
+    GreetingIcon = Sun;
+  } else if (currentHour >= 12 && currentHour < 18) {
+    greetingPeriod = 'boa tarde';
+    GreetingIcon = Sunset;
+  } else {
+    greetingPeriod = 'boa noite';
+    GreetingIcon = Moon;
+  }
 
   const rawName = currentUser?.fullName?.trim() || 
     (currentUser?.email ? currentUser.email.split('@')[0] : 'Fiscal Técnico');
-  const greetingText = `Olá ${rawName}, ${getGreeting()}`;
+  const greetingText = `Olá ${rawName}, ${greetingPeriod}`;
 
   // Contagem de fichas locais pendentes de sincronização
   const pendingCount = allInspections.filter(i => !i.syncStatus || i.syncStatus === 'local' || i.syncStatus === 'error').length;
 
   return (
-    <header className="sticky top-0 z-40 bg-white dark:bg-slate-900 border-b border-slate-200/90 dark:border-slate-800 transition-colors duration-200 shadow-md select-none">
-      {/* Faixa decorativa superior com gradiente oficial do Governo de MT */}
-      <div className="h-1.5 w-full bg-gradient-to-r from-emerald-700 via-emerald-500 to-teal-600 shadow-xs" />
+    <header className="sticky top-0 z-40 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-md transition-colors duration-200 select-none">
+      {/* Barra superior de acento com gradiente verde oficial */}
+      <div className="h-1.5 w-full bg-gradient-to-r from-emerald-800 via-emerald-600 to-teal-600" />
 
       {/* ===================================================================== */}
-      {/* 1. LINHA SUPERIOR: LOGO COM NOME DO SISTEMA ACIMA E SAUDAÇÃO HORÁRIA  */}
+      {/* 1. SEÇÃO SUPERIOR: IDENTIDADE INSTITUCIONAL E SAUDAÇÃO AO USUÁRIO     */}
       {/* ===================================================================== */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
-        {/* Identidade Visual Completa: Logo + Nome do Sistema + Órgão */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        {/* Bloco Institucional: Logo, Nome Fiscaliza, Selo Redondo e Subtítulos */}
         <div 
           onClick={() => setActiveStep(0)} 
-          className="flex items-center gap-3.5 cursor-pointer group"
-          title="Ir para o Painel Inicial"
+          className="flex items-center gap-3.5 sm:gap-4 cursor-pointer group shrink-0"
         >
-          <div className="relative shrink-0">
-            <FiscalizaLogo size="lg" className="shadow-md rounded-2xl group-hover:scale-105 transition-transform duration-200 ring-2 ring-emerald-500/20" />
+          {/* Logo Oficial Quadrado com Cantos Arredondados */}
+          <div className="shrink-0">
+            <FiscalizaLogo 
+              size="lg" 
+              className="rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform duration-200" 
+            />
           </div>
 
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors flex items-center gap-1.5">
-                Fiscaliza MT
-              </h1>
-              <span className="text-[10px] sm:text-xs font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs uppercase tracking-wider">
-                CSB / SEMA-MT
+          {/* Textos da Identidade Institucional */}
+          <div className="flex flex-col justify-center">
+            {/* Linha 1: Fiscaliza em verde + Selo Redondo CSB/SEMA-MT */}
+            <div className="flex items-center gap-2.5">
+              <span className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-700 dark:text-emerald-400 leading-none">
+                Fiscaliza
+              </span>
+              <span className="inline-flex flex-col items-center justify-center px-2.5 py-0.5 rounded-full bg-emerald-700 dark:bg-emerald-600 text-white text-[9px] sm:text-[10px] font-black uppercase tracking-wider leading-tight shadow-xs">
+                <span>CSB /</span>
+                <span>SEMA-MT</span>
               </span>
             </div>
 
-            <p className="text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 leading-tight mt-0.5">
+            {/* Linha 2: Coordenadoria de Segurança de Barragens */}
+            <h2 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug mt-1">
               Coordenadoria de Segurança de Barragens – Usos Múltiplos
-            </p>
+            </h2>
 
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight hidden sm:block">
+            {/* Linha 3: Superintendência e Secretaria de Meio Ambiente */}
+            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 leading-tight">
               Superintendência de Recursos Hídricos (SURH) · Secretaria de Estado de Meio Ambiente de Mato Grosso
-            </span>
+            </p>
           </div>
         </div>
 
-        {/* Lado Direito: Saudação do Usuário, Sincronização, Criptografia e Ações */}
-        <div className="flex items-center flex-wrap gap-2 sm:gap-3 shrink-0">
-          {/* Caixa de Saudação Personalizada de Boas-Vindas */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50/80 dark:from-emerald-950/60 dark:to-slate-800/80 border border-emerald-200/90 dark:border-emerald-800/70 shadow-2xs">
-            <div className="w-7 h-7 rounded-lg bg-emerald-600 dark:bg-emerald-500 text-white flex items-center justify-center font-black text-xs shadow-xs uppercase">
+        {/* Lado Direito Superior: Saudação ao Usuário e Controles de Acesso */}
+        <div className="flex items-center flex-wrap gap-2.5 sm:gap-3 shrink-0">
+          {/* Caixa de Saudação ao Usuário conforme o horário */}
+          <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 shadow-2xs">
+            <div className="w-8 h-8 rounded-lg bg-emerald-700 dark:bg-emerald-600 text-white flex items-center justify-center font-black text-xs shadow-xs uppercase shrink-0">
               {rawName.charAt(0)}
             </div>
             <div className="flex flex-col">
-              <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-emerald-200 leading-none">
-                {greetingText}
-              </span>
-              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold tracking-wide uppercase mt-0.5">
-                {currentUser?.role ? currentUser.role : 'Fiscal Técnico'}
+              <div className="flex items-center gap-1.5">
+                <GreetingIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-emerald-200 leading-none">
+                  {greetingText}
+                </span>
+              </div>
+              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold uppercase tracking-wider mt-0.5">
+                {currentUser?.role ? currentUser.role : (isAdmin ? 'Administrador' : 'Fiscal Técnico')}
               </span>
             </div>
           </div>
 
-          {/* Badge de Sincronização com Banco de Dados / Modo Offline */}
+          {/* Sincronização Local / Nuvem */}
           {pendingCount > 0 ? (
             <button
               type="button"
@@ -193,11 +202,6 @@ export const Header: React.FC<HeaderProps> = ({
                   ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 cursor-default'
                   : 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 hover:shadow-amber-500/20 cursor-pointer'
               }`}
-              title={
-                !isOnline
-                  ? `${pendingCount} vistoria(s) salva(s) localmente no dispositivo (offline). Criptografia ativa.`
-                  : `${pendingCount} vistoria(s) salva(s) apenas localmente. Clique para sincronizar no banco de dados agora.`
-              }
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">
@@ -209,15 +213,14 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           ) : (
             <div 
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60"
-              title="Todas as vistorias sincronizadas com o banco de dados seguro."
+              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60"
             >
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               <span>Sincronizado</span>
             </div>
           )}
 
-          {/* Fila de Fotos (IndexedDB) */}
+          {/* Fila de Fotos */}
           <button
             type="button"
             onClick={onOpenPhotoQueueModal}
@@ -226,7 +229,6 @@ export const Header: React.FC<HeaderProps> = ({
                 ? 'bg-amber-500/10 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-500/20'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
-            title={`${photoQueuePending} foto(s) na fila persistente aguardando upload. Clique para abrir.`}
           >
             <Camera className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span className="hidden sm:inline">Fotos</span>
@@ -244,7 +246,6 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onOpenSecurityReview}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-            title="Dados criptografados de ponta a ponta (AES-GCM 256-bit + Selo SHA-256)"
           >
             <Lock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span className="hidden xl:inline">Criptografia</span>
@@ -256,26 +257,26 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={onOpenChangePassword}
               className="p-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-              title="Alterar Senha de Acesso"
+              title="Alterar Senha"
             >
               <KeyRound className="w-3.5 h-3.5" />
             </button>
           )}
 
-          {/* Sair / Logout */}
+          {/* Logout / Sair */}
           {onLogout && (
             <button
               type="button"
               onClick={onLogout}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-900/60 transition cursor-pointer"
-              title="Encerrar Sessão e Proteger Sistema"
+              title="Encerrar Sessão"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Sair</span>
             </button>
           )}
 
-          {/* Status de Conexão */}
+          {/* Conexão Online/Offline */}
           <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300">
             {isOnline ? (
               <>
@@ -295,11 +296,11 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* ===================================================================== */}
-      {/* 2. LINHA INFERIOR: BOTÕES DE LINKS E NAVEGAÇÃO ABAIXO DA LOGO/NOME   */}
+      {/* 2. SEÇÃO INFERIOR: BOTÕES DE LINKS DE NAVEGAÇÃO ABAIXO                */}
       {/* ===================================================================== */}
-      <div className="border-t border-slate-200/90 dark:border-slate-800/90 bg-slate-50/95 dark:bg-slate-950/90 px-4 sm:px-6 py-2">
+      <div className="border-t border-slate-200 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-950/90 px-4 sm:px-6 py-2">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          {/* Barra de Botões de Links */}
+          {/* Botões de Links */}
           <nav className="flex items-center flex-wrap gap-1.5 sm:gap-2">
             {/* Link 1: Painel */}
             <button
@@ -307,22 +308,20 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => setActiveStep(0)}
               className={`px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer shadow-xs ${
                 isPanelActive
-                  ? 'bg-emerald-600 text-white shadow-emerald-600/30 ring-2 ring-emerald-600/20'
+                  ? 'bg-emerald-700 text-white shadow-emerald-700/30 ring-2 ring-emerald-700/20'
                   : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-slate-700'
               }`}
-              title="Acessar o Painel Inicial"
             >
               <LayoutDashboard className="w-4 h-4" />
               <span>Painel</span>
             </button>
 
-            {/* Link 2: Nova Ficha (Apenas Administrador e Analista) */}
+            {/* Link 2: Nova Ficha */}
             {!isVisualizador && (
               <button
                 type="button"
                 onClick={onNewInspection}
                 className="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-slate-700 hover:border-emerald-500 transition-all flex items-center gap-2 cursor-pointer shadow-xs"
-                title="Iniciar uma nova ficha de vistoria em branco com contagem automática"
               >
                 <PlusCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>Nova Ficha</span>
@@ -335,7 +334,6 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={onSave}
                 className="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-800 border border-emerald-300 dark:border-emerald-800 hover:border-emerald-500 transition-all flex items-center gap-2 cursor-pointer shadow-xs"
-                title="Salvar dados da vistoria e registrar localização precisa"
               >
                 <Save className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>Salvar</span>
@@ -348,10 +346,9 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => setActiveStep(6)}
               className={`px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer shadow-xs ${
                 isDatabaseActive
-                  ? 'bg-emerald-600 text-white shadow-emerald-600/30 ring-2 ring-emerald-600/20'
+                  ? 'bg-emerald-700 text-white shadow-emerald-700/30 ring-2 ring-emerald-700/20'
                   : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-slate-700'
               }`}
-              title="Acessar o Banco de Dados de Vistorias e Barragens"
             >
               <Database className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
               <span>Banco de Dados</span>
@@ -366,17 +363,16 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            {/* Link 5: Módulo Usuários (Visível APENAS para Perfil Administrador) */}
+            {/* Link 5: Usuários (Admin) */}
             {isAdmin && (
               <button
                 type="button"
                 onClick={() => setActiveStep(7)}
                 className={`px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer shadow-xs ${
                   isUsersActive
-                    ? 'bg-purple-600 text-white shadow-purple-600/30 ring-2 ring-purple-600/20'
+                    ? 'bg-purple-700 text-white shadow-purple-700/30 ring-2 ring-purple-700/20'
                     : 'bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-slate-800 border border-purple-200 dark:border-purple-900/60'
                 }`}
-                title="Gestão de Usuários, Solicitações de Acesso e Perfis (Exclusivo Administrador)"
               >
                 <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 <span>Usuários</span>
@@ -395,8 +391,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveStep(1)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-100/80 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 shadow-2xs cursor-pointer"
-                title="Voltar para a Ficha de Inspeção em andamento"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-100/90 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 shadow-2xs cursor-pointer"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 <span>Ficha em Edição</span>
@@ -404,9 +399,9 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </nav>
 
-          {/* Contexto da Vistoria Ativa / Metadados da Ficha */}
+          {/* Contexto da Vistoria Ativa */}
           {isSheetActive && (
-            <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 truncate bg-white/60 dark:bg-slate-900/60 px-3 py-1 rounded-xl border border-slate-200/60 dark:border-slate-800/60">
+            <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 truncate bg-white/70 dark:bg-slate-900/70 px-3 py-1 rounded-xl border border-slate-200/80 dark:border-slate-800/80">
               <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
                 {currentInspection.damIdentification.damName || 'Vistoria em preenchimento'}
               </span>
