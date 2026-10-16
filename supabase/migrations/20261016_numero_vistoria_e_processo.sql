@@ -81,15 +81,15 @@ BEFORE INSERT ON public.vistorias
 FOR EACH ROW
 EXECUTE FUNCTION public.trg_set_numero_vistoria();
 
--- 5. Atualização da View Gerencial de Vistorias para incluir processo_sema
+-- 5. Atualização da View Gerencial de Vistorias
+-- Ordem rigorosa das colunas originais mantida; novas colunas adicionadas ao final
 DROP VIEW IF EXISTS public.vw_resumo_vistorias CASCADE;
+DROP VIEW IF EXISTS vw_resumo_vistorias CASCADE;
 
 CREATE OR REPLACE VIEW public.vw_resumo_vistorias AS
 SELECT 
     v.id AS vistoria_id,
     v.numero_vistoria,
-    v.processo_sema AS processo_numero,
-    v.campanha_ano,
     v.data_vistoria,
     v.status_vistoria,
     v.is_draft,
@@ -106,7 +106,9 @@ SELECT
     COUNT(DISTINCT CASE WHEN c.condicao = 'alerta' THEN c.id END) AS componentes_alerta,
     v.requer_notificacao,
     v.notificacao_prazo_dias,
-    v.updated_at
+    v.updated_at,
+    v.processo_sema AS processo_numero,
+    v.campanha_ano
 FROM public.vistorias v
 JOIN public.barragens b ON b.id = v.barragem_id
 LEFT JOIN public.empreendedores e ON e.id = b.empreendedor_id
@@ -114,7 +116,10 @@ LEFT JOIN public.vistoria_fotos f ON f.vistoria_id = v.id
 LEFT JOIN public.vistoria_componentes_condicao c ON c.vistoria_id = v.id
 GROUP BY v.id, b.id, e.id;
 
--- Garante também a recriação da view de barragens críticas caso CASCADE a tenha afetado
+-- Garante também a view de barragens críticas com processo_numero ao final
+DROP VIEW IF EXISTS public.vw_barragens_criticas CASCADE;
+DROP VIEW IF EXISTS vw_barragens_criticas CASCADE;
+
 CREATE OR REPLACE VIEW public.vw_barragens_criticas AS
 SELECT 
     b.id AS barragem_id,
@@ -122,12 +127,12 @@ SELECT
     b.municipio,
     e.nome_razao_social AS empreendedor,
     v.numero_vistoria,
-    v.processo_sema AS processo_numero,
     v.data_vistoria,
     c.componente_nome,
     c.condicao,
     c.anomalias_selecionadas,
-    c.notas_observacoes
+    c.notas_observacoes,
+    v.processo_sema AS processo_numero
 FROM public.vistoria_componentes_condicao c
 JOIN public.vistorias v ON v.id = c.vistoria_id
 JOIN public.barragens b ON b.id = v.barragem_id
