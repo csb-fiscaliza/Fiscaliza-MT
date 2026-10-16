@@ -102,6 +102,55 @@ export function isInspectionEmpty(inspection?: InspectionData | null): boolean {
   return true;
 }
 
+/**
+ * Calcula o próximo número sequencial de vistoria para o ano vigente.
+ * Formato padrão: 0001/ANO_VIGENTE (ex: 0001/2026).
+ * Busca o maior número já cadastrado em vistorias salvas e continua a contagem (+1).
+ * O campo permanece totalmente editável pelo fiscal caso vistorias tenham sido feitas fora do sistema.
+ */
+export function getNextVistoriaNumber(customYear?: number): string {
+  const currentYear = customYear || new Date().getFullYear();
+  let maxSeq = 0;
+
+  try {
+    const stored: InspectionData[] = getAllInspections();
+    stored.forEach((insp: InspectionData) => {
+      const num = insp.generalInfo?.numeroVistoria || insp.generalInfo?.recordNumber;
+      if (num && typeof num === 'string') {
+        const trimmed = num.trim();
+        // Identifica formatos como "0001/2026", "14/2026", "0025 / 2026"
+        const match = trimmed.match(/^(\d+)\s*\/\s*(\d{4})/);
+        if (match) {
+          const seq = parseInt(match[1], 10);
+          const yr = parseInt(match[2], 10);
+          if (yr === currentYear && !isNaN(seq) && seq > maxSeq) {
+            maxSeq = seq;
+          }
+        } else {
+          // Caso ano da vistoria seja o atual e inicie com número
+          const inspYear = insp.generalInfo?.inspectionDate
+            ? new Date(insp.generalInfo.inspectionDate).getFullYear()
+            : currentYear;
+          if (inspYear === currentYear) {
+            const simpleMatch = trimmed.match(/^(\d+)/);
+            if (simpleMatch) {
+              const seq = parseInt(simpleMatch[1], 10);
+              if (!isNaN(seq) && seq > maxSeq) {
+                maxSeq = seq;
+              }
+            }
+          }
+        }
+      }
+    });
+  } catch (e) {
+    console.warn('Erro ao calcular próximo número de vistoria local:', e);
+  }
+
+  const nextSeq = maxSeq + 1;
+  return `${String(nextSeq).padStart(4, '0')}/${currentYear}`;
+}
+
 export function createEmptyInspection(creatorUser?: { 
   email?: string; 
   fullName?: string; 
@@ -141,6 +190,7 @@ export function createEmptyInspection(creatorUser?: {
     isDraft: true,
     generalInfo: {
       recordNumber: '',
+      numeroVistoria: getNextVistoriaNumber(),
       inspectionDate: dateStr,
       startTime: timeStr,
       endTime: '',
@@ -298,6 +348,7 @@ export function createEmptyInspection(creatorUser?: {
 export function createSampleInspection(): InspectionData {
   const base = createEmptyInspection();
   base.generalInfo.recordNumber = 'PROC-2026/04812-SEMA';
+  base.generalInfo.numeroVistoria = '0001/2026';
   base.generalInfo.inspectors[0].name = 'Fiscal Técnico (Exemplo)';
   base.generalInfo.inspectors[0].registrationNumber = 'MAT-998877';
   base.generalInfo.accompaniedBy.hasAccompaniment = true;

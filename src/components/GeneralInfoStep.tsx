@@ -116,16 +116,29 @@ export const GeneralInfoStep: React.FC<Props> = ({ data, onChange, onNext }) => 
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="sm:col-span-2">
+          <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Processo SEMA / Ordem de Serviço / Nº de Controle
+              Número do Processo SEMA / Ordem de Serviço
             </label>
             <input
               type="text"
-              placeholder="ex: PROC-2026/01234-SEMA ou OS-CSB nº 042"
+              placeholder="ex: PROC-2026/01234-SEMA"
               value={g.recordNumber}
               onChange={e => updateGeneral('recordNumber', e.target.value)}
               className="w-full text-xs sm:text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-slate-50/50"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Número de Vistoria <span className="text-emerald-700 font-medium text-[11px]">(Editável - ex: 0001/2026)</span>
+            </label>
+            <input
+              type="text"
+              placeholder="ex: 0001/2026"
+              value={g.numeroVistoria ?? ''}
+              onChange={e => updateGeneral('numeroVistoria', e.target.value)}
+              className="w-full text-xs sm:text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-slate-50/50 font-medium text-slate-900"
             />
           </div>
 

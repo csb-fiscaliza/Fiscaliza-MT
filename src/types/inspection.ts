@@ -380,7 +380,8 @@ export interface InspectionData {
   isDraft: boolean;
 
   generalInfo: {
-    recordNumber: string;
+    recordNumber: string; // Número do Processo SEMA
+    numeroVistoria?: string; // Número da Vistoria sequencial (ex: 0001/2026 - editável)
     inspectionDate: string;
     startTime: string;
     endTime: string;

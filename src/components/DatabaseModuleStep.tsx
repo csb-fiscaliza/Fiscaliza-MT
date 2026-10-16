@@ -112,6 +112,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
       (d.municipality && d.municipality.toLowerCase().includes(searchLower)) ||
       (d.hydrographicBasin && d.hydrographicBasin.toLowerCase().includes(searchLower)) ||
       (g.recordNumber && g.recordNumber.toLowerCase().includes(searchLower)) ||
+      (g.numeroVistoria && g.numeroVistoria.toLowerCase().includes(searchLower)) ||
       (g.inspectors && g.inspectors.some(i => i.name.toLowerCase().includes(searchLower)));
 
     if (!matchesSearch) return false;

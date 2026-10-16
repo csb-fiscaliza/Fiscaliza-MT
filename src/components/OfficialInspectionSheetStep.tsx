@@ -406,14 +406,27 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Número da Vistoria <span className="text-rose-500">*</span>
+                  Número do Processo <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="ex: 014/2026"
+                  placeholder="ex: PROC-2026/01234-SEMA"
                   value={data.generalInfo.recordNumber}
                   onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, recordNumber: e.target.value } }))}
                   className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Número de Vistoria <span className="text-emerald-700 text-[11px] font-medium">(Editável - ex: 0001/2026)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="ex: 0001/2026"
+                  value={data.generalInfo.numeroVistoria ?? ''}
+                  onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, numeroVistoria: e.target.value } }))}
+                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50 font-medium text-slate-900"
                 />
               </div>
 

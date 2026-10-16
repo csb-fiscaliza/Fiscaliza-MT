@@ -141,7 +141,7 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
 
   return {
     id: data.id,
-    numeroVistoria: data.generalInfo.recordNumber || `VIST-${year}-${data.id.slice(0, 6)}`,
+    numeroVistoria: data.generalInfo.numeroVistoria || data.generalInfo.recordNumber || `0001/${year}`,
     campanhaAno: year,
     campanhaNumero: `CAMP-${year}`,
     processoNumero: data.generalInfo.recordNumber || null,
@@ -991,4 +991,41 @@ export async function getSupabaseSecurityDiagnostics(): Promise<{
     privateStorageEnforced: true,
     warnings
   };
+}
+
+/**
+ * Consulta no Supabase a última numeração de vistoria registrada para o ano vigente.
+ * Retorna o próximo número no formato "0001/ANO" ou null se não houver registros / offline.
+ */
+export async function fetchLatestNumeroVistoriaFromSupabase(customYear?: number): Promise<string | null> {
+  if (!supabase) return null;
+  const year = customYear || new Date().getFullYear();
+
+  try {
+    const { data, error } = await supabase
+      .from('vistorias')
+      .select('numero_vistoria')
+      .or(`campanha_ano.eq.${year},numero_vistoria.ilike.%/${year}`)
+      .limit(100);
+
+    if (error || !data || data.length === 0) return null;
+
+    let maxNum = 0;
+    data.forEach(row => {
+      if (row.numero_vistoria) {
+        const match = row.numero_vistoria.trim().match(/^(\d+)\s*\/\s*(\d{4})/);
+        if (match && parseInt(match[2], 10) === year) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      }
+    });
+
+    if (maxNum > 0) {
+      return `${String(maxNum + 1).padStart(4, '0')}/${year}`;
+    }
+  } catch (e) {
+    console.warn('Erro ao consultar próximo número de vistoria no Supabase:', e);
+  }
+  return null;
 }

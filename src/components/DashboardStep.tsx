@@ -119,7 +119,8 @@ export const DashboardStep: React.FC<Props> = ({
         (dam.damName && dam.damName.toLowerCase().includes(term)) ||
         (dam.propertyOrBusinessName && dam.propertyOrBusinessName.toLowerCase().includes(term)) ||
         (dam.municipality && dam.municipality.toLowerCase().includes(term)) ||
-        (gen.recordNumber && gen.recordNumber.toLowerCase().includes(term))
+        (gen.recordNumber && gen.recordNumber.toLowerCase().includes(term)) ||
+        (gen.numeroVistoria && gen.numeroVistoria.toLowerCase().includes(term))
       );
       if (!match) return false;
     }

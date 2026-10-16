@@ -913,7 +913,7 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
   <!-- TÍTULO DA FICHA -->
   <div class="titulo-documento-box">
     <h2>Ficha Oficial de Vistoria de Segurança de Barragem</h2>
-    <div class="num-ficha">Nº ${g.recordNumber || 'S/N - REGISTRO DE CAMPO'}</div>
+    <div class="num-ficha">${g.numeroVistoria ? `Vistoria Nº ${g.numeroVistoria}` : ''}${g.recordNumber ? ` • Processo: ${g.recordNumber}` : (!g.numeroVistoria ? 'Nº S/N - REGISTRO DE CAMPO' : '')}</div>
   </div>
 
   <!-- ======================================================================= -->
@@ -922,6 +922,12 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
   <div class="secao-bloco">
     <h3 class="secao-titulo">1. DADOS GERAIS DA VISTORIA</h3>
     <table class="tabela-dados">
+      <tr>
+        <td class="label">Nº da Vistoria:</td>
+        <td class="val"><strong>${g.numeroVistoria || 'S/N'}</strong></td>
+        <td class="label">Nº do Processo SEMA:</td>
+        <td class="val"><strong>${g.recordNumber || 'Não informado'}</strong></td>
+      </tr>
       <tr>
         <td class="label">Data da Vistoria:</td>
         <td class="val"><strong>${dataVistoria}</strong></td>

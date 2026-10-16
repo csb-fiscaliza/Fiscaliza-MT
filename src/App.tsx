@@ -25,7 +25,7 @@ import { OfficialFooter } from './components/OfficialFooter';
 import { InspectionProgressBar } from './components/InspectionProgressBar';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { InspectionData } from './types/inspection';
-import { getInspectorSession, signOutInspector } from './services/supabase';
+import { getInspectorSession, signOutInspector, fetchLatestNumeroVistoriaFromSupabase } from './services/supabase';
 import { 
   canUserCreateInspection, 
   canUserEditInspection, 
@@ -436,6 +436,24 @@ function AppContent() {
       // NÃO salva automaticamente no storage quando o preenchimento for zero (0%)
       setCurrentInspection(fresh);
       setActiveStep(1); // Direciona para a Ficha
+
+      // Atualiza a numeração caso haja registro mais recente em nuvem (Supabase)
+      fetchLatestNumeroVistoriaFromSupabase().then(remoteNum => {
+        if (remoteNum) {
+          setCurrentInspection(prev => {
+            if (prev.id === fresh.id && (!prev.generalInfo.numeroVistoria || prev.generalInfo.numeroVistoria === fresh.generalInfo.numeroVistoria)) {
+              return {
+                ...prev,
+                generalInfo: {
+                  ...prev.generalInfo,
+                  numeroVistoria: remoteNum
+                }
+              };
+            }
+            return prev;
+          });
+        }
+      }).catch(() => {});
 
       // Captura precisa de coordenadas do navegador ao iniciar a inspeção
       const loc = await captureBrowserLocation();
