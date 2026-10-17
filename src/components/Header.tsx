@@ -147,10 +147,10 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Textos da Identidade Institucional */}
           <div className="flex flex-col justify-center">
-            {/* Linha 1: Fiscaliza em verde + Selo Redondo CSB/SEMA-MT */}
-            <div className="flex items-center gap-2.5">
-              <span className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-700 dark:text-emerald-400 leading-none">
-                Fiscaliza
+            {/* Linha 1: FISCALIZA - Etapa de Campo + Selo Redondo CSB/SEMA-MT */}
+            <div className="flex items-center flex-wrap gap-2.5">
+              <span className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-emerald-700 dark:text-emerald-400 leading-none">
+                FISCALIZA - Etapa de Campo
               </span>
               <span className="inline-flex flex-col items-center justify-center px-2.5 py-0.5 rounded-full bg-emerald-700 dark:bg-emerald-600 text-white text-[9px] sm:text-[10px] font-black uppercase tracking-wider leading-tight shadow-xs">
                 <span>CSB /</span>
