@@ -188,7 +188,9 @@ export function createEmptyInspection(creatorUser?: {
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     isDraft: true,
+    tipoPlanejamento: 'atual',
     generalInfo: {
+      tipoPlanejamento: 'atual',
       recordNumber: '',
       numeroVistoria: getNextVistoriaNumber(),
       inspectionDate: dateStr,

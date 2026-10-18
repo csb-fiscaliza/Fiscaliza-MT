@@ -378,8 +378,10 @@ export interface InspectionData {
   createdAt: string;
   updatedAt: string;
   isDraft: boolean;
+  tipoPlanejamento?: 'atual' | 'futura'; // 'atual': Vistoria Atual (em andamento) | 'futura': Vistoria Futura (pré-cadastro sem numeração)
 
   generalInfo: {
+    tipoPlanejamento?: 'atual' | 'futura';
     recordNumber: string; // Número do Processo SEMA
     numeroVistoria?: string; // Número da Vistoria sequencial (ex: 0001/2026 - editável)
     inspectionDate: string;
@@ -495,7 +497,8 @@ export interface FotoVistoriaEntity {
 
 export interface VistoriaAggregate {
   id: string;
-  numeroVistoria: string;
+  tipoPlanejamento?: 'atual' | 'futura';
+  numeroVistoria?: string | null;
   campanhaAno: number;
   campanhaNumero: string;
   processoNumero?: string | null;
@@ -503,7 +506,7 @@ export interface VistoriaAggregate {
   horaInicio?: string | null;
   horaTermino?: string | null;
   condicoesClimaticas: WeatherCondition;
-  statusVistoria: 'rascunho_campo' | 'em_revisao' | 'concluida_campo';
+  statusVistoria: 'rascunho_campo' | 'em_revisao' | 'concluida_campo' | 'futura_planejada';
   empreendedor: EmpreendedorEntity;
   barragem: BarragemEntity;
   equipe: FiscalEquipeEntity[];

@@ -30,7 +30,8 @@ import {
   Lock,
   CloudCheck,
   AlertCircle,
-  CloudUpload
+  CloudUpload,
+  CalendarClock
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { InspectionDetailModal } from './InspectionDetailModal';
@@ -71,6 +72,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
   const [filterCondition, setFilterCondition] = useState<'all' | 'critico' | 'alerta' | 'adequado'>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'draft' | 'finalized'>('all');
   const [filterNotification, setFilterNotification] = useState<'all' | 'with_notif' | 'without_notif'>('all');
+  const [filterPlanejamento, setFilterPlanejamento] = useState<'all' | 'atual' | 'futura'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'oldest' | 'name' | 'critical'>('recent');
 
   // Modal de detalhes
@@ -114,6 +116,13 @@ export const DatabaseModuleStep: React.FC<Props> = ({
       (g.inspectors && g.inspectors.some(i => i.name.toLowerCase().includes(searchLower)));
 
     if (!matchesSearch) return false;
+
+    // Filtro de Planejamento (Atual vs Futura)
+    if (filterPlanejamento !== 'all') {
+      const isFutura = item.tipoPlanejamento === 'futura' || item.generalInfo?.tipoPlanejamento === 'futura';
+      if (filterPlanejamento === 'futura' && !isFutura) return false;
+      if (filterPlanejamento === 'atual' && isFutura) return false;
+    }
 
     // Filtro de Condição
     if (filterCondition !== 'all') {
@@ -225,12 +234,40 @@ export const DatabaseModuleStep: React.FC<Props> = ({
         </div>
 
         {/* Resumo Estatístico do Repositório */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4">
-          <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-0.5 transition-colors">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-4">
+          <div 
+            onClick={() => setFilterPlanejamento('all')}
+            className={`p-3 rounded-xl border space-y-0.5 transition-colors cursor-pointer ${
+              filterPlanejamento === 'all'
+                ? 'bg-slate-100 dark:bg-slate-900 border-slate-300'
+                : 'bg-slate-50 dark:bg-slate-950/60 border-slate-100 dark:border-slate-800'
+            }`}
+          >
             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">Total de Vistorias</span>
             <div className="flex items-baseline gap-2">
               <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums">{totalCount}</span>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">cadastradas</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">todas</span>
+            </div>
+          </div>
+
+          <div 
+            onClick={() => setFilterPlanejamento(filterPlanejamento === 'futura' ? 'all' : 'futura')}
+            className={`p-3 rounded-xl border space-y-0.5 transition-colors cursor-pointer ${
+              filterPlanejamento === 'futura'
+                ? 'bg-indigo-100 dark:bg-indigo-950/80 border-indigo-400 ring-2 ring-indigo-500/20'
+                : 'bg-indigo-50/70 dark:bg-slate-950/60 border-indigo-200 dark:border-slate-800 hover:border-indigo-300'
+            }`}
+            title="Clique para filtrar apenas vistorias futuras pré-salvas"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-semibold uppercase tracking-wider block">Vistorias Futuras</span>
+              <CalendarClock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl sm:text-2xl font-black text-indigo-700 dark:text-indigo-400 tabular-nums">
+                {inspections.filter(i => i.tipoPlanejamento === 'futura' || i.generalInfo?.tipoPlanejamento === 'futura').length}
+              </span>
+              <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">pré-salvas</span>
             </div>
           </div>
 
@@ -267,7 +304,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">Notificações SIGA</span>
             <div className="flex items-baseline gap-2">
               <span className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums">{notificationsCount}</span>
-              <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">ativas vinculadas</span>
+              <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">ativas</span>
             </div>
           </div>
         </div>
@@ -321,6 +358,17 @@ export const DatabaseModuleStep: React.FC<Props> = ({
             <span>Filtros:</span>
           </div>
 
+          {/* Tipo de Vistoria: Atual vs Futura */}
+          <select
+            value={filterPlanejamento}
+            onChange={e => setFilterPlanejamento(e.target.value as any)}
+            className="bg-indigo-50/70 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 rounded-lg px-2 py-1 text-xs text-indigo-900 dark:text-indigo-200 font-semibold focus:outline-none"
+          >
+            <option value="all">Todas as Vistorias (Atual e Futura)</option>
+            <option value="atual">Apenas Vistorias Atuais</option>
+            <option value="futura">Apenas Vistorias Futuras (Pré-salvas)</option>
+          </select>
+
           {/* Condição */}
           <select
             value={filterCondition}
@@ -350,12 +398,12 @@ export const DatabaseModuleStep: React.FC<Props> = ({
             onChange={e => setFilterNotification(e.target.value as any)}
             className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-700 dark:text-slate-200 focus:outline-none"
           >
-            <option value="all">Todas as Vistorias</option>
+            <option value="all">Todas as Notificações</option>
             <option value="with_notif">Com Notificação Técnica</option>
             <option value="without_notif">Sem Notificação</option>
           </select>
 
-          {(searchTerm || filterCondition !== 'all' || filterStatus !== 'all' || filterNotification !== 'all') && (
+          {(searchTerm || filterCondition !== 'all' || filterStatus !== 'all' || filterNotification !== 'all' || filterPlanejamento !== 'all') && (
             <button
               type="button"
               onClick={() => {
@@ -363,6 +411,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                 setFilterCondition('all');
                 setFilterStatus('all');
                 setFilterNotification('all');
+                setFilterPlanejamento('all');
               }}
               className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold hover:underline ml-auto cursor-pointer"
             >
@@ -385,6 +434,7 @@ export const DatabaseModuleStep: React.FC<Props> = ({
               const g = insp.generalInfo;
               const c = insp.conclusions;
               const isActive = insp.id === currentInspectionId;
+              const isFutura = insp.tipoPlanejamento === 'futura' || g?.tipoPlanejamento === 'futura';
               const criticalCount = Object.values(insp.componentsData).filter(comp => comp.condition === 'critico').length;
               const alertCount = Object.values(insp.componentsData).filter(comp => comp.condition === 'alerta').length;
               const photosCount = insp.photos.length;
@@ -392,10 +442,12 @@ export const DatabaseModuleStep: React.FC<Props> = ({
               return (
                 <div 
                   key={insp.id}
-                  className={`bg-white dark:bg-slate-900 rounded-2xl border transition-all duration-200 overflow-hidden shadow-2xs hover:shadow-md ${
+                  className={`rounded-2xl border transition-all duration-200 overflow-hidden shadow-2xs hover:shadow-md ${
                     isActive 
-                      ? 'border-emerald-500 ring-2 ring-emerald-500/20' 
-                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                      ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-white dark:bg-slate-900' 
+                      : isFutura
+                      ? 'bg-gradient-to-r from-indigo-50/80 via-purple-50/30 to-white dark:from-indigo-950/40 dark:via-slate-900 dark:to-slate-900 border-indigo-300 dark:border-indigo-800/80 hover:border-indigo-400'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                   }`}
                 >
                   <div className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -405,6 +457,19 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                         <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-tight">
                           {d.damName || d.propertyOrBusinessName || 'Vistoria sem denominação'}
                         </h3>
+
+                        {/* Tag Destacada de Tipo: Atual vs Futura */}
+                        {isFutura ? (
+                          <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 flex items-center gap-1 shadow-2xs" title="Vistoria planejada com dados pré-salvos do local">
+                            <CalendarClock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            <span>Vistoria Futura (Pré-salva)</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                            <span>Vistoria Atual</span>
+                            {g.numeroVistoria && <span className="font-mono font-black text-emerald-900 dark:text-emerald-200">· Nº {g.numeroVistoria}</span>}
+                          </span>
+                        )}
 
                         {/* Status de Sincronização e Criptografia */}
                         {insp.syncStatus === 'synced' ? (
@@ -467,6 +532,24 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                           <span>{photosCount} foto(s)</span>
                         </span>
 
+                        {/* Destaque de Numeração / Processo */}
+                        {isFutura ? (
+                          <span className="flex items-center gap-1 text-indigo-700 dark:text-indigo-400 font-bold bg-indigo-100/70 dark:bg-indigo-900/40 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
+                            <CalendarClock className="w-3 h-3" />
+                            <span>Sem Nº (Pré-salva)</span>
+                          </span>
+                        ) : g.numeroVistoria ? (
+                          <span className="text-emerald-800 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                            Vistoria: {g.numeroVistoria}
+                          </span>
+                        ) : null}
+
+                        {g.recordNumber && (
+                          <span className="text-slate-600 dark:text-slate-400">
+                            Processo: {g.recordNumber}
+                          </span>
+                        )}
+
                         {g.inspectors && g.inspectors[0]?.name && (
                           <span className="text-slate-500 dark:text-slate-400 hidden sm:inline">
                             Fiscal: {g.inspectors[0].name}
@@ -492,6 +575,8 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                             <span>Componentes em condição adequada</span>
                           </span>
                         )}
+                      </div>
+
                       {/* Identificação de Autoria e Equipe */}
                       {insp.createdByEmail && (
                         <div className="pt-0.5">
@@ -547,11 +632,15 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                             <button
                               type="button"
                               onClick={() => onSelectAndEdit(insp.id)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                              title="Carregar para edição na Ficha de Inspeção"
+                              className={`px-3 py-1.5 rounded-xl text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                                isFutura
+                                  ? 'bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500'
+                                  : 'bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500'
+                              }`}
+                              title={isFutura ? "Editar dados pré-salvos ou iniciar esta vistoria" : "Carregar para edição na Ficha de Inspeção"}
                             >
                               <Edit3 className="w-3.5 h-3.5" />
-                              <span>Editar</span>
+                              <span>{isFutura ? 'Editar / Iniciar' : 'Editar'}</span>
                             </button>
                           ) : (
                             <button
@@ -581,7 +670,6 @@ export const DatabaseModuleStep: React.FC<Props> = ({
                     })()}
                     </div>
                   </div>
-                </div>
               );
             })}
           </div>

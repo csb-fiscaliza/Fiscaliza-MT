@@ -9,9 +9,12 @@ import {
   Trash2, 
   ArrowRight,
   Info,
-  Shield
+  Shield,
+  CalendarClock,
+  PlayCircle
 } from 'lucide-react';
 import { InspectionData, WeatherCondition } from '../types/inspection';
+import { getNextVistoriaNumber } from '../services/storage';
 
 interface Props {
   data: InspectionData;
@@ -106,6 +109,124 @@ export const GeneralInfoStep: React.FC<Props> = ({ data, onChange, onNext }) => 
         </div>
       </div>
 
+      {/* Seletor Destacado: Vistoria Atual vs Vistoria Futura */}
+      <div className={`p-4 sm:p-5 rounded-2xl border transition-all duration-200 shadow-sm ${
+        data.tipoPlanejamento === 'futura'
+          ? 'bg-gradient-to-r from-indigo-50/90 via-purple-50/80 to-blue-50/90 border-indigo-300 ring-2 ring-indigo-500/20'
+          : 'bg-gradient-to-r from-emerald-50/90 via-teal-50/80 to-slate-50 border-emerald-300 ring-2 ring-emerald-500/20'
+      }`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 pb-3 border-b border-slate-200/60">
+          <div className="flex items-center gap-2.5">
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-white shadow-xs ${
+              data.tipoPlanejamento === 'futura' ? 'bg-indigo-600' : 'bg-emerald-600'
+            }`}>
+              {data.tipoPlanejamento === 'futura' ? <CalendarClock className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
+            </div>
+            <div>
+              <span className="text-[11px] uppercase tracking-wider font-extrabold text-slate-700 block">
+                Classificação da Ficha de Campo
+              </span>
+              <h2 className="text-sm sm:text-base font-black text-slate-900 leading-tight">
+                {data.tipoPlanejamento === 'futura' 
+                  ? 'Vistoria Futura (Pré-cadastro de Local para Planejamento)' 
+                  : 'Vistoria Atual (Inspeção em Andamento / Realizada)'}
+              </h2>
+            </div>
+          </div>
+          
+          <span className={`text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-wider self-start sm:self-auto border ${
+            data.tipoPlanejamento === 'futura'
+              ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+              : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+          }`}>
+            {data.tipoPlanejamento === 'futura' ? 'Sem Numeração Oficial' : `Oficial: ${g.numeroVistoria || 'A Definir'}`}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (data.tipoPlanejamento === 'atual') return;
+              const nextNum = getNextVistoriaNumber();
+              const today = new Date().toISOString().split('T')[0];
+              onChange(p => ({
+                ...p,
+                tipoPlanejamento: 'atual',
+                isDraft: false,
+                generalInfo: {
+                  ...p.generalInfo,
+                  tipoPlanejamento: 'atual',
+                  inspectionDate: p.generalInfo.inspectionDate || today,
+                  numeroVistoria: p.generalInfo.numeroVistoria || nextNum
+                }
+              }));
+            }}
+            className={`p-3.5 rounded-xl border-2 text-left transition-all cursor-pointer flex items-start gap-3 relative ${
+              data.tipoPlanejamento !== 'futura'
+                ? 'bg-white border-emerald-600 shadow-sm ring-1 ring-emerald-500'
+                : 'bg-white/70 border-slate-200 hover:border-emerald-300 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className={`w-5 h-5 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${
+              data.tipoPlanejamento !== 'futura'
+                ? 'border-emerald-600 bg-emerald-600 text-white'
+                : 'border-slate-300 bg-white'
+            }`}>
+              {data.tipoPlanejamento !== 'futura' && <div className="w-2 h-2 rounded-full bg-white" />}
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-slate-900">
+                <span>Vistoria Atual</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold">Oficial</span>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                Vistoria sendo executada ou já realizada. Atribui <strong>numeração sequencial oficial</strong> e atualiza o status de campo.
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (data.tipoPlanejamento === 'futura') return;
+              onChange(p => ({
+                ...p,
+                tipoPlanejamento: 'futura',
+                isDraft: true,
+                generalInfo: {
+                  ...p.generalInfo,
+                  tipoPlanejamento: 'futura',
+                  numeroVistoria: ''
+                }
+              }));
+            }}
+            className={`p-3.5 rounded-xl border-2 text-left transition-all cursor-pointer flex items-start gap-3 relative ${
+              data.tipoPlanejamento === 'futura'
+                ? 'bg-white border-indigo-600 shadow-sm ring-1 ring-indigo-500'
+                : 'bg-white/70 border-slate-200 hover:border-indigo-300 opacity-80 hover:opacity-100'
+            }`}
+          >
+            <div className={`w-5 h-5 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${
+              data.tipoPlanejamento === 'futura'
+                ? 'border-indigo-600 bg-indigo-600 text-white'
+                : 'border-slate-300 bg-white'
+            }`}>
+              {data.tipoPlanejamento === 'futura' && <div className="w-2 h-2 rounded-full bg-white" />}
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-slate-900">
+                <span>Vistoria Futura</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800 font-semibold">Pré-salva</span>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                Pré-salva dados do local e da barragem para planejar a ida a campo. <strong>Não consome número</strong> até ser iniciada.
+              </p>
+            </div>
+          </button>
+        </div>
+      </div>
+
       {/* Card 1: Dados do Registro e Horário */}
       <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 p-5 space-y-4 transition-colors">
         <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -131,15 +252,29 @@ export const GeneralInfoStep: React.FC<Props> = ({ data, onChange, onNext }) => 
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Número de Vistoria <span className="text-emerald-700 font-medium text-[11px]">(Editável - ex: 0001/2026)</span>
+              Número de Vistoria{' '}
+              {data.tipoPlanejamento === 'futura' ? (
+                <span className="text-indigo-600 text-[11px] font-medium">(Sem numeração - Vistoria Futura)</span>
+              ) : (
+                <span className="text-emerald-700 font-medium text-[11px]">(Editável - ex: 0001/2026)</span>
+              )}
             </label>
-            <input
-              type="text"
-              placeholder="ex: 0001/2026"
-              value={g.numeroVistoria ?? ''}
-              onChange={e => updateGeneral('numeroVistoria', e.target.value)}
-              className="w-full text-xs sm:text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-slate-50/50 font-medium text-slate-900"
-            />
+            {data.tipoPlanejamento === 'futura' ? (
+              <div className="w-full text-xs sm:text-sm min-h-[42px] px-3 py-2 border border-indigo-200 rounded-lg bg-indigo-50/60 text-indigo-700 font-medium flex items-center justify-between">
+                <span>(Sem numeração)</span>
+                <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-bold">
+                  Gerada ao iniciar
+                </span>
+              </div>
+            ) : (
+              <input
+                type="text"
+                placeholder="ex: 0001/2026"
+                value={g.numeroVistoria ?? ''}
+                onChange={e => updateGeneral('numeroVistoria', e.target.value)}
+                className="w-full text-xs sm:text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-slate-50/50 font-medium text-slate-900"
+              />
+            )}
           </div>
 
           <div>

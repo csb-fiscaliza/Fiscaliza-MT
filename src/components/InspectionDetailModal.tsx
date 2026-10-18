@@ -66,12 +66,21 @@ export const InspectionDetailModal: React.FC<Props> = ({
                 <h2 className="text-sm sm:text-base font-bold text-white leading-tight">
                   {d.damName || d.propertyOrBusinessName || 'Vistoria sem título'}
                 </h2>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700/50">
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                  inspection.tipoPlanejamento === 'futura' || g.tipoPlanejamento === 'futura'
+                    ? 'bg-indigo-950 text-indigo-300 border-indigo-700/50'
+                    : 'bg-emerald-950 text-emerald-300 border-emerald-700/50'
+                }`}>
+                  {inspection.tipoPlanejamento === 'futura' || g.tipoPlanejamento === 'futura' 
+                    ? 'Vistoria Futura (Pré-salva)' 
+                    : (g.numeroVistoria ? `Vistoria Nº ${g.numeroVistoria}` : 'Vistoria Atual')}
+                </span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
                   {inspection.isDraft ? 'Rascunho' : 'Finalizada'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">
-                {d.municipality || 'Mato Grosso'} • Data: {g.inspectionDate ? new Date(g.inspectionDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Não informada'}
+                {d.municipality || 'Mato Grosso'} • Data: {g.inspectionDate ? new Date(g.inspectionDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Não informada'}{g.recordNumber ? ` • Processo: ${g.recordNumber}` : ''}
               </p>
             </div>
           </div>

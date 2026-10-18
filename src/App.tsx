@@ -443,7 +443,12 @@ function AppContent() {
       fetchLatestNumeroVistoriaFromSupabase().then(remoteNum => {
         if (remoteNum) {
           setCurrentInspection(prev => {
-            if (prev.id === fresh.id && (!prev.generalInfo.numeroVistoria || prev.generalInfo.numeroVistoria === fresh.generalInfo.numeroVistoria)) {
+            if (
+              prev.id === fresh.id && 
+              prev.tipoPlanejamento !== 'futura' && 
+              prev.generalInfo.tipoPlanejamento !== 'futura' &&
+              (!prev.generalInfo.numeroVistoria || prev.generalInfo.numeroVistoria === fresh.generalInfo.numeroVistoria)
+            ) {
               return {
                 ...prev,
                 generalInfo: {

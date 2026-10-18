@@ -503,6 +503,16 @@ export const DashboardStep: React.FC<Props> = ({
                         {dam.damName || dam.propertyOrBusinessName || 'Barragem sem denominação cadastrada'}
                       </span>
 
+                      {insp.tipoPlanejamento === 'futura' || gen?.tipoPlanejamento === 'futura' ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border border-indigo-500/30">
+                          Vistoria Futura (Pré-salva)
+                        </span>
+                      ) : gen?.numeroVistoria ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          Nº {gen.numeroVistoria}
+                        </span>
+                      ) : null}
+
                       {isCurrent && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
                           Vistoria Ativa

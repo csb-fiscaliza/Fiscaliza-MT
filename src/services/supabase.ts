@@ -139,9 +139,12 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     });
   }
 
+  const isFutura = (data.tipoPlanejamento === 'futura' || data.generalInfo?.tipoPlanejamento === 'futura');
+
   return {
     id: data.id,
-    numeroVistoria: data.generalInfo.numeroVistoria || data.generalInfo.recordNumber || `0001/${year}`,
+    tipoPlanejamento: isFutura ? 'futura' : 'atual',
+    numeroVistoria: isFutura ? null : (data.generalInfo.numeroVistoria || data.generalInfo.recordNumber || `0001/${year}`),
     campanhaAno: year,
     campanhaNumero: `CAMP-${year}`,
     processoNumero: data.generalInfo.recordNumber || null,
@@ -149,7 +152,7 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     horaInicio: data.generalInfo.startTime || null,
     horaTermino: data.generalInfo.endTime || null,
     condicoesClimaticas: data.generalInfo.weather || 'seco',
-    statusVistoria: data.isDraft ? 'rascunho_campo' : 'concluida_campo',
+    statusVistoria: isFutura ? 'futura_planejada' : (data.isDraft ? 'rascunho_campo' : 'concluida_campo'),
     empreendedor,
     barragem,
     equipe: (data.generalInfo.inspectors || []).map((insp: any, idx: number) => ({
@@ -813,7 +816,8 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
     const { error: visError } = await supabase.from('vistorias').upsert({
       id: vistoria.id,
       barragem_id: vistoria.barragem.id,
-      numero_vistoria: vistoria.numeroVistoria,
+      tipo_planejamento: (vistoria as any).tipoPlanejamento || 'atual',
+      numero_vistoria: vistoria.numeroVistoria || null,
       campanha_ano: vistoria.campanhaAno,
       campanha_numero: vistoria.campanhaNumero,
       processo_sema: toNullableString(vistoria.processoNumero),
