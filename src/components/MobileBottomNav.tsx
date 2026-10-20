@@ -127,14 +127,19 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] print:hidden select-none">
       {/* Barra de utilitários rápidos com toque no topo da barra inferior */}
       <div className="px-3 py-1 bg-slate-100/90 dark:bg-slate-950/90 border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px]">
-        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-mono truncate">
+        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-mono truncate min-w-0 pr-2">
+          {currentInspection.damIdentification?.damName ? (
+            <span className="font-sans font-bold text-slate-800 dark:text-slate-200 truncate max-w-[100px] xs:max-w-[140px] text-xs">
+              {currentInspection.damIdentification.damName}
+            </span>
+          ) : null}
           {lastSavedAt ? (
-            <>
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span className="truncate">Salvo às {lastSavedAt}</span>
-            </>
+            <span className="flex items-center gap-1 text-[10px] truncate text-emerald-700 dark:text-emerald-400">
+              <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="truncate">{lastSavedAt}</span>
+            </span>
           ) : (
-            <span className="truncate">Auto-salvamento ativo</span>
+            <span className="truncate text-[10px]">Auto-salvamento ativo</span>
           )}
         </div>
 

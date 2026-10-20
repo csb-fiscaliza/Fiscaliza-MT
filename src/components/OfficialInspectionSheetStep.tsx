@@ -29,7 +29,9 @@ import {
   CloudCheck,
   AlertCircle,
   CalendarClock,
-  PlayCircle
+  PlayCircle,
+  Sparkles,
+  Check
 } from 'lucide-react';
 import { exportInspectionSheetPdf } from '../utils/exportInspectionSheetPdf';
 import { BASINS_MT, MUNICIPALITIES_MT } from '../data/damComponents';
@@ -247,8 +249,174 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     );
   };
 
+  // Listas de itens avaliados por componente oficial para apoio a preenchimento rápido em campo
+  const MONTANTE_ITEMS = [
+    { code: 'erosoes', label: 'Erosões' },
+    { code: 'escorregamento', label: 'Escorregamento' },
+    { code: 'afundamento', label: 'Afundamento e/ou Buracos' },
+    { code: 'arvores_arbustos', label: 'Árvores e Arbustos' },
+    { code: 'drenos_canaletas', label: 'Drenos / Canaletas' },
+    { code: 'biologicos', label: 'Formigueiros / Cupinzeiros / Tocas de Animais' },
+    { code: 'sinais_movimentacao', label: 'Sinais de Movimentação' }
+  ];
+
+  const COROAMENTO_ITEMS = [
+    { code: 'erosoes', label: 'Erosões' },
+    { code: 'rachaduras', label: 'Rachaduras / Trincas' },
+    { code: 'revestimento', label: 'Revestimento da Pista' },
+    { code: 'afundamento', label: 'Afundamento e/ou Buracos' },
+    { code: 'arvores_arbustos', label: 'Árvores e Arbustos' },
+    { code: 'drenos_canaletas', label: 'Drenos / Canaletas' },
+    { code: 'meio_fio', label: 'Possui Meio-Fio' },
+    { code: 'ameaca_transbordamento', label: 'Ameaça de Transbordamento (Borda Livre < 0,5m)' }
+  ];
+
+  const JUSANTE_ITEMS = [
+    { code: 'erosoes', label: 'Erosões' },
+    { code: 'escorregamento', label: 'Escorregamento' },
+    { code: 'afundamento', label: 'Afundamento e/ou Buracos' },
+    { code: 'arvores_arbustos', label: 'Árvores e Arbustos' },
+    { code: 'drenos_canaletas', label: 'Drenos / Canaletas' },
+    { code: 'biologicos', label: 'Formigueiros / Cupinzeiros / Tocas de Animais' },
+    { code: 'sinais_movimentacao', label: 'Sinais de Movimentação' },
+    { code: 'fuga_agua', label: "Sinais de Fuga D'Água ou Áreas Úmidas" },
+    { code: 'carregamento_material', label: 'Carregamento de Material na Água dos Drenos (Piping)' }
+  ];
+
+  const REGIAO_JUSANTE_ITEMS = [
+    { code: 'construcoes_leito', label: 'Construções Próximas ao Leito do Rio' },
+    { code: 'fuga_agua', label: "Fuga D'Água / Percolação Anormal" },
+    { code: 'erosao_cavernas', label: 'Erosão / Cavernas / Buracos' },
+    { code: 'arvores_faixa_10m', label: 'Árvores e Arbustos na Faixa de 10 m – Pé da Barragem' }
+  ];
+
+  const RESERVATORIO_ITEMS = [
+    { code: 'erosoes_entorno', label: 'Erosões Próximas do Entorno' },
+    { code: 'assoreamento', label: 'Assoreamento' },
+    { code: 'desmoronamento_margens', label: 'Desmoronamento das Margens' },
+    { code: 'vegetacao_aquatica', label: 'Vegetação Aquática Excessiva' },
+    { code: 'gado_pastando', label: 'Gado Pastando no Entorno' }
+  ];
+
+  // Feedback rápido flutuante para o fiscal em campo
+  const [fieldQuickToast, setFieldQuickToast] = useState<string | null>(null);
+  const showFieldToast = (msg: string) => {
+    setFieldQuickToast(msg);
+    setTimeout(() => setFieldQuickToast(null), 3500);
+  };
+
+  // Helper de Preenchimento Rápido em Campo no Celular e Tablet:
+  // Marca pendentes como 'Não' (Sem anomalias) apenas para os itens que ainda estão 'sem_informacao',
+  // preservando quaisquer anomalias 'sim' ou justificativas já registradas pelo usuário.
+  const handleBulkMarkComponentPendingAsNo = (
+    componentCode: string,
+    componentName: string,
+    itemsList: { code: string; label: string }[]
+  ) => {
+    let count = 0;
+    onChange(prev => {
+      const detailed = { ...(prev.itensAvaliadosDetalhados || {}) };
+      itemsList.forEach(it => {
+        const key = `${componentCode}_${it.code}`;
+        const existing = detailed[key];
+        if (!existing || !existing.resposta || existing.resposta === 'sem_informacao') {
+          detailed[key] = {
+            id: existing?.id || `item-${componentCode}-${it.code}`,
+            vistoriaId: prev.id,
+            componenteCodigo: componentCode,
+            itemCodigo: it.code,
+            itemRotuloOriginal: it.label,
+            resposta: 'nao',
+            localizacaoDetalhe: '',
+            estadoConservacao: null,
+            observacaoComplementar: ''
+          };
+          count++;
+        }
+      });
+      return {
+        ...prev,
+        itensAvaliadosDetalhados: detailed
+      };
+    });
+
+    if (count > 0) {
+      showFieldToast(`${count} item(ns) pendente(s) em "${componentName}" marcado(s) como "Não (Normal)"`);
+    } else {
+      showFieldToast(`Todos os itens de "${componentName}" já foram avaliados.`);
+    }
+  };
+
+  // Helper para obter estatísticas de preenchimento do componente em tempo real
+  const getComponentEvaluationStats = (
+    componentCode: string,
+    itemsList: { code: string }[]
+  ) => {
+    const total = itemsList.length;
+    let evaluated = 0;
+    let withAnomalies = 0;
+    itemsList.forEach(it => {
+      const key = `${componentCode}_${it.code}`;
+      const item = data.itensAvaliadosDetalhados?.[key];
+      if (item && item.resposta && item.resposta !== 'sem_informacao') {
+        evaluated++;
+        if (item.resposta === 'sim') withAnomalies++;
+      }
+    });
+    return {
+      total,
+      evaluated,
+      withAnomalies,
+      isComplete: evaluated === total,
+      pending: total - evaluated
+    };
+  };
+
+  // Componente de Sugestões Rápidas de Campo para Textareas
+  const FieldCommentChips = ({
+    suggestions,
+    currentValue,
+    onAppend
+  }: {
+    suggestions: string[];
+    currentValue: string;
+    onAppend: (newText: string) => void;
+  }) => (
+    <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+        <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+        <span>Sugestões de Campo:</span>
+      </span>
+      {suggestions.map(s => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => {
+            const sep = currentValue.trim() ? '; ' : '';
+            if (!currentValue.includes(s)) {
+              onAppend(currentValue.trim() + sep + s);
+            }
+          }}
+          className="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 font-medium transition cursor-pointer select-none active:scale-95"
+        >
+          + {s}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className="space-y-4 pb-20 sm:pb-12">
+      {/* Toast Flutuante de Ação Rápida em Campo (Mobile e Tablet) */}
+      {fieldQuickToast && (
+        <div className="fixed top-16 sm:top-20 right-3 sm:right-6 z-50 max-w-sm bg-emerald-950/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-emerald-400/80 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3 duration-200 backdrop-blur-md">
+          <div className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+            <Check className="w-3.5 h-3.5" />
+          </div>
+          <span className="text-xs font-bold leading-tight text-emerald-100">{fieldQuickToast}</span>
+        </div>
+      )}
+
       {/* Banner de Identificação da Ficha Aprovada */}
       <div className="bg-slate-900 text-white rounded-xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -1130,6 +1298,42 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
 
         {openSections.sec5 && (
           <div className="p-4 sm:p-5 space-y-4">
+            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
+            {(() => {
+              const stats = getComponentEvaluationStats('montante', MONTANTE_ITEMS);
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
+                      stats.isComplete
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                    }`}>
+                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
+                      <span>{stats.evaluated}/{stats.total} avaliados</span>
+                    </span>
+                    {stats.withAnomalies > 0 && (
+                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                        {stats.withAnomalies} anomalia(s)
+                      </span>
+                    )}
+                  </div>
+
+                  {stats.pending > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleBulkMarkComponentPendingAsNo('montante', 'Talude de Montante', MONTANTE_ITEMS)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                      title="Preenche todos os itens não respondidos do Talude de Montante como 'Não' (Sem anomalias)"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="montante"
@@ -1229,6 +1433,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 onValueChange={val => updateSectionComment('talude_montante', val)}
                 placeholder="Observações complementares deste talude..."
               />
+              <FieldCommentChips
+                suggestions={['Sem anomalias visíveis', 'Talude estável sem trincas', 'Vegetação roçada e conservada', 'Drenos desobstruídos']}
+                currentValue={sectionComments.talude_montante || ''}
+                onAppend={val => updateSectionComment('talude_montante', val)}
+              />
             </div>
 
             {/* Campo para fotos inseridas no componente Talude de Montante */}
@@ -1261,6 +1470,42 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
 
         {openSections.sec6 && (
           <div className="p-4 sm:p-5 space-y-4">
+            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
+            {(() => {
+              const stats = getComponentEvaluationStats('coroamento', COROAMENTO_ITEMS);
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
+                      stats.isComplete
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                    }`}>
+                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
+                      <span>{stats.evaluated}/{stats.total} avaliados</span>
+                    </span>
+                    {stats.withAnomalies > 0 && (
+                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                        {stats.withAnomalies} anomalia(s)
+                      </span>
+                    )}
+                  </div>
+
+                  {stats.pending > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleBulkMarkComponentPendingAsNo('coroamento', 'Coroamento (Crista)', COROAMENTO_ITEMS)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                      title="Preenche todos os itens não respondidos do Coroamento como 'Não' (Sem anomalias)"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="coroamento"
@@ -1386,6 +1631,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 onValueChange={val => updateSectionComment('crista', val)}
                 placeholder="Observações complementares do coroamento..."
               />
+              <FieldCommentChips
+                suggestions={['Pista regular sem afundamento', 'Borda livre adequada (>1,0m)', 'Sem trincas transversais', 'Meio-fio e drenagem íntegros']}
+                currentValue={sectionComments.crista || ''}
+                onAppend={val => updateSectionComment('crista', val)}
+              />
             </div>
 
             {/* Campo para fotos inseridas no componente Crista (Coroamento) */}
@@ -1418,6 +1668,42 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
 
         {openSections.sec7 && (
           <div className="p-4 sm:p-5 space-y-4">
+            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
+            {(() => {
+              const stats = getComponentEvaluationStats('jusante', JUSANTE_ITEMS);
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
+                      stats.isComplete
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                    }`}>
+                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
+                      <span>{stats.evaluated}/{stats.total} avaliados</span>
+                    </span>
+                    {stats.withAnomalies > 0 && (
+                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                        {stats.withAnomalies} anomalia(s)
+                      </span>
+                    )}
+                  </div>
+
+                  {stats.pending > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleBulkMarkComponentPendingAsNo('jusante', 'Talude de Jusante', JUSANTE_ITEMS)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                      title="Preenche todos os itens não respondidos do Talude de Jusante como 'Não' (Sem anomalias)"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="jusante"
@@ -1523,6 +1809,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 onValueChange={val => updateSectionComment('talude_jusante', val)}
                 placeholder="Observações complementares de surgências, minadouros..."
               />
+              <FieldCommentChips
+                suggestions={['Sem surgências ou umidade', 'Água dos drenos límpida', 'Encosta com boa cobertura vegetal', 'Sem sinais de piping']}
+                currentValue={sectionComments.talude_jusante || ''}
+                onAppend={val => updateSectionComment('talude_jusante', val)}
+              />
             </div>
 
             {/* Campo para fotos inseridas no componente Talude de Jusante */}
@@ -1555,6 +1846,42 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
 
         {openSections.sec8 && (
           <div className="p-4 sm:p-5 space-y-4">
+            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
+            {(() => {
+              const stats = getComponentEvaluationStats('regiao_jusante', REGIAO_JUSANTE_ITEMS);
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
+                      stats.isComplete
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                    }`}>
+                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
+                      <span>{stats.evaluated}/{stats.total} avaliados</span>
+                    </span>
+                    {stats.withAnomalies > 0 && (
+                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                        {stats.withAnomalies} anomalia(s)
+                      </span>
+                    )}
+                  </div>
+
+                  {stats.pending > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleBulkMarkComponentPendingAsNo('regiao_jusante', 'Região a Jusante', REGIAO_JUSANTE_ITEMS)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                      title="Preenche todos os itens não respondidos da Região a Jusante como 'Não' (Sem anomalias)"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="regiao_jusante"
@@ -1608,6 +1935,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 value={sectionComments.area_jusante || ''}
                 onValueChange={val => updateSectionComment('area_jusante', val)}
                 placeholder="Presença de pontes, casas, estradas vicinais..."
+              />
+              <FieldCommentChips
+                suggestions={['Sem construções vulneráveis no vale', 'Leito desimpedido sem barramentos', 'Faixa de 10m preservada']}
+                currentValue={sectionComments.area_jusante || ''}
+                onAppend={val => updateSectionComment('area_jusante', val)}
               />
             </div>
 
@@ -1705,6 +2037,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 onValueChange={val => updateSectionComment('vertedouro', val)}
                 placeholder="ex: Vertedouro lateral escavado em rocha/solo na ombreira direita, largura de soleira 6,0m, canal de restituição com 40m de extensão. Desobstruído e funcional..."
               />
+              <FieldCommentChips
+                suggestions={['Vertedouro desobstruído e funcional', 'Estrutura de concreto íntegra', 'Canal de dissipação operante', 'Soleira livre sem entulhos']}
+                currentValue={sectionComments.vertedouro || ''}
+                onAppend={val => updateSectionComment('vertedouro', val)}
+              />
             </div>
 
             {/* Campo para fotos inseridas no componente Estruturas Vertedoras */}
@@ -1737,6 +2074,42 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
 
         {openSections.sec11 && (
           <div className="p-4 sm:p-5 space-y-4">
+            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
+            {(() => {
+              const stats = getComponentEvaluationStats('reservatorio', RESERVATORIO_ITEMS);
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
+                      stats.isComplete
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                    }`}>
+                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
+                      <span>{stats.evaluated}/{stats.total} avaliados</span>
+                    </span>
+                    {stats.withAnomalies > 0 && (
+                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                        {stats.withAnomalies} anomalia(s)
+                      </span>
+                    )}
+                  </div>
+
+                  {stats.pending > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleBulkMarkComponentPendingAsNo('reservatorio', 'Reservatório', RESERVATORIO_ITEMS)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                      title="Preenche todos os itens não respondidos do Reservatório como 'Não' (Sem anomalias)"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <EvaluationItemCard
                 componentCode="reservatorio"
@@ -1800,6 +2173,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 onValueChange={val => updateSectionComment('reservatorio', val)}
                 placeholder="Qualidade da água, espelho d'água, encostas marginais..."
               />
+              <FieldCommentChips
+                suggestions={['Nível normal de operação', 'Margens estáveis sem erosão', 'Sem proliferação excessiva de macrófitas', 'Espelho d’água límpido']}
+                currentValue={sectionComments.reservatorio || ''}
+                onAppend={val => updateSectionComment('reservatorio', val)}
+              />
             </div>
 
             {/* Campo para fotos inseridas no componente Reservatório */}
@@ -1843,6 +2221,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 value={sectionComments.outros_problemas || ''}
                 onValueChange={val => updateSectionComment('outros_problemas', val)}
                 placeholder="Anomalias ou questões não abordadas nos itens anteriores..."
+              />
+              <FieldCommentChips
+                suggestions={['Propriedade com acesso livre e liberado', 'Acompanhado pelo responsável legal', 'Apresentou documentação no ato da vistoria', 'Sem outras anomalias observadas']}
+                currentValue={sectionComments.outros_problemas || ''}
+                onAppend={val => updateSectionComment('outros_problemas', val)}
               />
             </div>
 
@@ -1912,47 +2295,47 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         photosCount={data.photos?.length || 0}
       />
 
-      {/* Mobile-Friendly Sticky Bottom Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 px-4 py-3 flex items-center justify-between shadow-lg sm:static sm:bg-transparent sm:border-0 sm:shadow-none sm:px-0 sm:pt-4">
+      {/* Barra de Ações e Navegação Inferior (In-flow e Otimizada para Celular e Tablet) */}
+      <div className="mt-8 pt-4 pb-28 lg:pb-8 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={onPrev}
-          className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs sm:text-sm font-semibold transition cursor-pointer"
+          className="min-h-[46px] flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs sm:text-sm font-bold transition cursor-pointer active:scale-95 shadow-xs"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Voltar</span>
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => exportInspectionSheetPdf(data)}
-            className="min-h-[44px] flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg border border-emerald-600 bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900 font-bold text-xs sm:text-sm transition cursor-pointer shadow-xs"
+            className="min-h-[46px] flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl border border-emerald-600 bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900 font-bold text-xs sm:text-sm transition cursor-pointer shadow-xs active:scale-95"
             title="Exportar ficha de vistoria oficial preenchida em formato PDF estilizado SEMA-MT com selo e fotos"
           >
             <FileDown className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
             <span className="hidden sm:inline">Exportar PDF</span>
-            <span className="sm:hidden">PDF</span>
+            <span className="sm:hidden font-extrabold">PDF</span>
           </button>
 
           {onSave && (
             <button
               type="button"
               onClick={onSave}
-              className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-800 text-xs sm:text-sm font-semibold transition cursor-pointer shadow-2xs"
+              className="min-h-[46px] flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-800 text-xs sm:text-sm font-bold transition cursor-pointer shadow-xs active:scale-95"
               title="Salvar dados da vistoria e registrar localização"
             >
               <Save className="w-4 h-4" />
-              <span>Salvar Vistoria</span>
+              <span>Salvar</span>
             </button>
           )}
 
           <button
             type="button"
             onClick={onNext}
-            className="min-h-[44px] flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs sm:text-sm shadow-xs transition cursor-pointer"
+            className="min-h-[46px] flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs sm:text-sm shadow-md transition cursor-pointer"
           >
-            <span>Avançar para Fotos de Campo</span>
+            <span>Fotos de Campo</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

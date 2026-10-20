@@ -185,8 +185,20 @@ export const EvaluationItemCard: React.FC<Props> = ({
     }
   ];
 
+  // Borda e fundo com alto contraste para visibilidade sob luz solar no campo
+  const cardStatusBorder = 
+    currentResponse === 'sim' 
+      ? 'border-rose-300 dark:border-rose-800 bg-rose-50/30 dark:bg-rose-950/20 shadow-xs ring-1 ring-rose-400/40'
+      : currentResponse === 'nao'
+      ? 'border-emerald-300 dark:border-emerald-800/80 bg-emerald-50/20 dark:bg-emerald-950/20 shadow-xs'
+      : currentResponse === 'impossivel_observar'
+      ? 'border-amber-300 dark:border-amber-800/80 bg-amber-50/20 dark:bg-amber-950/20'
+      : currentResponse === 'sem_informacao'
+      ? 'border-dashed border-amber-300/80 dark:border-amber-700/60 bg-white dark:bg-slate-900'
+      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900';
+
   return (
-    <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3 transition-colors">
+    <div className={`p-3.5 sm:p-4 rounded-xl border ${cardStatusBorder} space-y-3 transition-all duration-150`}>
       {/* Input oculto de galeria para seleção rápida de arquivo com posterior legenda/timestamp */}
       <input
         ref={galleryInputRef}
@@ -202,15 +214,51 @@ export const EvaluationItemCard: React.FC<Props> = ({
         }}
       />
 
-      {/* Cabeçalho do Item: Título + Ícone de Registro Fotográfico */}
+      {/* Cabeçalho do Item: Título + Badge de Status + Ícone de Registro Fotográfico */}
       <div className="flex items-start justify-between gap-2">
-        <div className="space-y-0.5 min-w-0">
-          <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug block">
-            {itemLabel}
-          </span>
-          {currentResponse === 'sem_informacao' && (
-            <span className="text-[10px] text-slate-400 dark:text-slate-500 italic block">Pendente de avaliação</span>
-          )}
+        <div className="space-y-1 min-w-0 flex-1">
+          <div className="flex items-center flex-wrap gap-1.5">
+            <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 leading-snug">
+              {itemLabel}
+            </span>
+            {/* Badge visual de status rápido para escaneamento no celular/tablet */}
+            {currentResponse === 'sim' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200 text-[10px] font-black uppercase tracking-wider shadow-2xs">
+                <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                <span>Anomalia</span>
+              </span>
+            )}
+            {currentResponse === 'nao' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-[10px] font-bold shadow-2xs">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                <span>Sem anomalia</span>
+              </span>
+            )}
+            {currentResponse === 'sem_informacao' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 text-[10px] font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping shrink-0" />
+                <span>Pendente</span>
+              </span>
+            )}
+            {currentResponse === 'nao_observado' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px]">
+                <EyeOff className="w-3 h-3 text-slate-500 shrink-0" />
+                <span>Não observado</span>
+              </span>
+            )}
+            {currentResponse === 'impossivel_observar' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 text-[10px] font-bold">
+                <Ban className="w-3 h-3 text-amber-600 shrink-0" />
+                <span>Impossível</span>
+              </span>
+            )}
+            {currentResponse === 'nao_se_aplica' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 text-[10px]">
+                <HelpCircle className="w-3 h-3 text-slate-400 shrink-0" />
+                <span>N/A</span>
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Botão/Ícone para Registro Fotográfico Direto do Item */}
@@ -220,7 +268,7 @@ export const EvaluationItemCard: React.FC<Props> = ({
             type="button"
             onClick={() => handleOpenPhotoCapture()}
             disabled={isProcessingPhoto}
-            className={`min-h-[34px] px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer select-none shadow-xs active:scale-95 ${
+            className={`min-h-[38px] px-3 py-1 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer select-none shadow-xs active:scale-95 ${
               existingItemPhotos.length > 0
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100'
                 : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-400'
@@ -230,9 +278,9 @@ export const EvaluationItemCard: React.FC<Props> = ({
             {isProcessingPhoto ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
             ) : (
-              <Camera className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <Camera className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             )}
-            <span className="text-[11px] font-bold">Foto</span>
+            <span className="text-xs font-bold">Foto</span>
             {existingItemPhotos.length > 0 && (
               <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-emerald-600 text-white">
                 {existingItemPhotos.length}
@@ -245,10 +293,10 @@ export const EvaluationItemCard: React.FC<Props> = ({
             type="button"
             onClick={() => galleryInputRef.current?.click()}
             disabled={isProcessingPhoto}
-            className="min-h-[34px] p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 hover:text-emerald-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer"
+            className="min-h-[38px] min-w-[38px] p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer flex items-center justify-center active:scale-95"
             title="Selecionar foto da galeria e inserir legenda/timestamp"
           >
-            <ImageIcon className="w-3.5 h-3.5" />
+            <ImageIcon className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -281,26 +329,85 @@ export const EvaluationItemCard: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Botões de resposta com toque amplo para Mobile/Tablet */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2">
-        {options.map(opt => {
-          const isSelected = currentResponse === opt.id;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => setResponse(opt.id)}
-              className={`min-h-[44px] py-2 px-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 text-center transition cursor-pointer select-none active:scale-98 ${
-                isSelected
-                  ? opt.activeClass
-                  : 'bg-slate-50/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-slate-200'
-              }`}
-            >
-              {opt.icon}
-              <span className="truncate">{opt.label}</span>
-            </button>
-          );
-        })}
+      {/* Botões de resposta ergonomicamente otimizados para Mobile e Tablet */}
+      {/* No Mobile: Linha 1 tem SIM e NÃO grandes (ação rápida de polegar); Linha 2 tem as 3 opções secundárias */}
+      {/* No Tablet/Desktop (sm:): Unifica na grade de 5 colunas */}
+      <div className="space-y-1.5 sm:space-y-0 sm:grid sm:grid-cols-5 sm:gap-2">
+        {/* Linha 1 no celular: Sim vs Não (90% dos toques em campo) */}
+        <div className="grid grid-cols-2 gap-2 sm:contents">
+          {/* SIM */}
+          <button
+            type="button"
+            onClick={() => setResponse('sim')}
+            className={`min-h-[46px] py-2.5 px-3 rounded-xl border text-xs sm:text-xs font-bold flex items-center justify-center gap-2 text-center transition cursor-pointer select-none active:scale-95 ${
+              currentResponse === 'sim'
+                ? 'bg-rose-600 text-white border-rose-700 shadow-md ring-2 ring-rose-400'
+                : 'bg-white dark:bg-slate-900 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/50'
+            }`}
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="font-extrabold tracking-wide">Sim (Anomalia)</span>
+          </button>
+
+          {/* NÃO */}
+          <button
+            type="button"
+            onClick={() => setResponse('nao')}
+            className={`min-h-[46px] py-2.5 px-3 rounded-xl border text-xs sm:text-xs font-bold flex items-center justify-center gap-2 text-center transition cursor-pointer select-none active:scale-95 ${
+              currentResponse === 'nao'
+                ? 'bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-400'
+                : 'bg-white dark:bg-slate-900 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/50'
+            }`}
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span className="font-extrabold tracking-wide">Não (Normal)</span>
+          </button>
+        </div>
+
+        {/* Linha 2 no celular: 3 opções secundárias distribuídas em 3 colunas perfeitas */}
+        <div className="grid grid-cols-3 gap-1.5 sm:contents">
+          {/* Não observado */}
+          <button
+            type="button"
+            onClick={() => setResponse('nao_observado')}
+            className={`min-h-[42px] sm:min-h-[46px] py-2 px-1.5 rounded-xl border text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 text-center transition cursor-pointer select-none active:scale-95 ${
+              currentResponse === 'nao_observado'
+                ? 'bg-slate-700 text-white border-slate-800 shadow-sm ring-2 ring-slate-400'
+                : 'bg-slate-50/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            <EyeOff className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Não observado</span>
+          </button>
+
+          {/* Impossível observar */}
+          <button
+            type="button"
+            onClick={() => setResponse('impossivel_observar')}
+            className={`min-h-[42px] sm:min-h-[46px] py-2 px-1.5 rounded-xl border text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 text-center transition cursor-pointer select-none active:scale-95 ${
+              currentResponse === 'impossivel_observar'
+                ? 'bg-amber-600 text-white border-amber-700 shadow-sm ring-2 ring-amber-400'
+                : 'bg-slate-50/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            <Ban className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Impossível</span>
+          </button>
+
+          {/* Não se aplica */}
+          <button
+            type="button"
+            onClick={() => setResponse('nao_se_aplica')}
+            className={`min-h-[42px] sm:min-h-[46px] py-2 px-1.5 rounded-xl border text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 text-center transition cursor-pointer select-none active:scale-95 ${
+              currentResponse === 'nao_se_aplica'
+                ? 'bg-slate-500 text-white border-slate-600 shadow-sm ring-2 ring-slate-400'
+                : 'bg-slate-50/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            <HelpCircle className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Não se aplica</span>
+          </button>
+        </div>
       </div>
 
       {/* Conditional: Se "Sim" em qualquer anomalia -> Campos obrigatórios "Nível de Perigo" e "Magnitude" */}

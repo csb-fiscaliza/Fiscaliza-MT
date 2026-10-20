@@ -34,6 +34,18 @@ export const ComponentsInspectionStep: React.FC<Props> = ({
 }) => {
   const [selectedComponentId, setSelectedComponentId] = useState<string>(DAM_COMPONENTS[0].id);
 
+  const currentCompIndex = DAM_COMPONENTS.findIndex(c => c.id === selectedComponentId);
+  const handlePrevComp = () => {
+    if (currentCompIndex > 0) {
+      setSelectedComponentId(DAM_COMPONENTS[currentCompIndex - 1].id);
+    }
+  };
+  const handleNextComp = () => {
+    if (currentCompIndex < DAM_COMPONENTS.length - 1) {
+      setSelectedComponentId(DAM_COMPONENTS[currentCompIndex + 1].id);
+    }
+  };
+
   const activeComponentDef = DAM_COMPONENTS.find(c => c.id === selectedComponentId) || DAM_COMPONENTS[0];
   const activeComponentData = data.componentsData[activeComponentDef.id] || {
     componentId: activeComponentDef.id,
@@ -120,14 +132,46 @@ export const ComponentsInspectionStep: React.FC<Props> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Component Selector Sidebar (Left 4 cols) */}
-        <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden transition-colors">
-          <div className="p-3 bg-slate-50 dark:bg-slate-950 font-bold text-xs text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center justify-between">
+        {/* Component Selector Sidebar: Abas horizontais no Mobile/Tablet e Barra lateral no Desktop */}
+        <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden transition-colors">
+          <div className="p-3 bg-slate-50 dark:bg-slate-950 font-bold text-xs text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
             <span>Componentes ({DAM_COMPONENTS.length})</span>
             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">Toque para selecionar</span>
           </div>
 
-          <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[600px] overflow-y-auto">
+          {/* Versão Mobile/Tablet: Abas com rolagem horizontal e toque ágil */}
+          <div className="lg:hidden flex overflow-x-auto gap-2 p-2.5 bg-slate-100/60 dark:bg-slate-950/50">
+            {DAM_COMPONENTS.map((comp, idx) => {
+              const compData = data.componentsData[comp.id];
+              const cond = compData?.condition || 'nao_inspecionado';
+              const isSelected = comp.id === selectedComponentId;
+              return (
+                <button
+                  key={comp.id}
+                  type="button"
+                  onClick={() => setSelectedComponentId(comp.id)}
+                  className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-2 shrink-0 transition active:scale-95 cursor-pointer border ${
+                    isSelected
+                      ? 'bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-400/40'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-[10px] flex items-center justify-center font-bold">
+                    {idx + 1}
+                  </span>
+                  <span>{comp.name}</span>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                    isSelected ? 'bg-white/25 text-white' : getConditionBadgeClass(cond)
+                  }`}>
+                    {getConditionLabel(cond)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Versão Desktop: Lista vertical */}
+          <div className="hidden lg:block divide-y divide-slate-100 dark:divide-slate-800 max-h-[600px] overflow-y-auto">
             {DAM_COMPONENTS.map(comp => {
               const compData = data.componentsData[comp.id];
               const cond = compData?.condition || 'nao_inspecionado';
@@ -167,21 +211,57 @@ export const ComponentsInspectionStep: React.FC<Props> = ({
         </div>
 
         {/* Component Inspection Editor (Right 8 cols) */}
-        <div className="lg:col-span-8 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-5 transition-colors">
-          {/* Active Component Title & Description */}
+        <div className="lg:col-span-8 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs p-4 sm:p-5 space-y-5 transition-colors">
+          {/* Active Component Title, Pager & Description */}
           <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-                {activeComponentDef.name}
-              </h3>
-              <button
-                type="button"
-                onClick={() => onGoToPhotosForComponent(activeComponentDef.id)}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900 border border-sky-200 dark:border-sky-800 transition cursor-pointer"
-              >
-                <Camera className="w-3.5 h-3.5" />
-                <span>Fotos deste Componente ({photosForThisComponent.length})</span>
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                  {currentCompIndex + 1}
+                </span>
+                <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100">
+                  {activeComponentDef.name}
+                </h3>
+              </div>
+
+              {/* Pager para celular/tablet: Avançar/Voltar componente com polegar */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handlePrevComp}
+                  disabled={currentCompIndex === 0}
+                  className="min-h-[36px] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 text-xs font-semibold flex items-center gap-1 transition active:scale-95"
+                  title="Componente anterior"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Anterior</span>
+                </button>
+
+                <span className="text-[11px] font-bold text-slate-500 font-mono px-1">
+                  {currentCompIndex + 1}/{DAM_COMPONENTS.length}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={handleNextComp}
+                  disabled={currentCompIndex === DAM_COMPONENTS.length - 1}
+                  className="min-h-[36px] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 text-xs font-semibold flex items-center gap-1 transition active:scale-95"
+                  title="Próximo componente"
+                >
+                  <span className="hidden sm:inline">Próximo</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onGoToPhotosForComponent(activeComponentDef.id)}
+                  className="min-h-[36px] flex items-center gap-1.5 text-xs font-semibold px-2.5 sm:px-3 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900 border border-sky-200 dark:border-sky-800 transition cursor-pointer ml-1"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Fotos ({photosForThisComponent.length})</span>
+                  <span className="sm:hidden">({photosForThisComponent.length})</span>
+                </button>
+              </div>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
               {activeComponentDef.description}

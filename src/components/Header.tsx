@@ -131,40 +131,40 @@ export const Header: React.FC<HeaderProps> = ({
       {/* ===================================================================== */}
       {/* 1. SEÇÃO SUPERIOR: IDENTIDADE INSTITUCIONAL E SAUDAÇÃO AO USUÁRIO     */}
       {/* ===================================================================== */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2 sm:gap-4">
         {/* Bloco Institucional: Logo, Nome Fiscaliza, Selo Redondo e Subtítulos */}
         <div 
           onClick={() => setActiveStep(0)} 
-          className="flex items-center gap-3.5 sm:gap-4 cursor-pointer group shrink-0"
+          className="flex items-center gap-2.5 sm:gap-4 cursor-pointer group shrink-0"
         >
           {/* Logo Oficial Quadrado com Cantos Arredondados */}
           <div className="shrink-0">
             <FiscalizaLogo 
-              size="lg" 
-              className="rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform duration-200" 
+              size="md" 
+              className="rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform duration-200" 
             />
           </div>
 
           {/* Textos da Identidade Institucional */}
           <div className="flex flex-col justify-center">
             {/* Linha 1: FISCALIZA - Etapa de Campo + Selo Redondo CSB/SEMA-MT */}
-            <div className="flex items-center flex-wrap gap-2.5">
-              <span className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-emerald-700 dark:text-emerald-400 leading-none">
+            <div className="flex items-center flex-wrap gap-2">
+              <span className="text-base sm:text-2xl md:text-3xl font-black tracking-tight text-emerald-700 dark:text-emerald-400 leading-none">
                 FISCALIZA - Etapa de Campo
               </span>
-              <span className="inline-flex flex-col items-center justify-center px-2.5 py-0.5 rounded-full bg-emerald-700 dark:bg-emerald-600 text-white text-[9px] sm:text-[10px] font-black uppercase tracking-wider leading-tight shadow-xs">
+              <span className="inline-flex flex-col items-center justify-center px-2 py-0.5 rounded-full bg-emerald-700 dark:bg-emerald-600 text-white text-[8px] sm:text-[10px] font-black uppercase tracking-wider leading-tight shadow-xs">
                 <span>CSB /</span>
                 <span>SEMA-MT</span>
               </span>
             </div>
 
             {/* Linha 2: Coordenadoria de Segurança de Barragens */}
-            <h2 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug mt-1">
+            <h2 className="text-[11px] sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug mt-0.5 sm:mt-1">
               Coordenadoria de Segurança de Barragens – Usos Múltiplos
             </h2>
 
-            {/* Linha 3: Superintendência e Secretaria de Meio Ambiente */}
-            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 leading-tight">
+            {/* Linha 3: Superintendência e Secretaria de Meio Ambiente (visível em tablet e desktop) */}
+            <p className="hidden sm:block text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 leading-tight">
               Superintendência de Recursos Hídricos (SURH) · Secretaria de Estado de Meio Ambiente de Mato Grosso
             </p>
           </div>
@@ -295,9 +295,9 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* ===================================================================== */}
-      {/* 2. SEÇÃO INFERIOR: BOTÕES DE LINKS DE NAVEGAÇÃO ABAIXO                */}
+      {/* 2. SEÇÃO INFERIOR: BOTÕES DE LINKS DE NAVEGAÇÃO ABAIXO (Desktop) */}
       {/* ===================================================================== */}
-      <div className="border-t border-slate-200 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-950/90 px-4 sm:px-6 py-2">
+      <div className="hidden lg:block border-t border-slate-200 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-950/90 px-4 sm:px-6 py-2">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           {/* Botões de Links */}
           <nav className="flex items-center flex-wrap gap-1.5 sm:gap-2">
