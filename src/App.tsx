@@ -54,7 +54,9 @@ import {
   syncSingleInspection,
   loadAllInspectionsWithFallback,
   getStorageQuotaEstimate,
-  isInspectionEmpty
+  isInspectionEmpty,
+  isSampleInspection,
+  purgeAllMockData
 } from './services/storage';
 import { formatGmsString } from './utils/geoCoordinates';
 import { 
@@ -295,27 +297,32 @@ function AppContent() {
     }
   };
 
-  // Inicializa dados com sincronização resiliente LocalStorage + IndexedDB
+  // Inicializa dados com sincronização resiliente LocalStorage + IndexedDB e purga de dados fictícios
   useEffect(() => {
-    loadAllInspectionsWithFallback().then(list => {
-      setInspections(list);
+    purgeAllMockData().then(() => {
+      return loadAllInspectionsWithFallback();
+    }).then(list => {
+      const cleanList = list.filter(insp => !isSampleInspection(insp) && !isInspectionEmpty(insp));
+      setInspections(cleanList);
 
       // Assegura que todas as fotos estejam cadastradas na fila persistente do IndexedDB
-      list.forEach(insp => {
+      cleanList.forEach(insp => {
         enqueuePhotosFromInspection(insp).catch(() => {});
       });
 
       const activeId = getActiveInspectionId();
       if (activeId) {
-        const found = list.find(i => i.id === activeId);
-        if (found) {
+        const found = cleanList.find(i => i.id === activeId);
+        if (found && !isSampleInspection(found)) {
           setCurrentInspection(found);
           return;
+        } else {
+          setActiveInspectionId('');
         }
       }
 
-      if (list.length > 0) {
-        setCurrentInspection(list[0]);
+      if (cleanList.length > 0) {
+        setCurrentInspection(cleanList[0]);
       } else {
         const fresh = createEmptyInspection({
           email: session?.email,
@@ -326,11 +333,24 @@ function AppContent() {
         setInspections([]);
       }
     }).catch(() => {
-      const list = getAllInspections();
+      const list = getAllInspections().filter(insp => !isSampleInspection(insp) && !isInspectionEmpty(insp));
       setInspections(list);
       if (list.length > 0) setCurrentInspection(list[0]);
     });
   }, []);
+
+  // Guarda de segurança ativa: se currentInspection contiver qualquer dado fictício, expurga e reseta imediatamente
+  useEffect(() => {
+    if (currentInspection && isSampleInspection(currentInspection)) {
+      deleteInspection(currentInspection.id);
+      const fresh = createEmptyInspection({
+        email: session?.email,
+        fullName: session?.fullName,
+        id: (session as any)?.id
+      });
+      setCurrentInspection(fresh);
+    }
+  }, [currentInspection]);
 
   // Proteção contra fechamento acidental da aba durante preenchimento em campo no tablet/celular
   useEffect(() => {

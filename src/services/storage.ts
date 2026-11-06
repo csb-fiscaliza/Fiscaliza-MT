@@ -357,15 +357,86 @@ const VAULT_SALT_KEY = 'fiscaliza_csb_vault_key_2026';
 
 export function isSampleInspection(item?: InspectionData | null): boolean {
   if (!item) return false;
+  try {
+    const strItem = JSON.stringify(item);
+    if (
+      strItem.includes('Fazenda Alvorada') ||
+      strItem.includes('(Exemplo)') ||
+      strItem.includes('fazendaalvorada') ||
+      strItem.includes('00.000.000/0001-99') ||
+      strItem.includes('Córrego das Araras') ||
+      strItem.includes('PROC-2026/04812-SEMA') ||
+      strItem.includes('Rodovia MT-060') ||
+      strItem.includes('contato@fazendaalvorada') ||
+      strItem.includes('99999-0000') && strItem.includes('Alvorada')
+    ) {
+      return true;
+    }
+  } catch {}
+
   const d = item.damIdentification;
   const g = item.generalInfo;
+  const notif = item.conclusions?.notificationDetails;
+  const drafts = item.drafts;
   return (
-    d?.damName === 'Barramento Fazenda Alvorada' ||
-    d?.propertyOrBusinessName === 'Fazenda Alvorada do Pantanal' ||
+    d?.damName?.includes('Fazenda Alvorada') === true ||
+    d?.propertyOrBusinessName?.includes('Fazenda Alvorada') === true ||
+    notif?.destinatario?.nomeRazaoSocial?.includes('Fazenda Alvorada') === true ||
+    notif?.destinatario?.email?.includes('fazendaalvorada') === true ||
     g?.recordNumber === 'PROC-2026/04812-SEMA' ||
     (Array.isArray(g?.inspectors) && g.inspectors.some(insp => insp.name?.includes('(Exemplo)'))) ||
-    g?.accompaniedBy?.name?.includes('(Exemplo)') === true
+    g?.accompaniedBy?.name?.includes('(Exemplo)') === true ||
+    drafts?.technicalReport?.includes('Fazenda Alvorada') === true ||
+    drafts?.technicalReport?.includes('(Exemplo)') === true
   );
+}
+
+export async function purgeAllMockData(): Promise<void> {
+  try {
+    // 1. Limpa localStorage de qualquer resquício de dados de exemplo
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      if (
+        raw.includes('Fazenda Alvorada') ||
+        raw.includes('(Exemplo)') ||
+        raw.includes('fazendaalvorada') ||
+        raw.includes('00.000.000/0001-99') ||
+        raw.includes('Córrego das Araras')
+      ) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const clean = parsed.filter(item => !isSampleInspection(item));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+            localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(JSON.stringify(clean)));
+          } else {
+            localStorage.removeItem(STORAGE_KEY);
+          }
+        } catch {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+    }
+
+    // 2. Limpa activeId se apontar para registro de exemplo
+    const activeId = localStorage.getItem(CURRENT_ACTIVE_KEY);
+    if (activeId) {
+      const all = getAllInspections();
+      if (!all.some(i => i.id === activeId) || all.find(i => i.id === activeId && isSampleInspection(i))) {
+        localStorage.removeItem(CURRENT_ACTIVE_KEY);
+      }
+    }
+
+    // 3. Limpa IndexedDB
+    const idbList = await getAllInspectionsFromIndexedDb();
+    for (const item of idbList) {
+      if (isSampleInspection(item)) {
+        await deleteInspectionFromIndexedDb(item.id);
+      }
+    }
+  } catch (err) {
+    console.warn('[Storage] Erro ao expurgar dados fictícios:', err);
+  }
 }
 
 export function getAllInspections(): InspectionData[] {
@@ -518,16 +589,26 @@ export function saveInspection(inspection: InspectionData): void {
 export async function loadAllInspectionsWithFallback(): Promise<InspectionData[]> {
   const localList = getAllInspections();
   try {
-    const idbList = await getAllInspectionsFromIndexedDb();
+    const rawIdbList = await getAllInspectionsFromIndexedDb();
+    
+    // Purga ativamente quaisquer registros fictícios remanescentes no IndexedDB
+    for (const item of rawIdbList) {
+      if (isSampleInspection(item) || isInspectionEmpty(item)) {
+        await deleteInspectionFromIndexedDb(item.id);
+      }
+    }
+
+    const idbList = rawIdbList.filter(item => !isInspectionEmpty(item) && !isSampleInspection(item));
+
     if (idbList.length === 0 && localList.length > 0) {
-      // Migra dados do localStorage para o IndexedDB
+      // Migra dados limpos do localStorage para o IndexedDB
       for (const item of localList) {
         await saveInspectionToIndexedDb(item);
       }
       return localList;
     }
     if (idbList.length > 0 && localList.length === 0) {
-      // Recupera dados do IndexedDB para o localStorage
+      // Recupera dados limpos do IndexedDB para o localStorage
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(idbList));
         localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(JSON.stringify(idbList)));

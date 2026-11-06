@@ -53,12 +53,32 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
 
   // Inicializa o texto no editor
   useEffect(() => {
-    if (data.drafts.technicalReport && data.drafts.technicalReport.trim() !== '') {
-      setEditorText(data.drafts.technicalReport);
+    const draftText = data.drafts.technicalReport;
+    if (draftText && draftText.trim() !== '') {
+      if (
+        draftText.includes('Fazenda Alvorada') ||
+        draftText.includes('(Exemplo)') ||
+        draftText.includes('fazendaalvorada') ||
+        draftText.includes('00.000.000/0001-99') ||
+        draftText.includes('Córrego das Araras')
+      ) {
+        // Expurga minuta fictícia gravada e recarrega texto limpo
+        const fresh = generateRelatorioInspecaoData(data);
+        setEditorText(fresh.textoCompletoFormatado);
+        onChange(prev => ({
+          ...prev,
+          drafts: {
+            ...prev.drafts,
+            technicalReport: ''
+          }
+        }));
+      } else {
+        setEditorText(draftText);
+      }
     } else {
       setEditorText(report.textoCompletoFormatado);
     }
-  }, [data.id]);
+  }, [data.id, data.drafts.technicalReport]);
 
   const handleRestoreBase = () => {
     if (confirm('Deseja recarregar o texto-base do Relatório de Inspeção a partir dos dados atuais do formulário? Edições manuais não salvas no editor serão descartadas.')) {

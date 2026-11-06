@@ -139,12 +139,16 @@ export function generateRelatorioInspecaoData(data: InspectionData): RelatorioIn
   // 2. Equipe Técnica
   const equipeTecnica = g.inspectors && g.inspectors.length > 0
     ? g.inspectors
-        .filter(i => i.name && i.name.trim() !== '')
+        .filter(i => i.name && i.name.trim() !== '' && !i.name.includes('(Exemplo)'))
         .map(i => ({
           nome: i.name.trim(),
           cargo: i.role?.trim() || 'ANALISTA DE MEIO AMBIENTE'
         }))
-    : [{ nome: 'Servidor Fiscal Responsável', cargo: 'ANALISTA DE MEIO AMBIENTE' }];
+    : [];
+
+  if (equipeTecnica.length === 0) {
+    equipeTecnica.push({ nome: 'Servidor Fiscal Responsável', cargo: 'ANALISTA DE MEIO AMBIENTE' });
+  }
 
   const equipeTecnicaStr = equipeTecnica.map(e => e.nome).join('; ') + '.';
 
@@ -437,26 +441,26 @@ Assim, o empreendedor deverá realizar o monitoramento contínuo da estabilizaç
     nomeRazaoSocial: notif.destinatario?.nomeRazaoSocial?.trim() 
       || d.propertyOrBusinessName?.trim() 
       || g.accompaniedBy?.name?.trim() 
-      || 'Empreendedor Responsável',
+      || 'Não informado',
     cpfCnpj: notif.destinatario?.cpfCnpj?.trim() || g.accompaniedBy?.document?.trim() || 'Não informado',
     enderecoCorrespondencia: notif.destinatario?.enderecoCorrespondencia?.trim() 
       || (d.municipality ? `Município de ${d.municipality}/MT` : 'Não informado'),
     numero: notif.destinatario?.numero || 'S/N',
     complemento: notif.destinatario?.complemento || '-',
     bairro: notif.destinatario?.bairro || '-',
-    municipio: d.municipality || notif.destinatario?.municipio || 'Mato Grosso',
+    municipio: d.municipality || notif.destinatario?.municipio || 'Não informado',
     uf: 'MT',
     cep: notif.destinatario?.cep || '',
     telefone: notif.destinatario?.telefone || g.accompaniedBy?.phone || 'Não informado',
-    nomeFantasia: d.damName || d.propertyOrBusinessName || 'Barramento Vistoriado',
-    atividade: 'Barragem de acumulação de água para usos múltiplos',
+    nomeFantasia: d.damName || d.propertyOrBusinessName || 'Não informado',
+    atividade: d.mainWaterUse || 'Barragem de acumulação de água para usos múltiplos',
     coordenadasDatum: 'SIRGAS 2000',
     latitudeDecimal: latGms || d.coordinates.latitude || 'Não informada',
     longitudeDecimal: lonGms || d.coordinates.longitude || 'Não informada',
-    enderecoEmpreendimento: notif.localOcorrencia?.enderecoEmpreendimento || (d.waterCourse ? `Curso Hídrico: ${d.waterCourse}` : 'Área rural'),
+    enderecoEmpreendimento: notif.localOcorrencia?.enderecoEmpreendimento || (d.waterCourse ? `Curso Hídrico: ${d.waterCourse}` : (d.municipality ? `Zona rural de ${d.municipality}/MT` : 'Não informado')),
     areaEmpreendimento: notif.localOcorrencia?.areaEmpreendimento || (dim.reservoirAreaHectares ? `${dim.reservoirAreaHectares} ha` : 'Não informada'),
-    numeroProcesso: notif.processoNumero || g.recordNumber || 'Processo SEMA',
-    interessados: notif.destinatario?.nomeRazaoSocial || d.propertyOrBusinessName || 'Empreendedor',
+    numeroProcesso: notif.processoNumero || g.recordNumber || 'Não informado',
+    interessados: notif.destinatario?.nomeRazaoSocial || d.propertyOrBusinessName || 'Não informado',
     objetivoTexto: `A partir da Lei Federal nº 12.334/2010, foi estabelecida a Política Nacional de Segurança de Barragens destinadas à acumulação de água para quaisquer usos, à disposição final ou temporária de rejeitos e à acumulação de resíduos industriais, que enquadra e regula, barragens que apresentem pelo menos uma das características definidas no art. 1º da Lei ou que apresentem alguma característica de CRI alto, conforme classificação do órgão fiscalizatório.
 Foi realizada uma vistoria técnica, dia ${dataVistoriaFormatada}, ${formatClima(g.weather)}, no barramento localizado no município de ${d.municipality || 'Mato Grosso'}/MT.`,
     autosLavrados: [
