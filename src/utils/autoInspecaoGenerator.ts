@@ -358,7 +358,7 @@ ${seal.blocoAssinaturaFormatado}`;
       bairro: 'Zona Rural',
       uf: 'MT',
       municipio: d.municipality || 'Mato Grosso',
-      cep: '78000-000',
+      cep: '',
       telefone: g.accompaniedBy.phone || 'Não informado'
     },
     localOcorrencia: {
@@ -373,7 +373,7 @@ ${seal.blocoAssinaturaFormatado}`;
       areaEmpreendimento: m.reservoirAreaHectares ? `${m.reservoirAreaHectares} ha` : 'Não informada',
       uf: 'MT',
       municipio: d.municipality || 'Mato Grosso',
-      cep: '78000-000',
+      cep: '',
       telefone: g.accompaniedBy.phone || 'Não informado',
       numeroProcesso: g.recordNumber || 'Não informado'
     },

@@ -39,7 +39,8 @@ import {
   InspectionData, 
   ItemAvaliadoEntity, 
   EvaluationResponseType, 
-  DamType 
+  DamType,
+  InspectionPhoto 
 } from '../types/inspection';
 import { getNextVistoriaNumber } from '../services/storage';
 import { EvaluationItemCard } from './EvaluationItemCard';
@@ -49,8 +50,8 @@ import { GeneralPhotoAttachmentSection } from './GeneralPhotoAttachmentSection';
 import { FiscalizaLogo } from './FiscalizaLogo';
 import { FloatingSheetNavMenu } from './FloatingSheetNavMenu';
 import { formatGmsString } from '../utils/geoCoordinates';
-import { InspectionPhoto } from '../types/inspection';
 import { SpeechTextarea } from './SpeechTextarea';
+import { FutureObservationChecklist } from './FutureObservationChecklist';
 
 interface Props {
   data: InspectionData;
@@ -652,6 +653,22 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             </div>
           </button>
         </div>
+
+        {/* ========================================================================= */}
+        {/* BLOCO: ITENS A SEREM OBSERVADOS (FUTURA: LISTA / ATUAL: CHECKLIST)        */}
+        {/* ========================================================================= */}
+        {(data.tipoPlanejamento === 'futura' || (data.itensObservacaoFutura && data.itensObservacaoFutura.length > 0)) && (
+          <div className="mt-4 pt-3 border-t border-slate-200/80">
+            <FutureObservationChecklist
+              tipoPlanejamento={data.tipoPlanejamento}
+              items={data.itensObservacaoFutura || []}
+              onChange={newItems => onChange(p => ({
+                ...p,
+                itensObservacaoFutura: newItems
+              }))}
+            />
+          </div>
+        )}
       </div>
 
       {/* ========================================================================= */}
@@ -930,7 +947,21 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 </label>
                 <input
                   type="email"
-                  placeholder="contato@fazenda.com.br"
+                  placeholder="e-mail do empreendedor"
+                  value={data.conclusions.notificationDetails.destinatario.email || ''}
+                  onChange={e => onChange(p => ({
+                    ...p,
+                    conclusions: {
+                      ...p.conclusions,
+                      notificationDetails: {
+                        ...p.conclusions.notificationDetails,
+                        destinatario: {
+                          ...p.conclusions.notificationDetails.destinatario,
+                          email: e.target.value
+                        }
+                      }
+                    }
+                  }))}
                   className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
                 />
               </div>

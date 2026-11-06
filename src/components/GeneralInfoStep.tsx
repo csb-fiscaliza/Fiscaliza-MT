@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { InspectionData, WeatherCondition } from '../types/inspection';
 import { getNextVistoriaNumber } from '../services/storage';
+import { FutureObservationChecklist } from './FutureObservationChecklist';
 
 interface Props {
   data: InspectionData;
@@ -225,6 +226,20 @@ export const GeneralInfoStep: React.FC<Props> = ({ data, onChange, onNext }) => 
             </div>
           </button>
         </div>
+
+        {/* Bloco Dinâmico: Itens a Serem Observados (Atenção Especial na Ida / Checklist em Campo) */}
+        {(data.tipoPlanejamento === 'futura' || (data.itensObservacaoFutura && data.itensObservacaoFutura.length > 0)) && (
+          <div className="mt-4 pt-3 border-t border-slate-200/80">
+            <FutureObservationChecklist
+              tipoPlanejamento={data.tipoPlanejamento}
+              items={data.itensObservacaoFutura || []}
+              onChange={newItems => onChange(p => ({
+                ...p,
+                itensObservacaoFutura: newItems
+              }))}
+            />
+          </div>
+        )}
       </div>
 
       {/* Card 1: Dados do Registro e Horário */}

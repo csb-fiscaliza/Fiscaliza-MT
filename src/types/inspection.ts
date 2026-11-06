@@ -368,6 +368,14 @@ export interface NotificationDetailsState {
   demandedActions?: string;
 }
 
+export interface ItemObservacaoFutura {
+  id: string;
+  texto: string;
+  concluido: boolean;
+  criadoEm?: string;
+  concluidoEm?: string;
+}
+
 export interface InspectionData {
   id: string;
   barragemId?: string;
@@ -379,6 +387,7 @@ export interface InspectionData {
   updatedAt: string;
   isDraft: boolean;
   tipoPlanejamento?: 'atual' | 'futura'; // 'atual': Vistoria Atual (em andamento) | 'futura': Vistoria Futura (pré-cadastro sem numeração)
+  itensObservacaoFutura?: ItemObservacaoFutura[]; // Itens a serem observados / checklist de atenção especial em campo
 
   generalInfo: {
     tipoPlanejamento?: 'atual' | 'futura';
@@ -498,6 +507,7 @@ export interface FotoVistoriaEntity {
 export interface VistoriaAggregate {
   id: string;
   tipoPlanejamento?: 'atual' | 'futura';
+  itensObservacaoFutura?: ItemObservacaoFutura[];
   numeroVistoria?: string | null;
   campanhaAno: number;
   campanhaNumero: string;

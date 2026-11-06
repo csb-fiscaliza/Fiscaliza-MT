@@ -21,7 +21,8 @@ import {
   ShieldCheck,
   Building,
   Droplets,
-  Layers
+  Layers,
+  ClipboardList
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { exportInspectionToJson } from '../services/storage';
@@ -227,6 +228,42 @@ export const InspectionDetailModal: React.FC<Props> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Checklist de Itens a Serem Observados / Verificados */}
+              {inspection.itensObservacaoFutura && inspection.itensObservacaoFutura.length > 0 && (
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 bg-white dark:bg-slate-900 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-slate-900 dark:text-slate-100 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                      <ClipboardList className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span>Itens a Serem Observados (Checklist de Campo)</span>
+                    </h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                      {inspection.itensObservacaoFutura.filter(i => i.concluido).length}/{inspection.itensObservacaoFutura.length} verificados
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {inspection.itensObservacaoFutura.map((it, idx) => (
+                      <div key={it.id || idx} className={`p-2 rounded-lg border text-xs flex items-center gap-2.5 ${
+                        it.concluido 
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200' 
+                          : 'bg-amber-50/60 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-slate-800 dark:text-slate-200'
+                      }`}>
+                        <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
+                          it.concluido ? 'bg-emerald-600 text-white' : 'border border-amber-500'
+                        }`}>
+                          {it.concluido && <CheckCircle2 className="w-3.5 h-3.5" />}
+                        </div>
+                        <span className={`flex-1 ${it.concluido ? 'line-through opacity-80' : 'font-medium'}`}>{it.texto}</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                          it.concluido ? 'bg-emerald-200/80 text-emerald-900' : 'bg-amber-200/80 text-amber-900'
+                        }`}>
+                          {it.concluido ? 'Verificado' : 'Pendente'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

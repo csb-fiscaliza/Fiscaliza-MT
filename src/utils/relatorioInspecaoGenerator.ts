@@ -126,7 +126,7 @@ export function generateRelatorioInspecaoData(data: InspectionData): RelatorioIn
 
   const numeroRelatorio = g.recordNumber
     ? (g.recordNumber.startsWith('REL-') ? g.recordNumber : `REL-${g.recordNumber}`)
-    : '0000041592';
+    : (g.numeroVistoria ? `REL-${g.numeroVistoria}` : 'Não informado');
 
   // 1. Coordenadas em formato GMS (xxºxx'xx,xx")
   const latGms = formatGmsString(d.coordinates.latitude, true, false);
@@ -272,7 +272,7 @@ export function generateRelatorioInspecaoData(data: InspectionData): RelatorioIn
     }
   };
 
-  const constatacoesGeraisIntro = `O barramento construído está localizado no município de ${d.municipality || 'Tangará da Serra'}/MT${d.waterCourse ? `, interceptando o corpo hídrico ${d.waterCourse}` : ''}${d.propertyOrBusinessName ? `, no imóvel/empreendimento denominado "${d.propertyOrBusinessName}"` : ''}.`;
+  const constatacoesGeraisIntro = `O barramento construído está localizado no município de ${d.municipality || 'Mato Grosso'}/MT${d.waterCourse ? `, interceptando o corpo hídrico ${d.waterCourse}` : ''}${d.propertyOrBusinessName ? `, no imóvel/empreendimento denominado "${d.propertyOrBusinessName}"` : ''}.`;
 
   // Mapeamento dos Componentes do Relatório CSB
   const secoesComponentes: ComponenteRelatorioSection[] = [
@@ -446,7 +446,7 @@ Assim, o empreendedor deverá realizar o monitoramento contínuo da estabilizaç
     bairro: notif.destinatario?.bairro || '-',
     municipio: d.municipality || notif.destinatario?.municipio || 'Mato Grosso',
     uf: 'MT',
-    cep: notif.destinatario?.cep || '78000-000',
+    cep: notif.destinatario?.cep || '',
     telefone: notif.destinatario?.telefone || g.accompaniedBy?.phone || 'Não informado',
     nomeFantasia: d.damName || d.propertyOrBusinessName || 'Barramento Vistoriado',
     atividade: 'Barragem de acumulação de água para usos múltiplos',
@@ -485,7 +485,7 @@ RELATÓRIO DE INSPEÇÃO - SEGURANÇA DE BARRAGEM
 Empreendedor/Proprietário: ${folhaRostoSigamt.nomeRazaoSocial}
 CPF/CNPJ: ${folhaRostoSigamt.cpfCnpj}
 ${coordenadasTexto ? `Coordenadas: ${coordenadasTexto}\n` : ''}Endereço: ${folhaRostoSigamt.enderecoEmpreendimento}, ${folhaRostoSigamt.municipio}/MT
-Endereço para correspondência: ${folhaRostoSigamt.enderecoCorrespondencia}, Nº ${folhaRostoSigamt.numero} – ${folhaRostoSigamt.municipio}/MT, CEP: ${folhaRostoSigamt.cep}
+Endereço para correspondência: ${folhaRostoSigamt.enderecoCorrespondencia}, Nº ${folhaRostoSigamt.numero} – ${folhaRostoSigamt.municipio}/MT${folhaRostoSigamt.cep ? `, CEP: ${folhaRostoSigamt.cep}` : ''}
 ${notif.destinatario?.email ? `E-mail: ${notif.destinatario.email}\n` : ''}Telefone: ${folhaRostoSigamt.telefone}
 Atividade (uso da barragem): ${d.mainWaterUse || 'Acumulação de água para usos múltiplos'}
 ${d.waterCourse ? `Corpo d’agua utilizado: ${d.waterCourse};\n` : ''}Equipe técnica: ${equipeTecnicaStr}

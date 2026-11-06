@@ -189,6 +189,7 @@ export function createEmptyInspection(creatorUser?: {
     updatedAt: now.toISOString(),
     isDraft: true,
     tipoPlanejamento: 'atual',
+    itensObservacaoFutura: [],
     generalInfo: {
       tipoPlanejamento: 'atual',
       recordNumber: '',
@@ -218,15 +219,15 @@ export function createEmptyInspection(creatorUser?: {
     damIdentification: {
       damName: '',
       propertyOrBusinessName: '',
-      municipality: 'Cuiabá',
-      hydrographicBasin: 'Bacia Hidrográfica do Rio Cuiabá',
+      municipality: '',
+      hydrographicBasin: '',
       waterCourse: '',
       coordinates: {
         latitude: '',
         longitude: '',
         datum: 'SIRGAS 2000'
       },
-      mainWaterUse: 'Irrigação',
+      mainWaterUse: '',
       secondaryWaterUses: [],
       damType: 'terra_homogenea',
       estimatedDimensions: {

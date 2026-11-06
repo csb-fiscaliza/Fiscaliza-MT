@@ -144,6 +144,7 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
   return {
     id: data.id,
     tipoPlanejamento: isFutura ? 'futura' : 'atual',
+    itensObservacaoFutura: data.itensObservacaoFutura || [],
     numeroVistoria: isFutura ? null : (data.generalInfo.numeroVistoria || data.generalInfo.recordNumber || `0001/${year}`),
     campanhaAno: year,
     campanhaNumero: `CAMP-${year}`,
@@ -817,6 +818,7 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
       id: vistoria.id,
       barragem_id: vistoria.barragem.id,
       tipo_planejamento: (vistoria as any).tipoPlanejamento || 'atual',
+      itens_observacao_futura: (vistoria as any).itensObservacaoFutura || [],
       numero_vistoria: vistoria.numeroVistoria || null,
       campanha_ano: vistoria.campanhaAno,
       campanha_numero: vistoria.campanhaNumero,
