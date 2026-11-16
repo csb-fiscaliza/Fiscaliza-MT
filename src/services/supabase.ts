@@ -1,38 +1,76 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { 
-  VistoriaAggregate, 
-  ItemAvaliadoEntity, 
+// ==============================================================================
+// ARQUIVO: src/services/supabase.ts
+// Camada de Autenticação Segura e Sincronização de Produtos do FISCALIZA (CSB/SEMA-MT)
+// Regras de Segurança Reforçadas:
+// - ZERO senhas padrão, ZERO e-mails pessoais hardcoded, ZERO login anônimo
+// - Contingência offline protegida com hash PBKDF2-SHA256 (nunca texto plano)
+// - Separação Ecossistema: Produtos no Fiscaliza + Mestres no Administra
+// ==============================================================================
+
+import { SupabaseClient } from '@supabase/supabase-js';
+import {
+  VistoriaAggregate,
+  ItemAvaliadoEntity,
   DocumentoGeradoEntity,
   InspectionData,
   ComponentInspectionData,
-  InspectionPhoto
+  InspectionPhoto,
+  SistemaOrigem
 } from '../types/inspection';
-import { parseGmsToDecimal, formatGmsString } from '../utils/geoCoordinates';
+import { parseGmsToDecimal } from '../utils/geoCoordinates';
+import {
+  fiscalizaSupabase,
+  isFiscalizaSupabaseConfigured,
+  isAdministraSupabaseConfigured,
+  getEcosystemStatus,
+  EcosystemNodeStatus
+} from './ecosystemConfig';
+import {
+  canFiscalizaEditMasterEntity,
+  registerFiscalizaProductsFromInspection,
+  upsertMasterEntitiesFromInspection
+} from './administraEcosystemService';
+import {
+  hashPasswordSecure,
+  verifyPasswordSecure,
+  validatePasswordStrength,
+  maskEmail
+} from '../utils/securityCrypto';
 
-const rawUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
-const supabaseUrl = rawUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+export const isSupabaseConfigured = isFiscalizaSupabaseConfigured;
+export const supabase: SupabaseClient | null = fiscalizaSupabase;
 
-// Validação estrita: somente chaves anônimas públicas no frontend
-export const isSupabaseConfigured = (): boolean => {
-  return (
-    typeof supabaseUrl === 'string' &&
-    supabaseUrl.startsWith('https://') &&
-    typeof supabaseAnonKey === 'string' &&
-    supabaseAnonKey.length > 20 &&
-    !supabaseAnonKey.includes('your-project') &&
-    !supabaseUrl.includes('COLE_AQUI')
-  );
-};
+const SESSION_STORAGE_KEY = 'fiscaliza_csb_active_session_v2';
+const LEGACY_SESSION_KEY = 'fiscaliza_csb_active_session_v1';
+const LEGACY_PWD_PREFIX = 'fiscaliza_csb_pwd_';
+const AUTH_HASH_PREFIX = 'fiscaliza_csb_auth_hash_v2_';
+const USERS_STORAGE_KEY = 'fiscaliza_csb_users_catalog_v1';
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 horas de validade da sessão
 
-export const supabase: SupabaseClient | null = isSupabaseConfigured()
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true
+const BOOTSTRAP_ADMIN_EMAIL = (import.meta.env.VITE_BOOTSTRAP_ADMIN_EMAIL || '').trim().toLowerCase();
+
+/**
+ * Remove imediatamente quaisquer resquícios legados de senha em texto plano do navegador
+ */
+export function purgeLegacyPlaintextCredentials(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(LEGACY_PWD_PREFIX)) {
+        keysToRemove.push(k);
       }
-    })
-  : null;
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    localStorage.removeItem(LEGACY_SESSION_KEY);
+  } catch {
+    // ignore storage access issues
+  }
+}
+
+// Executa limpeza preventiva no carregamento do módulo
+purgeLegacyPlaintextCredentials();
 
 // Helpers para preservação estrita de zero numérico ao converter campos vazios para null
 const toNullableNumber = (val: number | string | null | undefined): number | null => {
@@ -50,32 +88,54 @@ const toNullableString = (val: string | null | undefined): string | null => {
 // Helper para transformar InspectionData em VistoriaAggregate compatível com o esquema do banco de dados
 export function convertInspectionDataToAggregate(data: InspectionData): VistoriaAggregate {
   const now = new Date().toISOString();
-  const year = data.generalInfo.inspectionDate ? parseInt(data.generalInfo.inspectionDate.split('-')[0]) : new Date().getFullYear();
+  const year = data.generalInfo.inspectionDate
+    ? parseInt(data.generalInfo.inspectionDate.split('-')[0])
+    : new Date().getFullYear();
 
-  // Empreendedor
   const empId = data.empreendedorId || data.id;
+  const empOrigin: SistemaOrigem = data.empreendedorOrigemSistema || data.sistemaOrigem || 'fiscaliza';
   const empreendedor = {
     id: empId,
-    nomeRazaoSocial: data.damIdentification.propertyOrBusinessName || data.damIdentification.damName || 'Empreendedor não informado',
-    cpfCnpj: data.generalInfo.accompaniedBy?.document || null,
-    figuraJuridica: 'empresa_privada' as const,
+    administraId: empId,
+    sistemaOrigem: empOrigin,
+    criadoPorEmail: data.createdByEmail || null,
+    nomeRazaoSocial:
+      data.damIdentification.propertyOrBusinessName ||
+      data.damIdentification.damName ||
+      'Empreendedor não informado',
+    cpfCnpj:
+      data.damIdentification.ownerCpfCnpj ||
+      data.conclusions.notificationDetails?.destinatario?.cpfCnpj ||
+      data.generalInfo.accompaniedBy?.document ||
+      null,
+    figuraJuridica: data.damIdentification.ownerLegalType || ('empresa_privada' as const),
     processoNumero: data.generalInfo.recordNumber || null,
-    endereco: data.conclusions.notificationDetails?.destinatario?.enderecoCorrespondencia || 'Mato Grosso / MT',
-    telefone: data.generalInfo.accompaniedBy?.phone || null,
+    endereco:
+      data.damIdentification.ownerAddress ||
+      data.conclusions.notificationDetails?.destinatario?.enderecoCorrespondencia ||
+      'Mato Grosso / MT',
+    telefone:
+      data.damIdentification.ownerPhone ||
+      data.conclusions.notificationDetails?.destinatario?.telefone ||
+      data.generalInfo.accompaniedBy?.phone ||
+      null,
     email: data.conclusions.notificationDetails?.destinatario?.email || null,
     documentosPessoais: null,
     carNumero: data.damIdentification.regulatoryStatus.carNumber || null,
     declaracaoUsoOutorga: data.damIdentification.regulatoryStatus.permitNumber || null,
-    quantidadeBarragens: 1,
+    quantidadeBarragens: toNullableNumber(data.damIdentification.damsCountOnProperty) ?? 1,
     comentarios: null,
     createdAt: data.createdAt || now,
     updatedAt: data.updatedAt || now
   };
 
-  // Barragem
   const barId = data.barragemId || data.id;
+  const barOrigin: SistemaOrigem = data.barragemOrigemSistema || data.sistemaOrigem || 'fiscaliza';
   const barragem = {
     id: barId,
+    administraId: barId,
+    sistemaOrigem: barOrigin,
+    criadoPorEmail: data.createdByEmail || null,
     empreendedorId: empId,
     nome: data.damIdentification.damName || 'Barramento sem nome',
     municipio: data.damIdentification.municipality || 'Cuiabá',
@@ -91,8 +151,8 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
       datum: data.damIdentification.coordinates.datum || 'SIRGAS 2000'
     },
     cotaCoroamentoMetros: toNullableNumber(data.damIdentification.estimatedDimensions?.heightMeters),
-    anoInicioObra: null,
-    anoFinalObra: null,
+    anoInicioObra: toNullableNumber(data.damIdentification.workStartYear),
+    anoFinalObra: toNullableNumber(data.damIdentification.workEndYear),
     idadeBarragemAnos: null,
     tipoMaterial: data.damIdentification.damType || 'terra_homogenea',
     usoPrincipal: data.damIdentification.mainWaterUse || 'Irrigação',
@@ -101,7 +161,6 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     updatedAt: data.updatedAt || now
   };
 
-  // Medições
   const medicoes = {
     id: data.id,
     vistoriaId: data.id,
@@ -116,7 +175,6 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     volumeEstimadoM3: toNullableNumber(data.damIdentification.estimatedDimensions?.reservoirVolumeM3)
   };
 
-  // Itens Avaliados
   const itensAvaliados: Record<string, ItemAvaliadoEntity> = {};
   if (data.itensAvaliadosDetalhados) {
     Object.assign(itensAvaliados, data.itensAvaliadosDetalhados);
@@ -139,13 +197,15 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     });
   }
 
-  const isFutura = (data.tipoPlanejamento === 'futura' || data.generalInfo?.tipoPlanejamento === 'futura');
+  const isFutura = data.tipoPlanejamento === 'futura' || data.generalInfo?.tipoPlanejamento === 'futura';
 
   return {
     id: data.id,
     tipoPlanejamento: isFutura ? 'futura' : 'atual',
     itensObservacaoFutura: data.itensObservacaoFutura || [],
-    numeroVistoria: isFutura ? null : (data.generalInfo.numeroVistoria || data.generalInfo.recordNumber || `0001/${year}`),
+    numeroVistoria: isFutura
+      ? null
+      : data.generalInfo.numeroVistoria || data.generalInfo.recordNumber || `0001/${year}`,
     campanhaAno: year,
     campanhaNumero: `CAMP-${year}`,
     processoNumero: data.generalInfo.recordNumber || null,
@@ -153,7 +213,7 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     horaInicio: data.generalInfo.startTime || null,
     horaTermino: data.generalInfo.endTime || null,
     condicoesClimaticas: data.generalInfo.weather || 'seco',
-    statusVistoria: isFutura ? 'futura_planejada' : (data.isDraft ? 'rascunho_campo' : 'concluida_campo'),
+    statusVistoria: isFutura ? 'futura_planejada' : data.isDraft ? 'rascunho_campo' : 'concluida_campo',
     empreendedor,
     barragem,
     equipe: (data.generalInfo.inspectors || []).map((insp: any, idx: number) => ({
@@ -164,14 +224,18 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
       matricula: insp.registrationNumber || '',
       setor: insp.sector || 'CSB/SEMA-MT'
     })),
-    acompanhantes: data.generalInfo.accompaniedBy?.hasAccompaniment ? [{
-      id: data.generalInfo.accompaniedBy.id || `${data.id}_acomp`,
-      vistoriaId: data.id,
-      nome: data.generalInfo.accompaniedBy.name,
-      cpf: data.generalInfo.accompaniedBy.document || null,
-      vinculo: data.generalInfo.accompaniedBy.relationship || 'Representante',
-      telefone: data.generalInfo.accompaniedBy.phone || null
-    }] : [],
+    acompanhantes: data.generalInfo.accompaniedBy?.hasAccompaniment
+      ? [
+          {
+            id: data.generalInfo.accompaniedBy.id || `${data.id}_acomp`,
+            vistoriaId: data.id,
+            nome: data.generalInfo.accompaniedBy.name,
+            cpf: data.generalInfo.accompaniedBy.document || null,
+            vinculo: data.generalInfo.accompaniedBy.relationship || 'Representante',
+            telefone: data.generalInfo.accompaniedBy.phone || null
+          }
+        ]
+      : [],
     medicoes,
     itensAvaliados,
     componentesObservacoes: {},
@@ -232,69 +296,47 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
   };
 }
 
-/**
- * Salva a Vistoria completa no Supabase
- * Suporta tanto InspectionData quanto VistoriaAggregate
- */
 export interface SyncVistoriaResponse {
   success: boolean;
   error?: string;
   code?: string;
   isRlsError?: boolean;
   table?: string;
+  skippedReadOnlyEntities?: string[];
 }
 
 /**
- * Garante uma sessão autenticada no Supabase antes das operações
- * Tenta sessão existente ou autenticação anônima institucional
+ * Verifica se há sessão autenticada válida no Supabase (SEM fallback anônimo!)
  */
-export async function ensureAuthenticatedSession(): Promise<{ authenticated: boolean; email?: string; role?: string }> {
-  if (!supabase) return { authenticated: false };
+export async function ensureAuthenticatedSession(): Promise<{
+  authenticated: boolean;
+  email?: string;
+  role?: string;
+}> {
+  if (!fiscalizaSupabase) return { authenticated: false };
 
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session }
+    } = await fiscalizaSupabase.auth.getSession();
     if (session?.user) {
-      return { 
-        authenticated: true, 
+      return {
+        authenticated: true,
         email: session.user.email,
-        role: session.user.user_metadata?.role || session.user.role || 'fiscal' 
+        role: session.user.user_metadata?.perfil || session.user.user_metadata?.role || 'analista'
       };
     }
-
-    // Tenta autenticação anônima se habilitada no projeto Supabase
-    try {
-      const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
-      if (!anonError && anonData?.session?.user) {
-        return { 
-          authenticated: true, 
-          email: anonData.session.user.email || 'fiscal-campo@sema.mt.gov.br',
-          role: 'anon_field'
-        };
-      }
-    } catch {
-      // Login anônimo pode estar desligado no dashboard
-    }
   } catch (err) {
-    console.warn('Verificação de sessão pré-sync:', err);
+    console.warn('[Auth] Falha na verificação de sessão:', err);
   }
 
   return { authenticated: false };
 }
 
-const SESSION_STORAGE_KEY = 'fiscaliza_csb_active_session_v1';
-const LOCAL_PWD_PREFIX = 'fiscaliza_csb_pwd_';
-const USERS_STORAGE_KEY = 'fiscaliza_csb_users_catalog_v1';
-
-export function getLocalUserProfile(email: string): { role: string; name?: string; status?: string; cargo?: string } | null {
+export function getLocalUserProfile(
+  email: string
+): { role: string; name?: string; status?: string; cargo?: string } | null {
   const cleanEmail = email.trim().toLowerCase();
-  if (cleanEmail === 'yarageologa@gmail.com') {
-    return {
-      role: 'administrador',
-      name: 'Yara Dias',
-      status: 'ativo',
-      cargo: 'Coordenadora de Segurança de Barragens'
-    };
-  }
 
   try {
     const raw = localStorage.getItem(USERS_STORAGE_KEY);
@@ -312,32 +354,45 @@ export function getLocalUserProfile(email: string): { role: string; name?: strin
         }
       }
     }
-  } catch {}
+  } catch {
+    // ignore malformed storage
+  }
 
   return null;
 }
 
 /**
- * Autenticação do Fiscal de Barragens (Login com e-mail e senha)
+ * Grava hash criptográfico PBKDF2-SHA256 para contingência offline (nunca senha pura)
+ */
+export async function storeSecureLocalPasswordHash(email: string, password: string): Promise<void> {
+  const cleanEmail = email.trim().toLowerCase();
+  const pwdHash = await hashPasswordSecure(password);
+  localStorage.setItem(AUTH_HASH_PREFIX + cleanEmail, pwdHash);
+}
+
+/**
+ * Autenticação Estrita do Fiscal de Barragens (Supabase Auth remoto ou PBKDF2 offline)
  */
 export async function signInInspector(
-  email: string, 
+  email: string,
   password: string
 ): Promise<{ success: boolean; error?: string; email?: string; fullName?: string; role?: string }> {
   const cleanEmail = email.trim().toLowerCase();
-  
-  if (!cleanEmail) {
-    return { success: false, error: 'Informe o e-mail institucional.' };
+
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return { success: false, error: 'Informe um e-mail institucional válido.' };
   }
   if (!password) {
-    return { success: false, error: 'Informe a senha de acesso.' };
+    return { success: false, error: 'Informe sua senha de acesso.' };
   }
 
-  // 1. Sincroniza em tempo real com o Supabase para verificar se o Administrador já aprovou o usuário
+  purgeLegacyPlaintextCredentials();
+
+  // 1. Consulta perfil remoto quando Supabase estiver configurado
   let remoteProfile: any = null;
-  if (supabase) {
+  if (fiscalizaSupabase) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await fiscalizaSupabase
         .from('perfis_usuarios')
         .select('*')
         .eq('email', cleanEmail)
@@ -345,10 +400,9 @@ export async function signInInspector(
 
       if (!error && data) {
         remoteProfile = data;
-        // Atualiza imediatamente o catálogo local no dispositivo do fiscal com o status remoto
         try {
           const raw = localStorage.getItem(USERS_STORAGE_KEY);
-          let list = raw ? JSON.parse(raw) : [];
+          const list = raw ? JSON.parse(raw) : [];
           if (Array.isArray(list)) {
             const idx = list.findIndex((u: any) => u.email?.toLowerCase() === cleanEmail);
             if (idx !== -1) {
@@ -363,7 +417,7 @@ export async function signInInspector(
               };
             } else {
               list.push({
-                id: data.id || 'usr-' + Date.now(),
+                id: data.id,
                 email: cleanEmail,
                 name: data.nome || cleanEmail.split('@')[0],
                 role: data.perfil || 'analista',
@@ -377,54 +431,74 @@ export async function signInInspector(
             }
             localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(list));
           }
-        } catch {}
+        } catch {
+          // ignore cache update error
+        }
       }
     } catch (e) {
-      console.warn('Erro ao consultar status no Supabase:', e);
+      console.warn(`[Auth] Falha ao consultar perfil remoto para ${maskEmail(cleanEmail)}:`, e);
     }
   }
 
-  // 2. Resolve o perfil considerando o status remoto prioritário
   const profile = getLocalUserProfile(cleanEmail);
-  const effectiveStatus = remoteProfile?.status || profile?.status || 'ativo';
-  const effectiveRole = remoteProfile?.perfil || profile?.role || (cleanEmail === 'yarageologa@gmail.com' || cleanEmail === 'csb.fiscaliza@sema.mt.gov.br' ? 'administrador' : 'analista');
-  const effectiveName = remoteProfile?.nome || profile?.name || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : cleanEmail.split('@')[0]);
-  const effectiveCargo = remoteProfile?.cargo || profile?.cargo || (effectiveRole === 'administrador' ? 'Coordenadora de Segurança de Barragens' : 'Fiscal Técnico CSB');
+  const effectiveStatus = remoteProfile?.status || profile?.status;
 
-  // 3. Validação de status
+  if (!remoteProfile && !profile) {
+    // Sem cadastro conhecido
+    if (!fiscalizaSupabase) {
+      return {
+        success: false,
+        error: 'Usuário não cadastrado neste dispositivo. Utilize "Novo Fiscal (Solicitar Acesso)" ou configure o Administrador inicial.'
+      };
+    }
+  }
+
+  const effectiveRole =
+    remoteProfile?.perfil ||
+    profile?.role ||
+    (BOOTSTRAP_ADMIN_EMAIL && cleanEmail === BOOTSTRAP_ADMIN_EMAIL ? 'administrador' : 'analista');
+  const effectiveName = remoteProfile?.nome || profile?.name || cleanEmail.split('@')[0];
+  const effectiveCargo =
+    remoteProfile?.cargo ||
+    profile?.cargo ||
+    (effectiveRole === 'administrador' ? 'Coordenador(a) de Segurança de Barragens' : 'Fiscal Técnico CSB');
+
+  // 2. Validação de status
   if (effectiveStatus === 'inativo') {
-    return { success: false, error: 'Usuário inativo. Seu acesso foi suspenso pela administração da CSB/SEMA-MT.' };
+    return {
+      success: false,
+      error: 'Usuário inativo. Seu acesso foi suspenso pela administração da CSB/SEMA-MT.'
+    };
   }
   if (effectiveStatus === 'reprovado') {
-    return { success: false, error: 'Solicitação de acesso indeferida pela administração. Entre em contato com a coordenação da CSB/SEMA-MT.' };
+    return {
+      success: false,
+      error: 'Solicitação de acesso indeferida pela administração da CSB/SEMA-MT.'
+    };
   }
   if (effectiveStatus === 'pendente') {
-    return { 
-      success: false, 
-      error: 'Solicitação de acesso em análise. Seu cadastro prévio aguarda aprovação de um Administrador da CSB/SEMA-MT.' 
+    return {
+      success: false,
+      error: 'Solicitação de acesso em análise. Aguarde homologação de um Administrador da CSB/SEMA-MT.'
     };
   }
 
-  // 4. Verificação de senha (suporta senha do cadastro, senha padrão @12345 do e-mail de aprovação e credencial offline)
-  const checkCredentialsMatch = (): boolean => {
-    const storedPwd = localStorage.getItem(LOCAL_PWD_PREFIX + cleanEmail);
-    const expectedPwd = storedPwd || '@12345';
-    return password === expectedPwd || password === '@12345' || (Boolean(storedPwd) && password === storedPwd);
-  };
-
-  const createLocalSession = (isFieldMode = false) => {
-    // Registra senha para contingência futura
+  const createLocalSession = async () => {
     try {
-      localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, password);
-    } catch {}
+      await storeSecureLocalPasswordHash(cleanEmail, password);
+    } catch {
+      // ignore if subtle unavailable
+    }
 
+    const nowMs = Date.now();
     const localSession = {
       authenticated: true,
       email: cleanEmail,
       fullName: effectiveName,
       role: effectiveRole,
       cargo: effectiveCargo,
-      loggedAt: new Date().toISOString()
+      loggedAt: new Date(nowMs).toISOString(),
+      expiresAt: nowMs + SESSION_TTL_MS
     };
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(localSession));
     if (typeof window !== 'undefined') {
@@ -433,124 +507,105 @@ export async function signInInspector(
     return { success: true, email: cleanEmail, fullName: effectiveName, role: effectiveRole };
   };
 
-  // 5. Tenta autenticação via Supabase Auth
-  if (supabase) {
+  // 3. Autenticação remota obrigatória quando Supabase está configurado e dispositivo está online
+  if (fiscalizaSupabase) {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await fiscalizaSupabase.auth.signInWithPassword({
         email: cleanEmail,
         password
       });
       if (!error && data?.user) {
-        return createLocalSession(false);
+        return createLocalSession();
       }
-    } catch {}
-
-    // Se o usuário foi aprovado no banco de dados (status 'ativo'), valida com as credenciais aprovadas
-    if (effectiveStatus === 'ativo' && checkCredentialsMatch()) {
-      return createLocalSession(false);
+      if (error && navigator.onLine) {
+        // Permite fallback por hash apenas se conta local ainda aguarda provisionamento no Supabase Auth,
+        // mas NUNCA aceita senha vazia ou hardcoded
+        const storedHash = localStorage.getItem(AUTH_HASH_PREFIX + cleanEmail);
+        if (storedHash && effectiveStatus === 'ativo' && (await verifyPasswordSecure(password, storedHash))) {
+          return createLocalSession();
+        }
+        return {
+          success: false,
+          error: 'E-mail ou senha incorretos. Verifique suas credenciais institucionais.'
+        };
+      }
+    } catch {
+      // Em falha de rede (campo sem internet), segue para validação por hash offline
     }
+  }
 
-    return { 
-      success: false, 
-      error: 'Senha incorreta. Utilize a senha padrão @12345 informada no e-mail de liberação de acesso ou a senha cadastrada na solicitação.' 
-    };
-  } else {
-    // Modo local / contingência
-    if (checkCredentialsMatch()) {
-      return createLocalSession(false);
-    }
-    return { 
-      success: false, 
-      error: 'Senha incorreta. Utilize a senha padrão @12345 informada no e-mail de liberação de acesso ou a senha cadastrada na solicitação.' 
+  // 4. Modo local / contingência offline com verificação PBKDF2-SHA256
+  const storedHash = localStorage.getItem(AUTH_HASH_PREFIX + cleanEmail);
+  if (!storedHash) {
+    return {
+      success: false,
+      error:
+        'Credencial local não encontrada para este dispositivo. Conecte-se à internet para o primeiro acesso ou solicite redefinição ao Administrador.'
     };
   }
+
+  const isValidHash = await verifyPasswordSecure(password, storedHash);
+  if (isValidHash) {
+    return createLocalSession();
+  }
+
+  return {
+    success: false,
+    error: 'Credenciais inválidas. Verifique seu e-mail e senha.'
+  };
 }
 
 /**
- * Solicitação prévia de acesso de novo Fiscal de Campo
- * Registra o pedido como pendente para análise e aprovação de um Administrador
+ * Solicitação prévia de acesso de novo Fiscal de Campo (exige senha forte definida pelo usuário)
  */
 export async function signUpInspector(
-  email: string, 
-  password?: string, 
+  email: string,
+  password: string,
   fullName?: string,
   cargo?: string,
   matricula?: string
 ): Promise<{ success: boolean; error?: string; message?: string }> {
   const cleanEmail = email.trim().toLowerCase();
-  const finalPassword = (password && password.trim()) ? password.trim() : '@12345';
-  const finalName = fullName?.trim() || (cleanEmail === 'yarageologa@gmail.com' ? 'Yara Dias' : cleanEmail.split('@')[0]);
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return { success: false, error: 'Informe um e-mail institucional válido.' };
+  }
+
+  const strength = validatePasswordStrength(password);
+  if (!strength.valid) {
+    return { success: false, error: strength.reason };
+  }
+
+  const finalName = fullName?.trim() || cleanEmail.split('@')[0];
   const finalCargo = cargo?.trim() || 'Fiscal Técnico CSB';
   const finalMatricula = matricula?.trim() || 'CSB-' + Math.floor(100 + Math.random() * 900);
 
-  // Registra senha local para contingência quando o acesso for liberado
-  try {
-    localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, finalPassword);
-  } catch {}
+  await storeSecureLocalPasswordHash(cleanEmail, password);
 
-  // Gera UUID válido padrão RFC4122 v4 para total compatibilidade com PostgreSQL
-  const validId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-        const r = Math.random() * 16 | 0;
-        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-      });
+  const validId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = (Math.random() * 16) | 0;
+          return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+        });
 
-  // Registra solicitação pendente no catálogo local de usuários
   try {
-    const raw = localStorage.getItem('fiscaliza_csb_users_catalog_v1');
-    let list = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(list) || list.length === 0) {
-      list = [
-        {
-          id: 'usr-admin-yara-001',
-          email: 'yarageologa@gmail.com',
-          name: 'Yara Dias',
-          role: 'administrador',
-          status: 'ativo',
-          cargo: 'Coordenadora de Segurança de Barragens',
-          matricula: 'CSB-001',
-          setor: 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
-          createdAt: '2026-01-10T08:00:00.000Z',
-          updatedAt: '2026-10-14T12:00:00.000Z'
-        },
-        {
-          id: 'usr-admin-csb-000',
-          email: 'csb.fiscaliza@sema.mt.gov.br',
-          name: 'Fiscaliza CSB Admin',
-          role: 'administrador',
-          status: 'ativo',
-          cargo: 'Administrador Institucional CSB',
-          matricula: 'CSB-000',
-          setor: 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
-          createdAt: '2026-01-10T08:00:00.000Z',
-          updatedAt: '2026-10-14T12:00:00.000Z'
-        }
-      ];
-    } else {
-      // Remove quaisquer usuários de exemplo legados
-      const LEGACY_EXAMPLE_EMAILS = [
-        'marcos.engenheiro@sema.mt.gov.br',
-        'auditoria.gestao@sema.mt.gov.br'
-      ];
-      list = list.filter((u: any) => 
-        !LEGACY_EXAMPLE_EMAILS.includes(u.email?.toLowerCase()) &&
-        !u.name?.toLowerCase().includes('marcos vinícius') &&
-        !u.name?.toLowerCase().includes('camila nogueira')
-      );
-    }
+    const raw = localStorage.getItem(USERS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    const list = Array.isArray(parsed) ? parsed : [];
+
     const exists = list.find((u: any) => u.email?.toLowerCase() === cleanEmail);
     if (exists) {
       if (exists.status === 'pendente') {
-        return { 
-          success: false, 
-          error: 'Já existe uma solicitação de acesso em análise para este e-mail institucional.' 
+        return {
+          success: false,
+          error: 'Já existe uma solicitação de acesso em análise para este e-mail.'
         };
       }
       if (exists.status === 'ativo') {
-        return { 
-          success: false, 
-          error: 'Este e-mail já possui cadastro ativo no sistema. Faça o login diretamente.' 
+        return {
+          success: false,
+          error: 'Este e-mail já possui cadastro ativo no sistema. Faça login diretamente.'
         };
       }
     }
@@ -571,19 +626,31 @@ export async function signUpInspector(
     };
 
     const updatedList = [newEntry, ...list.filter((u: any) => u.email?.toLowerCase() !== cleanEmail)];
-    localStorage.setItem('fiscaliza_csb_users_catalog_v1', JSON.stringify(updatedList));
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedList));
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('csb:users_updated'));
     }
   } catch (e) {
-    console.warn('Erro ao atualizar catálogo local:', e);
+    console.warn('[Auth] Erro ao atualizar catálogo local de usuários:', e);
   }
 
-  // Tenta persistir solicitação no Supabase se houver conexão
-  if (supabase) {
+  if (fiscalizaSupabase) {
     try {
-      const { error: insErr } = await supabase.from('perfis_usuarios').insert({
+      await fiscalizaSupabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: {
+          data: {
+            full_name: finalName,
+            cargo: finalCargo,
+            matricula: finalMatricula,
+            perfil: 'analista'
+          }
+        }
+      });
+
+      const { error: insErr } = await fiscalizaSupabase.from('perfis_usuarios').insert({
         id: validId,
         email: cleanEmail,
         nome: finalName,
@@ -593,39 +660,42 @@ export async function signUpInspector(
         matricula: finalMatricula,
         setor: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
       });
-      if (insErr) {
-        if (insErr.code === '23505' || insErr.message?.includes('duplicate key') || insErr.message?.includes('unique')) {
-          await supabase.from('perfis_usuarios').update({
+
+      if (insErr && (insErr.code === '23505' || insErr.message?.includes('duplicate'))) {
+        await fiscalizaSupabase
+          .from('perfis_usuarios')
+          .update({
             nome: finalName,
             status: 'pendente',
             cargo: finalCargo,
             matricula: finalMatricula,
             updated_at: new Date().toISOString()
-          }).eq('email', cleanEmail);
-        } else {
-          console.warn('Falha ao inserir solicitação no Supabase:', insErr);
-        }
+          })
+          .eq('email', cleanEmail);
       }
     } catch (e) {
-      console.warn('Falha ao persistir solicitação no Supabase:', e);
+      console.warn('[Auth] Falha ao enviar solicitação para o Supabase:', e);
     }
   }
 
   return {
     success: true,
-    message: 'Solicitação de acesso enviada com sucesso! O cadastro foi encaminhado para análise da Administração da CSB/SEMA-MT. Aguarde a liberação do seu acesso.'
+    message:
+      'Solicitação de acesso enviada com sucesso! O cadastro foi encaminhado para análise de um Administrador da CSB/SEMA-MT.'
   };
 }
 
 /**
- * Atualiza a senha do Fiscal logado no sistema
+ * Atualiza a senha do Fiscal logado (exige política de força)
  */
-export async function updateInspectorPassword(newPassword: string): Promise<{ success: boolean; error?: string }> {
-  if (!newPassword || newPassword.length < 6) {
-    return { success: false, error: 'A nova senha deve possuir pelo menos 6 caracteres.' };
+export async function updateInspectorPassword(
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  const strength = validatePasswordStrength(newPassword);
+  if (!strength.valid) {
+    return { success: false, error: strength.reason };
   }
 
-  // Identifica e-mail ativo da sessão
   let sessionEmail = '';
   try {
     const raw = localStorage.getItem(SESSION_STORAGE_KEY);
@@ -636,37 +706,42 @@ export async function updateInspectorPassword(newPassword: string): Promise<{ su
   } catch {}
 
   if (sessionEmail) {
-    localStorage.setItem(LOCAL_PWD_PREFIX + sessionEmail.trim().toLowerCase(), newPassword);
+    await storeSecureLocalPasswordHash(sessionEmail, newPassword);
   }
 
-  if (supabase) {
+  if (fiscalizaSupabase) {
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
-      });
-      if (error) throw error;
+      const {
+        data: { session }
+      } = await fiscalizaSupabase.auth.getSession();
+      if (session?.user) {
+        const { error } = await fiscalizaSupabase.auth.updateUser({
+          password: newPassword
+        });
+        if (error) throw error;
+      }
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || 'Falha ao alterar senha no servidor.' };
     }
   }
 
-  // Modo local
   return { success: true };
 }
 
 /**
- * Encerra a sessão do Fiscal
+ * Encerra a sessão do Fiscal e limpa tokens locais
  */
 export async function signOutInspector(): Promise<void> {
   try {
-    if (supabase) {
-      await supabase.auth.signOut();
+    if (fiscalizaSupabase) {
+      await fiscalizaSupabase.auth.signOut();
     }
   } catch (e) {
-    console.error('Erro ao deslogar:', e);
+    console.error('[Auth] Erro ao encerrar sessão:', e);
   } finally {
     localStorage.removeItem(SESSION_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_SESSION_KEY);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: { authenticated: false } }));
     }
@@ -674,38 +749,43 @@ export async function signOutInspector(): Promise<void> {
 }
 
 /**
- * Retorna o estado atual da sessão do Fiscal
+ * Retorna o estado atual da sessão do Fiscal (verificando expiração TTL)
  */
-export async function getInspectorSession(): Promise<{ 
-  authenticated: boolean; 
-  email?: string; 
+export async function getInspectorSession(): Promise<{
+  authenticated: boolean;
+  email?: string;
   fullName?: string;
-  role?: string; 
+  role?: string;
 }> {
   let sessionEmail = '';
   let sessionFullName = '';
   let sessionRole = '';
 
-  if (supabase) {
+  if (fiscalizaSupabase) {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session }
+      } = await fiscalizaSupabase.auth.getSession();
       if (session?.user) {
         sessionEmail = session.user.email || '';
         sessionFullName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || '';
-        sessionRole = session.user.user_metadata?.cargo || session.user.role || '';
+        sessionRole = session.user.user_metadata?.perfil || session.user.user_metadata?.role || '';
       }
     } catch {
-      // fallback to offline local session
+      // Fallback para sessão local válida dentro do TTL
     }
   }
 
-  // Se não obteve do Supabase, tenta local storage
   if (!sessionEmail) {
     try {
       const raw = localStorage.getItem(SESSION_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.authenticated && parsed.email) {
+          if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+            localStorage.removeItem(SESSION_STORAGE_KEY);
+            return { authenticated: false };
+          }
           sessionEmail = parsed.email;
           sessionFullName = parsed.fullName || '';
           sessionRole = parsed.role || '';
@@ -718,18 +798,20 @@ export async function getInspectorSession(): Promise<{
     return { authenticated: false };
   }
 
-  // Verifica o catálogo de usuários institucional para resolver o perfil (administrador, analista, visualizador)
   const profile = getLocalUserProfile(sessionEmail);
   if (profile && profile.status === 'inativo') {
-    signOutInspector();
+    await signOutInspector();
     return { authenticated: false };
   }
 
-  const finalRole = (sessionEmail.toLowerCase() === 'yarageologa@gmail.com')
-    ? 'administrador'
-    : (profile?.role || sessionRole || 'analista');
+  const isEnvBootstrapAdmin =
+    BOOTSTRAP_ADMIN_EMAIL.length > 0 && sessionEmail.trim().toLowerCase() === BOOTSTRAP_ADMIN_EMAIL;
 
-  const finalName = profile?.name || sessionFullName || (sessionEmail.toLowerCase() === 'yarageologa@gmail.com' ? 'Yara Dias' : sessionEmail.split('@')[0]);
+  const finalRole = isEnvBootstrapAdmin
+    ? 'administrador'
+    : profile?.role || sessionRole || 'analista';
+
+  const finalName = profile?.name || sessionFullName || sessionEmail.split('@')[0];
 
   return {
     authenticated: true,
@@ -740,23 +822,47 @@ export async function getInspectorSession(): Promise<{
 }
 
 /**
- * Salva a Vistoria completa no Supabase
- * Suporta tanto InspectionData quanto VistoriaAggregate
+ * Salva a Vistoria no Ecossistema:
+ * 1) Roteia Empreendedor, Barragem e Responsável Técnico para a base do ADMINISTRA
+ *    (somente inserindo/atualizando registros com sistema_origem = 'fiscaliza'; nunca
+ *     sobrescreve registros de titularidade do Administra, Classifica ou Notifica).
+ * 2) Grava os produtos gerados pelo Fiscaliza (vistorias, medições, itens, documentos)
+ *    no banco de dados do FISCALIZA.
+ * 3) Atualiza o catálogo unificado de produtos do ecossistema.
  */
-export async function syncVistoriaToSupabase(input: VistoriaAggregate | InspectionData): Promise<SyncVistoriaResponse> {
-  if (!supabase) {
-    return { 
-      success: false, 
-      error: 'Serviço de nuvem em modo offline ou não configurado. Seus dados estão criptografados e salvos localmente com total segurança.' 
+export async function syncVistoriaToSupabase(
+  input: VistoriaAggregate | InspectionData
+): Promise<SyncVistoriaResponse> {
+  const vistoria: VistoriaAggregate =
+    'generalInfo' in input ? convertInspectionDataToAggregate(input as InspectionData) : (input as VistoriaAggregate);
+
+  // Etapa 1: Sincronização de Entidades Mestres no Administra (respeitando propriedade cruzada)
+  let skippedReadOnlyEntities: string[] = [];
+  if ('generalInfo' in input) {
+    const masterSync = await upsertMasterEntitiesFromInspection(input as InspectionData);
+    skippedReadOnlyEntities = masterSync.skippedReadOnlyEntities;
+    await registerFiscalizaProductsFromInspection(input as InspectionData);
+  }
+
+  if (!fiscalizaSupabase) {
+    return {
+      success: false,
+      skippedReadOnlyEntities,
+      error:
+        'Chaves do Supabase ainda não configuradas para o ambiente de nuvem. Seus dados e produtos estão salvos com criptografia localmente e preparados no espelho de migração do Ecossistema.'
     };
   }
 
-  // Tenta garantir que há sessão ativa antes do envio
-  await ensureAuthenticatedSession();
-
-  const vistoria: VistoriaAggregate = 'generalInfo' in input 
-    ? convertInspectionDataToAggregate(input as InspectionData)
-    : input as VistoriaAggregate;
+  const sessionCheck = await ensureAuthenticatedSession();
+  if (!sessionCheck.authenticated) {
+    return {
+      success: false,
+      isRlsError: true,
+      code: 'AUTH_REQUIRED',
+      error:
+        'Autenticação obrigatória para transmissão ao banco de dados em nuvem (RLS ativo). Entre com sua conta institucional ou aguarde a configuração das chaves de produção.'
+    };
+  }
 
   const handleDbError = (err: any, tableName: string) => {
     if (!err) return;
@@ -764,7 +870,7 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
     const msg = String(err.message || '');
     if (code === '42501' || msg.includes('row-level security') || msg.includes('violates row-level')) {
       const e = new Error(
-        `Permissão de Segurança (RLS 42501 na tabela "${tableName}"): O banco de dados em nuvem exige autenticação de fiscal ou liberação das políticas de campo. Seus dados estão 100% seguros e salvos localmente neste aparelho.`
+        `Permissão de Segurança (RLS 42501 na tabela "${tableName}"): O banco exige sessão autenticada de usuário ativo. Seus dados seguem protegidos localmente.`
       );
       (e as any).code = '42501';
       (e as any).isRlsError = true;
@@ -775,50 +881,63 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
   };
 
   try {
-    // 1. Upsert Empreendedor
-    const { error: empError } = await supabase.from('empreendedores').upsert({
-      id: vistoria.empreendedor.id,
-      nome_razao_social: vistoria.empreendedor.nomeRazaoSocial,
-      cpf_cnpj: toNullableString(vistoria.empreendedor.cpfCnpj),
-      figura_juridica: vistoria.empreendedor.figuraJuridica,
-      endereco: toNullableString(vistoria.empreendedor.endereco),
-      telefone: toNullableString(vistoria.empreendedor.telefone),
-      email: toNullableString(vistoria.empreendedor.email),
-      documentos_pessoais: toNullableString(vistoria.empreendedor.documentosPessoais),
-      car_numero: toNullableString(vistoria.empreendedor.carNumero),
-      declaracao_uso: toNullableString(vistoria.empreendedor.declaracaoUsoOutorga),
-      quantidade_barragens_propriedade: toNullableNumber(vistoria.empreendedor.quantidadeBarragens),
-      updated_at: new Date().toISOString()
-    });
-    handleDbError(empError, 'empreendedores');
+    // Caso o Administra ainda compartilhe schema de transição no mesmo projeto Fiscaliza,
+    // só grava em empreendedores/barragens locais SE o sistema_origem for 'fiscaliza'
+    if (!isAdministraSupabaseConfigured()) {
+      const empPerm = canFiscalizaEditMasterEntity(vistoria.empreendedor.sistemaOrigem);
+      if (empPerm.allowed) {
+        const { error: empError } = await fiscalizaSupabase.from('empreendedores').upsert({
+          id: vistoria.empreendedor.id,
+          sistema_origem: 'fiscaliza',
+          administra_id: vistoria.empreendedor.administraId || vistoria.empreendedor.id,
+          nome_razao_social: vistoria.empreendedor.nomeRazaoSocial,
+          cpf_cnpj: toNullableString(vistoria.empreendedor.cpfCnpj),
+          figura_juridica: vistoria.empreendedor.figuraJuridica,
+          endereco: toNullableString(vistoria.empreendedor.endereco),
+          telefone: toNullableString(vistoria.empreendedor.telefone),
+          email: toNullableString(vistoria.empreendedor.email),
+          documentos_pessoais: toNullableString(vistoria.empreendedor.documentosPessoais),
+          car_numero: toNullableString(vistoria.empreendedor.carNumero),
+          declaracao_uso: toNullableString(vistoria.empreendedor.declaracaoUsoOutorga),
+          quantidade_barragens_propriedade: toNullableNumber(vistoria.empreendedor.quantidadeBarragens),
+          updated_at: new Date().toISOString()
+        });
+        handleDbError(empError, 'empreendedores');
+      }
 
-    // 2. Upsert Barragem
-    const { error: barError } = await supabase.from('barragens').upsert({
-      id: vistoria.barragem.id,
-      empreendedor_id: vistoria.empreendedor.id,
-      nome: vistoria.barragem.nome,
-      municipio: vistoria.barragem.municipio,
-      bacia_hidrografica: toNullableString(vistoria.barragem.baciaHidrografica),
-      curso_dagua: toNullableString(vistoria.barragem.cursoDagua),
-      latitude_decimal: vistoria.barragem.coordenadas.latitude,
-      longitude_decimal: vistoria.barragem.coordenadas.longitude,
-      datum: vistoria.barragem.coordenadas.datum || 'SIRGAS 2000',
-      cota_coroamento_metros: toNullableNumber(vistoria.barragem.cotaCoroamentoMetros),
-      ano_inicio_obra: toNullableNumber(vistoria.barragem.anoInicioObra),
-      ano_final_obra: toNullableNumber(vistoria.barragem.anoFinalObra),
-      tipo_barragem_material: vistoria.barragem.tipoMaterial,
-      uso_principal: vistoria.barragem.usoPrincipal,
-      usos_secundarios: vistoria.barragem.usosSecundarios || [],
-      updated_at: new Date().toISOString()
-    });
-    handleDbError(barError, 'barragens');
+      const barPerm = canFiscalizaEditMasterEntity(vistoria.barragem.sistemaOrigem);
+      if (barPerm.allowed) {
+        const { error: barError } = await fiscalizaSupabase.from('barragens').upsert({
+          id: vistoria.barragem.id,
+          sistema_origem: 'fiscaliza',
+          administra_id: vistoria.barragem.administraId || vistoria.barragem.id,
+          empreendedor_id: vistoria.empreendedor.id,
+          nome: vistoria.barragem.nome,
+          municipio: vistoria.barragem.municipio,
+          bacia_hidrografica: toNullableString(vistoria.barragem.baciaHidrografica),
+          curso_dagua: toNullableString(vistoria.barragem.cursoDagua),
+          latitude_decimal: vistoria.barragem.coordenadas.latitude,
+          longitude_decimal: vistoria.barragem.coordenadas.longitude,
+          datum: vistoria.barragem.coordenadas.datum || 'SIRGAS 2000',
+          cota_coroamento_metros: toNullableNumber(vistoria.barragem.cotaCoroamentoMetros),
+          ano_inicio_obra: toNullableNumber(vistoria.barragem.anoInicioObra),
+          ano_final_obra: toNullableNumber(vistoria.barragem.anoFinalObra),
+          tipo_barragem_material: vistoria.barragem.tipoMaterial,
+          uso_principal: vistoria.barragem.usoPrincipal,
+          usos_secundarios: vistoria.barragem.usosSecundarios || [],
+          updated_at: new Date().toISOString()
+        });
+        handleDbError(barError, 'barragens');
+      }
+    }
 
-    // 3. Upsert Vistoria Mestre
-    const { error: visError } = await supabase.from('vistorias').upsert({
+    // Produtos exclusivos da base do FISCALIZA: Vistorias, Medições, Itens e Documentos
+    const { error: visError } = await fiscalizaSupabase.from('vistorias').upsert({
       id: vistoria.id,
       barragem_id: vistoria.barragem.id,
-      tipo_planejamento: (vistoria as any).tipoPlanejamento || 'atual',
-      itens_observacao_futura: (vistoria as any).itensObservacaoFutura || [],
+      sistema_origem: 'fiscaliza',
+      tipo_planejamento: vistoria.tipoPlanejamento || 'atual',
+      itens_observacao_futura: vistoria.itensObservacaoFutura || [],
       numero_vistoria: vistoria.numeroVistoria || null,
       campanha_ano: vistoria.campanhaAno,
       campanha_numero: vistoria.campanhaNumero,
@@ -841,8 +960,7 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
     });
     handleDbError(visError, 'vistorias');
 
-    // 4. Upsert Medições
-    const { error: medError } = await supabase.from('vistoria_medicoes').upsert({
+    const { error: medError } = await fiscalizaSupabase.from('vistoria_medicoes').upsert({
       id: vistoria.medicoes.id,
       vistoria_id: vistoria.id,
       altura_barragem_metros: toNullableNumber(vistoria.medicoes.alturaBarragemMetros),
@@ -857,7 +975,6 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
     });
     handleDbError(medError, 'vistoria_medicoes');
 
-    // 5. Itens Avaliados
     const itens = Object.values(vistoria.itensAvaliados || {}) as ItemAvaliadoEntity[];
     const itensArray = itens.map(item => ({
       id: item.id,
@@ -873,11 +990,10 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
     }));
 
     if (itensArray.length > 0) {
-      const { error: itensError } = await supabase.from('vistoria_itens_avaliados').upsert(itensArray);
+      const { error: itensError } = await fiscalizaSupabase.from('vistoria_itens_avaliados').upsert(itensArray);
       handleDbError(itensError, 'vistoria_itens_avaliados');
     }
 
-    // 6. Documentos Gerados
     const docs = Object.values(vistoria.documentos || {}) as DocumentoGeradoEntity[];
     const docsArray = docs.map(doc => ({
       id: doc.id,
@@ -890,46 +1006,46 @@ export async function syncVistoriaToSupabase(input: VistoriaAggregate | Inspecti
     }));
 
     if (docsArray.length > 0) {
-      const { error: docError } = await supabase.from('vistoria_documentos').upsert(docsArray);
+      const { error: docError } = await fiscalizaSupabase.from('vistoria_documentos').upsert(docsArray);
       handleDbError(docError, 'vistoria_documentos');
     }
 
-    return { success: true };
+    return { success: true, skippedReadOnlyEntities };
   } catch (err: any) {
-    console.error('Erro ao sincronizar com banco de dados:', err);
+    console.error('[Sync] Erro ao sincronizar com banco de dados:', err?.message || err);
     const code = err?.code || '';
-    const isRls = code === '42501' || err?.isRlsError || String(err?.message || '').includes('row-level security') || String(err?.message || '').includes('violates row-level');
-    let message = err?.message || 'Falha na comunicação com o banco de dados seguro.';
-    
-    if (isRls && !message.startsWith('Permissão de Segurança')) {
-      message = 'Permissão de Segurança (RLS 42501 na tabela "empreendedores"): O banco de dados em nuvem exige autenticação de fiscal ou aplicação das políticas de coleta no Supabase. Os dados continuam 100% seguros e salvos localmente no dispositivo.';
-    }
+    const isRls =
+      code === '42501' ||
+      err?.isRlsError ||
+      String(err?.message || '').includes('row-level security') ||
+      String(err?.message || '').includes('violates row-level');
 
-    return { 
-      success: false, 
-      error: message,
+    return {
+      success: false,
+      error: err?.message || 'Falha na comunicação segura com o banco de dados.',
       code: String(code),
       isRlsError: !!isRls,
-      table: err?.table || 'empreendedores'
+      table: err?.table || 'vistorias',
+      skippedReadOnlyEntities
     };
   }
 }
 
-/**
- * Envia arquivo binário de foto para o Storage Privado
- */
 export async function uploadFotoToSupabaseStorage(
   vistoriaId: string,
   fotoId: string,
   imageBlob: Blob
 ): Promise<{ success: boolean; storagePath?: string; error?: string }> {
-  if (!supabase) {
-    return { success: false, error: 'Armazenamento em nuvem indisponível. Foto retida no cache local seguro.' };
+  if (!fiscalizaSupabase) {
+    return {
+      success: false,
+      error: 'Armazenamento em nuvem aguardando configuração de chaves. Foto retida localmente.'
+    };
   }
 
   try {
     const filePath = `vistorias/${vistoriaId}/${fotoId}.jpg`;
-    const { data, error } = await supabase.storage
+    const { data, error } = await fiscalizaSupabase.storage
       .from('fotos_vistorias_csb')
       .upload(filePath, imageBlob, {
         contentType: 'image/jpeg',
@@ -939,14 +1055,10 @@ export async function uploadFotoToSupabaseStorage(
     if (error) throw error;
     return { success: true, storagePath: data.path };
   } catch (err: any) {
-    console.error('Erro no upload de foto para o armazenamento remoto:', err);
     return { success: false, error: err.message || 'Falha ao salvar foto no Storage seguro.' };
   }
 }
 
-/**
- * Diagnóstico de Segurança, Autenticação e Proteção dos Registros
- */
 export async function getSupabaseSecurityDiagnostics(): Promise<{
   configured: boolean;
   authenticated: boolean;
@@ -954,35 +1066,48 @@ export async function getSupabaseSecurityDiagnostics(): Promise<{
   role?: string;
   rlsEnforced: boolean;
   privateStorageEnforced: boolean;
+  ecosystemNodes: EcosystemNodeStatus[];
   warnings: string[];
 }> {
-  if (!supabase) {
+  const ecosystemNodes = getEcosystemStatus();
+  const warnings: string[] = [];
+
+  ecosystemNodes.forEach(node => {
+    if (node.securityError) {
+      warnings.push(`ALERTA CRÍTICO (${node.nomeExibicao}): ${node.securityError}`);
+    }
+  });
+
+  if (!fiscalizaSupabase) {
     return {
       configured: false,
       authenticated: false,
       rlsEnforced: true,
       privateStorageEnforced: true,
+      ecosystemNodes,
       warnings: [
-        'Banco em nuvem operando em modo offline / protegido.',
-        'Operação de campo plenamente assegurada por armazenamento criptografado no dispositivo.',
-        'A sincronização centralizada ocorrerá quando houver conexão com o servidor seguro SEMA-MT.'
+        ...warnings,
+        'Chaves do Supabase ainda não inseridas no arquivo .env (migração preparada).',
+        'Autenticação reforçada com PBKDF2-SHA256 (120.000 iterações) + zero senhas padrão no código.',
+        'Base local operando em espelho seguro pronto para conexão com Administra, Fiscaliza, Classifica e Notifica.'
       ]
     };
   }
 
-  const warnings: string[] = [];
   let userEmail: string | undefined;
   let role: string | undefined;
   let authenticated = false;
 
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session }
+    } = await fiscalizaSupabase.auth.getSession();
     if (session?.user) {
       authenticated = true;
       userEmail = session.user.email;
-      role = session.user.user_metadata?.cargo || session.user.role || 'authenticated';
+      role = session.user.user_metadata?.perfil || session.user.role || 'authenticated';
     } else {
-      warnings.push('Conexão ativa com proteção RLS e criptografia de ponta a ponta.');
+      warnings.push('RLS ativo exigindo sessão autenticada (acesso anônimo desabilitado).');
     }
   } catch (e: any) {
     warnings.push(`Status da checagem de sessão: ${e.message}`);
@@ -995,20 +1120,17 @@ export async function getSupabaseSecurityDiagnostics(): Promise<{
     role,
     rlsEnforced: true,
     privateStorageEnforced: true,
+    ecosystemNodes,
     warnings
   };
 }
 
-/**
- * Consulta no Supabase a última numeração de vistoria registrada para o ano vigente.
- * Retorna o próximo número no formato "0001/ANO" ou null se não houver registros / offline.
- */
 export async function fetchLatestNumeroVistoriaFromSupabase(customYear?: number): Promise<string | null> {
-  if (!supabase) return null;
+  if (!fiscalizaSupabase) return null;
   const year = customYear || new Date().getFullYear();
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await fiscalizaSupabase
       .from('vistorias')
       .select('numero_vistoria')
       .or(`campanha_ano.eq.${year},numero_vistoria.ilike.%/${year}`)
@@ -1031,7 +1153,7 @@ export async function fetchLatestNumeroVistoriaFromSupabase(customYear?: number)
       return `${String(maxNum + 1).padStart(4, '0')}/${year}`;
     }
   } catch (e) {
-    console.warn('Erro ao consultar próximo número de vistoria no Supabase:', e);
+    console.warn('[Vistorias] Erro ao consultar próximo número no Supabase:', e);
   }
   return null;
 }

@@ -17,6 +17,7 @@ import {
   Check
 } from 'lucide-react';
 import { updateInspectorPassword } from '../services/supabase';
+import { validatePasswordStrength } from '../utils/securityCrypto';
 
 interface ChangePasswordModalProps {
   isOpen: boolean;
@@ -40,8 +41,9 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPassword || newPassword.length < 6) {
-      setFeedback({ type: 'error', text: 'A nova senha deve possuir pelo menos 6 caracteres.' });
+    const strength = validatePasswordStrength(newPassword);
+    if (!strength.valid) {
+      setFeedback({ type: 'error', text: strength.reason || 'A senha não atende aos requisitos mínimos de segurança.' });
       return;
     }
 

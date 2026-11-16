@@ -31,7 +31,12 @@ import {
   CalendarClock,
   PlayCircle,
   Sparkles,
-  Check
+  Check,
+  Network,
+  Link2,
+  Send,
+  FileSearch,
+  HardHat
 } from 'lucide-react';
 import { exportInspectionSheetPdf } from '../utils/exportInspectionSheetPdf';
 import { BASINS_MT, MUNICIPALITIES_MT } from '../data/damComponents';
@@ -40,9 +45,21 @@ import {
   ItemAvaliadoEntity, 
   EvaluationResponseType, 
   DamType,
-  InspectionPhoto 
+  InspectionPhoto,
+  ProdutoEcossistema,
+  SistemaOrigem,
+  EntidadeMestreTipo
 } from '../types/inspection';
 import { getNextVistoriaNumber } from '../services/storage';
+import {
+  applyMasterSelectionToInspection,
+  canFiscalizaEditMasterEntity,
+  findProductsByDamOrOwner,
+  subscribeEcosystemUpdates
+} from '../services/administraEcosystemService';
+import { getSistemaLabel } from '../services/ecosystemConfig';
+import { EcosystemImportedField } from './EcosystemImportedField';
+import { EcosystemTopic2Lookup } from './EcosystemTopic2Lookup';
 import { EvaluationItemCard } from './EvaluationItemCard';
 import { LocationCaptureWidget } from './LocationCaptureWidget';
 import { ComponentPhotoUploader } from './ComponentPhotoUploader';
@@ -62,6 +79,17 @@ interface Props {
   onSyncNow?: () => void;
   isSyncing?: boolean;
   onOpenAuthModal?: () => void;
+  onOpenEcosystemModal?: (options?: {
+    tab?: 'status' | 'catalogo' | 'solicitacoes' | 'notificacoes';
+    requestTarget?: {
+      entidadeTipo: EntidadeMestreTipo;
+      entidadeId: string;
+      entidadeNome: string;
+      sistemaDetentor: SistemaOrigem;
+      campoSugerido?: string;
+      valorAtualSugerido?: string;
+    };
+  }) => void;
 }
 
 export const OfficialInspectionSheetStep: React.FC<Props> = ({
@@ -72,8 +100,50 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
   onSave,
   onSyncNow,
   isSyncing = false,
-  onOpenAuthModal
+  onOpenAuthModal,
+  onOpenEcosystemModal
 }) => {
+  const [crossSystemProducts, setCrossSystemProducts] = useState<ProdutoEcossistema[]>([]);
+  const [unlockedImportedFields, setUnlockedImportedFields] = useState<Record<string, boolean>>({});
+  const unlockImportedField = (fieldKey: string) =>
+    setUnlockedImportedFields(prev => ({ ...prev, [fieldKey]: true }));
+  const importedOriginMap = data.importedFieldsOrigin || {};
+
+  React.useEffect(() => {
+    let active = true;
+    const refreshProducts = async () => {
+      try {
+        const list = await findProductsByDamOrOwner({
+          barragemId: data.barragemId,
+          empreendedorId: data.empreendedorId,
+          barragemNome: data.damIdentification?.damName,
+          empreendedorNome: data.damIdentification?.propertyOrBusinessName
+        });
+        if (active) {
+          // Exibe preferencialmente produtos de outros registros ou outros sistemas
+          setCrossSystemProducts(list.filter(p => p.origemRegistroId !== data.id));
+        }
+      } catch {}
+    };
+    refreshProducts();
+    const unsub = subscribeEcosystemUpdates(refreshProducts);
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, [
+    data.id,
+    data.barragemId,
+    data.empreendedorId,
+    data.damIdentification?.damName,
+    data.damIdentification?.propertyOrBusinessName
+  ]);
+
+  const damPerm = canFiscalizaEditMasterEntity(data.barragemOrigemSistema);
+  const ownerPerm = canFiscalizaEditMasterEntity(data.empreendedorOrigemSistema);
+  const rtPerm = canFiscalizaEditMasterEntity(
+    data.responsavelTecnicoOrigemSistema || data.responsavelTecnico?.sistemaOrigem
+  );
   // Estado de recolher/expandir seções preservando as respostas
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     sec1: true,
@@ -672,6 +742,58 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       </div>
 
       {/* ========================================================================= */}
+      {/* INTEGRAÇÃO ECOSSISTEMA CSB (ADMINISTRA / CLASSIFICA / NOTIFICA)          */}
+      {/* ========================================================================= */}
+      <div className="p-3.5 sm:p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/30 space-y-2.5 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-start gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+              <Network className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs sm:text-sm font-black text-indigo-950 dark:text-indigo-100">
+                Base Padronizada Administra Barragens & Descoberta no Ecossistema
+              </h3>
+              <p className="text-[11px] text-indigo-800/90 dark:text-indigo-300">
+                Utilize cadastros existentes no Administra ou cadastre novos aqui (gravados direto na base central como origem Fiscaliza). Registros de outros sistemas são somente leitura; correções exigem Solicitação de Alteração.
+              </p>
+            </div>
+          </div>
+
+          {onOpenEcosystemModal && (
+            <button
+              type="button"
+              onClick={() => onOpenEcosystemModal({ tab: 'catalogo' })}
+              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer shadow-xs"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              <span>Vincular Cadastro Central (Administra)</span>
+            </button>
+          )}
+        </div>
+
+        {crossSystemProducts.length > 0 && (
+          <div className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs text-slate-800 dark:text-slate-200">
+              <FileSearch className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span>
+                Identificados <strong>{crossSystemProducts.length} produto(s) prévio(s)</strong> no ecossistema (Classifica / Notifica / Administra / Fiscaliza) para esta barragem/empreendedor.
+              </span>
+            </div>
+            {onOpenEcosystemModal && (
+              <button
+                type="button"
+                onClick={() => onOpenEcosystemModal({ tab: 'catalogo' })}
+                className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 underline cursor-pointer"
+              >
+                Ver Produtos Existentes
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================================= */}
       {/* SEÇÃO 1: DADOS GERAIS DA BARRAGEM */}
       {/* ========================================================================= */}
       <div id="sec-topico-1" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
@@ -680,15 +802,52 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
           onClick={() => toggleSection('sec1')}
           className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">1</span>
             <span>1. Dados Gerais da Barragem</span>
+            {data.barragemOrigemSistema && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 normal-case">
+                Titularidade: {getSistemaLabel(data.barragemOrigemSistema)}
+              </span>
+            )}
           </div>
           {openSections.sec1 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
         </button>
 
         {openSections.sec1 && (
           <div className="p-4 sm:p-5 space-y-4">
+            {!damPerm.allowed && (
+              <div className="p-3 rounded-xl bg-orange-50 border border-orange-300 text-orange-950 text-xs flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
+                  <span>
+                    Dados da barragem importados de <strong>{getSistemaLabel(damPerm.sistemaDetentor)}</strong> (campos em laranja com <strong>*</strong>). Passe o mouse ou clique em um campo para abrir e alterar — a vistoria tem superioridade, atualiza os demais sistemas e notifica o analista autor.
+                  </span>
+                </div>
+                {onOpenEcosystemModal && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenEcosystemModal({
+                        tab: 'catalogo',
+                        requestTarget: {
+                          entidadeTipo: 'barragem',
+                          entidadeId: data.barragemId || data.id,
+                          entidadeNome: data.damIdentification.damName || 'Barragem vinculada',
+                          sistemaDetentor: damPerm.sistemaDetentor,
+                          campoSugerido: 'nome',
+                          valorAtualSugerido: data.damIdentification.damName
+                        }
+                      })
+                    }
+                    className="px-3 py-1 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>Registrar Solicitação Formal</span>
+                  </button>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -754,71 +913,115 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 )}
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Nome da Barragem <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="ex: Açude Fazenda Esperança"
-                  value={data.damIdentification.damName}
-                  onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, damName: e.target.value } }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
+              <EcosystemImportedField
+                label="Nome da Barragem"
+                required
+                meta={importedOriginMap.damName}
+                currentValue={data.damIdentification.damName}
+                isUnlocked={!!unlockedImportedFields.damName}
+                onUnlock={() => unlockImportedField('damName')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="text"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="ex: Açude Fazenda Esperança"
+                    value={data.damIdentification.damName}
+                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, damName: e.target.value } }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Município (Mato Grosso) <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={data.damIdentification.municipality}
-                  onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, municipality: e.target.value } }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                >
-                  <option value="">Selecione...</option>
-                  {MUNICIPALITIES_MT.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </div>
+              <EcosystemImportedField
+                label="Município (Mato Grosso)"
+                required
+                meta={importedOriginMap.municipality}
+                currentValue={data.damIdentification.municipality}
+                isUnlocked={!!unlockedImportedFields.municipality}
+                onUnlock={() => unlockImportedField('municipality')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <select
+                    disabled={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    value={data.damIdentification.municipality}
+                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, municipality: e.target.value } }))}
+                    className={className}
+                  >
+                    <option value="">Selecione...</option>
+                    {MUNICIPALITIES_MT.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                )}
+              </EcosystemImportedField>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Nome do Curso D'Água Barrado
-                </label>
-                <input
-                  type="text"
-                  placeholder="ex: Córrego do Barreiro"
-                  value={data.damIdentification.waterCourse}
-                  onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, waterCourse: e.target.value } }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
+              <EcosystemImportedField
+                label="Nome do Curso D'Água Barrado"
+                meta={importedOriginMap.waterCourse}
+                currentValue={data.damIdentification.waterCourse}
+                isUnlocked={!!unlockedImportedFields.waterCourse}
+                onUnlock={() => unlockImportedField('waterCourse')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="text"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="ex: Córrego do Barreiro"
+                    value={data.damIdentification.waterCourse}
+                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, waterCourse: e.target.value } }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Ano Início da Obra
-                </label>
-                <input
-                  type="number"
-                  placeholder="ex: 2012"
-                  value={data.damIdentification.estimatedDimensions.heightMeters ? '' : ''}
-                  onChange={() => {}}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
+              <EcosystemImportedField
+                label="Ano Início da Obra"
+                meta={importedOriginMap.workStartYear}
+                currentValue={data.damIdentification.workStartYear || ''}
+                isUnlocked={!!unlockedImportedFields.workStartYear}
+                onUnlock={() => unlockImportedField('workStartYear')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="number"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="ex: 2012"
+                    value={data.damIdentification.workStartYear || ''}
+                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, workStartYear: e.target.value } }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Ano Final da Obra
-                </label>
-                <input
-                  type="number"
-                  placeholder="ex: 2014"
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
+              <EcosystemImportedField
+                label="Ano Final da Obra"
+                meta={importedOriginMap.workEndYear}
+                currentValue={data.damIdentification.workEndYear || ''}
+                isUnlocked={!!unlockedImportedFields.workEndYear}
+                onUnlock={() => unlockImportedField('workEndYear')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="number"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="ex: 2014"
+                    value={data.damIdentification.workEndYear || ''}
+                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, workEndYear: e.target.value } }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
             </div>
 
             {/* Coordenadas e GPS com Widget Rigoroso */}
@@ -858,55 +1061,134 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
           onClick={() => toggleSection('sec2')}
           className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">2</span>
             <span>2. Identificação do Empreendedor e Propriedade</span>
+            {data.empreendedorOrigemSistema && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 normal-case">
+                Titularidade: {getSistemaLabel(data.empreendedorOrigemSistema)}
+              </span>
+            )}
           </div>
           {openSections.sec2 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
         </button>
 
         {openSections.sec2 && (
           <div className="p-4 sm:p-5 space-y-4">
+            {!ownerPerm.allowed && (
+              <div className="p-3 rounded-xl bg-orange-50 border border-orange-300 text-orange-950 text-xs flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
+                  <span>
+                    Dados do empreendedor importados de <strong>{getSistemaLabel(ownerPerm.sistemaDetentor)}</strong> (caixas em laranja com <strong>*</strong>). Passe o mouse ou clique para abrir e alterar — a vistoria tem superioridade, atualiza os demais sistemas e notifica a caixa do analista autor.
+                  </span>
+                </div>
+                {onOpenEcosystemModal && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenEcosystemModal({
+                        tab: 'catalogo',
+                        requestTarget: {
+                          entidadeTipo: 'empreendedor',
+                          entidadeId: data.empreendedorId || data.id,
+                          entidadeNome: data.damIdentification.propertyOrBusinessName || 'Empreendedor vinculado',
+                          sistemaDetentor: ownerPerm.sistemaDetentor,
+                          campoSugerido: 'nomeRazaoSocial',
+                          valorAtualSugerido: data.damIdentification.propertyOrBusinessName
+                        }
+                      })
+                    }
+                    className="px-3 py-1 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>Registrar Solicitação Formal</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Nome do Empreendedor / Razão Social <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Nome completo ou Razão Social"
-                  value={data.damIdentification.propertyOrBusinessName}
-                  onChange={e => onChange(p => ({
-                    ...p,
-                    damIdentification: { ...p.damIdentification, propertyOrBusinessName: e.target.value }
-                  }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
+              <EcosystemImportedField
+                className="sm:col-span-2"
+                label="Nome do Empreendedor / Razão Social"
+                required
+                meta={importedOriginMap.propertyOrBusinessName}
+                currentValue={data.damIdentification.propertyOrBusinessName}
+                isUnlocked={!!unlockedImportedFields.propertyOrBusinessName}
+                onUnlock={() => unlockImportedField('propertyOrBusinessName')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="text"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="Nome completo ou Razão Social"
+                    value={data.damIdentification.propertyOrBusinessName}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      damIdentification: { ...p.damIdentification, propertyOrBusinessName: e.target.value }
+                    }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  CPF ou CNPJ
-                </label>
-                <input
-                  type="text"
-                  placeholder="000.000.000-00 ou 00.000.000/0001-00"
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
+              <EcosystemImportedField
+                label="CPF ou CNPJ"
+                meta={importedOriginMap.ownerCpfCnpj}
+                currentValue={data.damIdentification.ownerCpfCnpj || ''}
+                isUnlocked={!!unlockedImportedFields.ownerCpfCnpj}
+                onUnlock={() => unlockImportedField('ownerCpfCnpj')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="text"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="000.000.000-00 ou 00.000.000/0001-00"
+                    value={data.damIdentification.ownerCpfCnpj || ''}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      damIdentification: { ...p.damIdentification, ownerCpfCnpj: e.target.value }
+                    }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Figura Jurídica
-                </label>
-                <select className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50">
-                  <option value="empresa_privada">Empresa Privada</option>
-                  <option value="pessoa_fisica">Pessoa Física</option>
-                  <option value="orgao_publico">Órgão Público</option>
-                  <option value="cooperativa">Cooperativa / Associação</option>
-                  <option value="outra">Outra</option>
-                </select>
-              </div>
+              <EcosystemImportedField
+                label="Figura Jurídica"
+                meta={importedOriginMap.ownerLegalType}
+                currentValue={data.damIdentification.ownerLegalType || 'empresa_privada'}
+                isUnlocked={!!unlockedImportedFields.ownerLegalType}
+                onUnlock={() => unlockImportedField('ownerLegalType')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <select
+                    disabled={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    value={data.damIdentification.ownerLegalType || 'empresa_privada'}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      damIdentification: {
+                        ...p.damIdentification,
+                        ownerLegalType: e.target.value as any
+                      }
+                    }))}
+                    className={className}
+                  >
+                    <option value="empresa_privada">Empresa Privada</option>
+                    <option value="pessoa_fisica">Pessoa Física</option>
+                    <option value="orgao_publico">Órgão Público</option>
+                    <option value="cooperativa">Cooperativa / Associação</option>
+                    <option value="outra">Outra</option>
+                  </select>
+                )}
+              </EcosystemImportedField>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -915,105 +1197,387 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 <input
                   type="text"
                   placeholder="ex: PROC-2026/04812"
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Telefone / WhatsApp
-                </label>
-                <input
-                  type="text"
-                  placeholder="(65) 99999-0000"
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Endereço / Localização da Propriedade
-                </label>
-                <input
-                  type="text"
-                  placeholder="Rodovia, Km, Zona Rural"
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  E-mail
-                </label>
-                <input
-                  type="email"
-                  placeholder="e-mail do empreendedor"
-                  value={data.conclusions.notificationDetails.destinatario.email || ''}
+                  value={data.generalInfo.recordNumber}
                   onChange={e => onChange(p => ({
                     ...p,
-                    conclusions: {
-                      ...p.conclusions,
-                      notificationDetails: {
-                        ...p.conclusions.notificationDetails,
-                        destinatario: {
-                          ...p.conclusions.notificationDetails.destinatario,
-                          email: e.target.value
+                    generalInfo: { ...p.generalInfo, recordNumber: e.target.value }
+                  }))}
+                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
+                />
+              </div>
+
+              <EcosystemImportedField
+                label="Telefone / WhatsApp"
+                meta={importedOriginMap.ownerPhone}
+                currentValue={data.damIdentification.ownerPhone || ''}
+                isUnlocked={!!unlockedImportedFields.ownerPhone}
+                onUnlock={() => unlockImportedField('ownerPhone')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="text"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="(65) 99999-0000"
+                    value={data.damIdentification.ownerPhone || ''}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      damIdentification: { ...p.damIdentification, ownerPhone: e.target.value }
+                    }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
+
+              <EcosystemImportedField
+                className="sm:col-span-2"
+                label="Endereço / Localização da Propriedade"
+                meta={importedOriginMap.ownerAddress}
+                currentValue={data.damIdentification.ownerAddress || ''}
+                isUnlocked={!!unlockedImportedFields.ownerAddress}
+                onUnlock={() => unlockImportedField('ownerAddress')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="text"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="Rodovia, Km, Zona Rural"
+                    value={data.damIdentification.ownerAddress || ''}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      damIdentification: { ...p.damIdentification, ownerAddress: e.target.value }
+                    }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
+
+              <EcosystemImportedField
+                label="E-mail"
+                meta={importedOriginMap.ownerEmail}
+                currentValue={data.conclusions.notificationDetails.destinatario.email || ''}
+                isUnlocked={!!unlockedImportedFields.ownerEmail}
+                onUnlock={() => unlockImportedField('ownerEmail')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="email"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="e-mail do empreendedor"
+                    value={data.conclusions.notificationDetails.destinatario.email || ''}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      conclusions: {
+                        ...p.conclusions,
+                        notificationDetails: {
+                          ...p.conclusions.notificationDetails,
+                          destinatario: {
+                            ...p.conclusions.notificationDetails.destinatario,
+                            email: e.target.value
+                          }
                         }
                       }
+                    }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
+
+              <EcosystemImportedField
+                label="CAR / Recibo de Inscrição"
+                meta={importedOriginMap.carNumber}
+                currentValue={data.damIdentification.regulatoryStatus.carNumber}
+                isUnlocked={!!unlockedImportedFields.carNumber}
+                onUnlock={() => unlockImportedField('carNumber')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="text"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="MT-XXXXXXX-..."
+                    value={data.damIdentification.regulatoryStatus.carNumber}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      damIdentification: {
+                        ...p.damIdentification,
+                        regulatoryStatus: { ...p.damIdentification.regulatoryStatus, carNumber: e.target.value }
+                      }
+                    }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
+
+              <EcosystemImportedField
+                label="Declaração de Uso / Outorga"
+                meta={importedOriginMap.permitNumber}
+                currentValue={data.damIdentification.regulatoryStatus.permitNumber}
+                isUnlocked={!!unlockedImportedFields.permitNumber}
+                onUnlock={() => unlockImportedField('permitNumber')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="text"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    placeholder="Nº da outorga ou dispensa"
+                    value={data.damIdentification.regulatoryStatus.permitNumber}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      damIdentification: {
+                        ...p.damIdentification,
+                        regulatoryStatus: { ...p.damIdentification.regulatoryStatus, permitNumber: e.target.value }
+                      }
+                    }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
+
+              <EcosystemImportedField
+                label="Quantidade de Barragens no Imóvel"
+                meta={importedOriginMap.damsCountOnProperty}
+                currentValue={data.damIdentification.damsCountOnProperty || '1'}
+                isUnlocked={!!unlockedImportedFields.damsCountOnProperty}
+                onUnlock={() => unlockImportedField('damsCountOnProperty')}
+              >
+                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                  <input
+                    type="number"
+                    readOnly={readOnlyByImport}
+                    title={titleTooltip}
+                    onClick={onFocusOrClick}
+                    value={data.damIdentification.damsCountOnProperty || '1'}
+                    min="1"
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      damIdentification: { ...p.damIdentification, damsCountOnProperty: e.target.value }
+                    }))}
+                    className={className}
+                  />
+                )}
+              </EcosystemImportedField>
+            </div>
+
+            {/* LUPINHA DE CONSULTA AO ECOSSISTEMA E EXPORTAÇÃO DE EMPREENDEDOR / BARRAGENS */}
+            <EcosystemTopic2Lookup
+              initialQuery={data.damIdentification.propertyOrBusinessName || data.damIdentification.ownerCpfCnpj || ''}
+              onExportSelection={payload => {
+                onChange(prev => applyMasterSelectionToInspection(prev, payload));
+                setUnlockedImportedFields({});
+                showFieldToast(
+                  payload.barragem
+                    ? `Dados de "${payload.empreendedor.nomeRazaoSocial}" e da barragem "${payload.barragem.nome}" exportados (marcados em laranja*).`
+                    : `Dados de "${payload.empreendedor.nomeRazaoSocial}" exportados (marcados em laranja*).`
+                );
+              }}
+            />
+
+            {/* Sub-bloco 2B: Responsável Técnico pela Segurança da Barragem */}
+            <div className="pt-3 border-t border-slate-200 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <HardHat className="w-4 h-4 text-emerald-700" />
+                  <h4 className="text-xs font-extrabold uppercase tracking-wide text-slate-800">
+                    2B. Responsável Técnico (Sincronizado no Administra)
+                  </h4>
+                  {(data.responsavelTecnicoOrigemSistema || data.responsavelTecnico?.sistemaOrigem) && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                      Titularidade: {getSistemaLabel(data.responsavelTecnicoOrigemSistema || data.responsavelTecnico?.sistemaOrigem)}
+                    </span>
+                  )}
+                </div>
+                {!rtPerm.allowed && onOpenEcosystemModal && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenEcosystemModal({
+                        tab: 'catalogo',
+                        requestTarget: {
+                          entidadeTipo: 'responsavel_tecnico',
+                          entidadeId: data.responsavelTecnicoId || data.responsavelTecnico?.id || data.id,
+                          entidadeNome: data.responsavelTecnico?.nome || 'Responsável Técnico vinculado',
+                          sistemaDetentor: rtPerm.sistemaDetentor,
+                          campoSugerido: 'registroProfissional',
+                          valorAtualSugerido: data.responsavelTecnico?.registroProfissional || ''
+                        }
+                      })
                     }
-                  }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
+                    className="px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>Registrar Solicitação Formal</span>
+                  </button>
+                )}
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  CAR / Recibo de Inscrição
-                </label>
-                <input
-                  type="text"
-                  placeholder="MT-XXXXXXX-..."
-                  value={data.damIdentification.regulatoryStatus.carNumber}
-                  onChange={e => onChange(p => ({
-                    ...p,
-                    damIdentification: {
-                      ...p.damIdentification,
-                      regulatoryStatus: { ...p.damIdentification.regulatoryStatus, carNumber: e.target.value }
-                    }
-                  }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <EcosystemImportedField
+                  label="Nome do Responsável Técnico"
+                  meta={importedOriginMap.rtNome}
+                  currentValue={data.responsavelTecnico?.nome || ''}
+                  isUnlocked={!!unlockedImportedFields.rtNome}
+                  onUnlock={() => unlockImportedField('rtNome')}
+                >
+                  {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                    <input
+                      type="text"
+                      readOnly={readOnlyByImport}
+                      title={titleTooltip}
+                      onClick={onFocusOrClick}
+                      placeholder="Engenheiro(a) / Geólogo(a)"
+                      value={data.responsavelTecnico?.nome || ''}
+                      onChange={e =>
+                        onChange(p => ({
+                          ...p,
+                          responsavelTecnico: { ...(p.responsavelTecnico || { nome: '' }), nome: e.target.value }
+                        }))
+                      }
+                      className={className}
+                    />
+                  )}
+                </EcosystemImportedField>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Declaração de Uso / Outorga
-                </label>
-                <input
-                  type="text"
-                  placeholder="Nº da outorga ou dispensa"
-                  value={data.damIdentification.regulatoryStatus.permitNumber}
-                  onChange={e => onChange(p => ({
-                    ...p,
-                    damIdentification: {
-                      ...p.damIdentification,
-                      regulatoryStatus: { ...p.damIdentification.regulatoryStatus, permitNumber: e.target.value }
-                    }
-                  }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
+                <EcosystemImportedField
+                  label="Registro Profissional (CREA/CONFEA)"
+                  meta={importedOriginMap.rtRegistro}
+                  currentValue={data.responsavelTecnico?.registroProfissional || ''}
+                  isUnlocked={!!unlockedImportedFields.rtRegistro}
+                  onUnlock={() => unlockImportedField('rtRegistro')}
+                >
+                  {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                    <input
+                      type="text"
+                      readOnly={readOnlyByImport}
+                      title={titleTooltip}
+                      onClick={onFocusOrClick}
+                      placeholder="CREA-MT 00000/D"
+                      value={data.responsavelTecnico?.registroProfissional || ''}
+                      onChange={e =>
+                        onChange(p => ({
+                          ...p,
+                          responsavelTecnico: {
+                            ...(p.responsavelTecnico || { nome: '' }),
+                            registroProfissional: e.target.value
+                          }
+                        }))
+                      }
+                      className={className}
+                    />
+                  )}
+                </EcosystemImportedField>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Quantidade de Barragens no Imóvel
-                </label>
-                <input
-                  type="number"
-                  defaultValue="1"
-                  min="1"
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
+                <EcosystemImportedField
+                  label="Nº ART / TRT"
+                  meta={importedOriginMap.rtArt}
+                  currentValue={data.responsavelTecnico?.artNumero || ''}
+                  isUnlocked={!!unlockedImportedFields.rtArt}
+                  onUnlock={() => unlockImportedField('rtArt')}
+                >
+                  {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                    <input
+                      type="text"
+                      readOnly={readOnlyByImport}
+                      title={titleTooltip}
+                      onClick={onFocusOrClick}
+                      placeholder="Número da ART"
+                      value={data.responsavelTecnico?.artNumero || ''}
+                      onChange={e =>
+                        onChange(p => ({
+                          ...p,
+                          responsavelTecnico: { ...(p.responsavelTecnico || { nome: '' }), artNumero: e.target.value }
+                        }))
+                      }
+                      className={className}
+                    />
+                  )}
+                </EcosystemImportedField>
+
+                <EcosystemImportedField
+                  label="CPF do RT"
+                  meta={importedOriginMap.rtCpf}
+                  currentValue={data.responsavelTecnico?.cpf || ''}
+                  isUnlocked={!!unlockedImportedFields.rtCpf}
+                  onUnlock={() => unlockImportedField('rtCpf')}
+                >
+                  {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                    <input
+                      type="text"
+                      readOnly={readOnlyByImport}
+                      title={titleTooltip}
+                      onClick={onFocusOrClick}
+                      placeholder="000.000.000-00"
+                      value={data.responsavelTecnico?.cpf || ''}
+                      onChange={e =>
+                        onChange(p => ({
+                          ...p,
+                          responsavelTecnico: { ...(p.responsavelTecnico || { nome: '' }), cpf: e.target.value }
+                        }))
+                      }
+                      className={className}
+                    />
+                  )}
+                </EcosystemImportedField>
+
+                <EcosystemImportedField
+                  label="Telefone do RT"
+                  meta={importedOriginMap.rtTelefone}
+                  currentValue={data.responsavelTecnico?.telefone || ''}
+                  isUnlocked={!!unlockedImportedFields.rtTelefone}
+                  onUnlock={() => unlockImportedField('rtTelefone')}
+                >
+                  {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                    <input
+                      type="text"
+                      readOnly={readOnlyByImport}
+                      title={titleTooltip}
+                      onClick={onFocusOrClick}
+                      placeholder="(65) 99999-0000"
+                      value={data.responsavelTecnico?.telefone || ''}
+                      onChange={e =>
+                        onChange(p => ({
+                          ...p,
+                          responsavelTecnico: { ...(p.responsavelTecnico || { nome: '' }), telefone: e.target.value }
+                        }))
+                      }
+                      className={className}
+                    />
+                  )}
+                </EcosystemImportedField>
+
+                <EcosystemImportedField
+                  label="E-mail do RT"
+                  meta={importedOriginMap.rtEmail}
+                  currentValue={data.responsavelTecnico?.email || ''}
+                  isUnlocked={!!unlockedImportedFields.rtEmail}
+                  onUnlock={() => unlockImportedField('rtEmail')}
+                >
+                  {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                    <input
+                      type="email"
+                      readOnly={readOnlyByImport}
+                      title={titleTooltip}
+                      onClick={onFocusOrClick}
+                      placeholder="rt@exemplo.com.br"
+                      value={data.responsavelTecnico?.email || ''}
+                      onChange={e =>
+                        onChange(p => ({
+                          ...p,
+                          responsavelTecnico: { ...(p.responsavelTecnico || { nome: '' }), email: e.target.value }
+                        }))
+                      }
+                      className={className}
+                    />
+                  )}
+                </EcosystemImportedField>
               </div>
             </div>
 

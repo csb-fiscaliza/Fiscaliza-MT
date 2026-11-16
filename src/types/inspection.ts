@@ -149,16 +149,131 @@ export interface PhotoRecord {
 }
 
 // ==============================================================================
+// ECOSSISTEMA INTEGRADO CSB/SEMA-MT (ADMINISTRA, CLASSIFICA, NOTIFICA, FISCALIZA)
+// ==============================================================================
+
+export type SistemaOrigem = 'administra' | 'fiscaliza' | 'classifica' | 'notifica';
+
+export type EntidadeMestreTipo = 'empreendedor' | 'barragem' | 'responsavel_tecnico';
+
+export type SolicitacaoAlteracaoStatus =
+  | 'pendente'
+  | 'aprovada'
+  | 'reprovada'
+  | 'cancelada'
+  | 'aplicada_por_vistoria';
+
+export interface ImportedFieldOriginRecord {
+  fieldKey: string;
+  fieldLabel: string;
+  entidadeTipo: EntidadeMestreTipo;
+  entidadeId: string;
+  sourceSystem: SistemaOrigem;
+  originalAnalystEmail?: string | null;
+  originalAnalystName?: string | null;
+  originalValue: string;
+  currentValue?: string;
+  importedAt: string;
+  modifiedInVistoria?: boolean;
+  modifiedByEmail?: string | null;
+  modifiedByName?: string | null;
+  modifiedAt?: string | null;
+  notifiedOriginalAnalyst?: boolean;
+}
+
+export interface NotificacaoAnalistaEcossistema {
+  id: string;
+  sistemaDestino: SistemaOrigem;
+  sistemaOrigem: SistemaOrigem;
+  destinatarioAnalistaEmail: string;
+  entidadeTipo: EntidadeMestreTipo;
+  entidadeId: string;
+  entidadeNome: string;
+  vistoriaId: string;
+  numeroVistoria?: string | null;
+  campoAlterado: string;
+  campoRotulo: string;
+  valorAnterior: string;
+  valorAtualizadoVistoria: string;
+  alteradoPorEmail: string;
+  alteradoPorNome: string;
+  motivoSuperioridade: string;
+  lida: boolean;
+  criadaEm: string;
+}
+
+export interface SolicitacaoAlteracaoCampo {
+  rotulo: string;
+  valorAtual: string;
+  valorProposto: string;
+}
+
+export interface SolicitacaoAlteracaoEcossistema {
+  id: string;
+  entidadeTipo: EntidadeMestreTipo;
+  entidadeId: string;
+  entidadeNome: string;
+  sistemaSolicitante: SistemaOrigem;
+  sistemaDetentor: SistemaOrigem;
+  solicitanteEmail: string;
+  solicitanteNome: string;
+  aprovadorDesignadoEmail?: string | null;
+  camposAlterados: Record<string, SolicitacaoAlteracaoCampo>;
+  justificativa: string;
+  status: SolicitacaoAlteracaoStatus;
+  respostaMotivo?: string | null;
+  analisadoPorEmail?: string | null;
+  analisadoPorNome?: string | null;
+  analisadoEm?: string | null;
+  criadoEm: string;
+  atualizadoEm: string;
+}
+
+export interface ProdutoEcossistema {
+  id: string;
+  sistemaOrigem: SistemaOrigem;
+  tipoProduto:
+    | 'vistoria_campo'
+    | 'auto_inspecao'
+    | 'relatorio_tecnico'
+    | 'notificacao'
+    | 'classificacao_cri_dpa'
+    | 'parecer_tecnico'
+    | 'oficio'
+    | 'outro';
+  titulo: string;
+  numeroDocumento?: string | null;
+  processoNumero?: string | null;
+  barragemId: string;
+  barragemNome: string;
+  empreendedorId: string;
+  empreendedorNome: string;
+  responsavelTecnicoId?: string | null;
+  origemRegistroId: string;
+  statusProduto: string;
+  dataEmissao: string;
+  autorEmail?: string | null;
+  autorNome?: string | null;
+  resumo?: string | null;
+  atualizadoEm: string;
+}
+
+// ==============================================================================
 // ENTIDADES RELACIONAIS COM IDENTIFICADORES ESTÁVEIS (UUID)
 // ==============================================================================
 
 export interface EmpreendedorEntity {
   id: string;
+  administraId?: string | null;
+  sistemaOrigem: SistemaOrigem;
+  criadoPorEmail?: string | null;
   nomeRazaoSocial: string;
   cpfCnpj?: string | null;
-  figuraJuridica: 'empresa_privada' | 'pessoa_fisica' | 'orgao_publico' | 'outra';
+  figuraJuridica: 'empresa_privada' | 'pessoa_fisica' | 'orgao_publico' | 'cooperativa' | 'outra';
   processoNumero?: string | null;
   endereco: string;
+  municipio?: string | null;
+  uf?: string | null;
   telefone?: string | null;
   email?: string | null;
   documentosPessoais?: string | null;
@@ -166,18 +281,24 @@ export interface EmpreendedorEntity {
   declaracaoUsoOutorga?: string | null;
   quantidadeBarragens?: number | null;
   comentarios?: string | null;
+  sincronizadoAdministraEm?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface BarragemEntity {
   id: string;
+  administraId?: string | null;
+  sistemaOrigem: SistemaOrigem;
+  criadoPorEmail?: string | null;
   empreendedorId: string;
   nome: string;
   municipio: string;
   baciaHidrografica?: string | null;
   cursoDagua?: string | null;
   coordenadas: LocationRecord;
+  latitudeGms?: string | null;
+  longitudeGms?: string | null;
   cotaCoroamentoMetros?: number | null;
   anoInicioObra?: number | null;
   anoFinalObra?: number | null;
@@ -185,6 +306,27 @@ export interface BarragemEntity {
   tipoMaterial: DamType;
   usoPrincipal: string;
   usosSecundarios: string[];
+  sincronizadoAdministraEm?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResponsavelTecnicoEntity {
+  id: string;
+  administraId?: string | null;
+  sistemaOrigem: SistemaOrigem;
+  criadoPorEmail?: string | null;
+  empreendedorId?: string | null;
+  barragemId?: string | null;
+  nome: string;
+  cpf?: string | null;
+  registroProfissional?: string | null; // Ex: CREA-MT 12345/D
+  ufRegistro?: string | null;
+  artNumero?: string | null;
+  especialidade?: string | null;
+  telefone?: string | null;
+  email?: string | null;
+  sincronizadoAdministraEm?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -380,6 +522,12 @@ export interface InspectionData {
   id: string;
   barragemId?: string;
   empreendedorId?: string;
+  responsavelTecnicoId?: string;
+  sistemaOrigem?: SistemaOrigem; // Origem dos dados mestres vinculados (administra | fiscaliza | classifica | notifica)
+  empreendedorOrigemSistema?: SistemaOrigem;
+  barragemOrigemSistema?: SistemaOrigem;
+  responsavelTecnicoOrigemSistema?: SistemaOrigem;
+  importedFieldsOrigin?: Record<string, ImportedFieldOriginRecord>;
   createdByEmail?: string;
   createdByName?: string;
   createdByUserId?: string;
@@ -417,6 +565,13 @@ export interface InspectionData {
   damIdentification: {
     damName: string;
     propertyOrBusinessName: string;
+    ownerCpfCnpj?: string;
+    ownerLegalType?: 'empresa_privada' | 'pessoa_fisica' | 'orgao_publico' | 'cooperativa' | 'outra';
+    ownerPhone?: string;
+    ownerAddress?: string;
+    damsCountOnProperty?: string;
+    workStartYear?: string;
+    workEndYear?: string;
     municipality: string;
     hydrographicBasin: string;
     waterCourse: string;
@@ -450,6 +605,18 @@ export interface InspectionData {
       carNumber: string;
       notes: string;
     };
+  };
+
+  responsavelTecnico?: {
+    id?: string;
+    nome: string;
+    cpf?: string;
+    registroProfissional?: string;
+    artNumero?: string;
+    especialidade?: string;
+    telefone?: string;
+    email?: string;
+    sistemaOrigem?: SistemaOrigem;
   };
 
   componentsData: Record<string, ComponentInspectionData>;

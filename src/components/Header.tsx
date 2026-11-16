@@ -23,7 +23,8 @@ import {
   Users,
   Sun,
   Moon,
-  Sunset
+  Sunset,
+  Network
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { getPhotoQueueSummary, subscribePhotoQueue } from '../services/photoSyncQueueService';
@@ -50,6 +51,8 @@ interface HeaderProps {
   currentUser?: { email?: string; fullName?: string; role?: string } | null;
   onLogout?: () => void;
   onOpenChangePassword?: () => void;
+  onOpenEcosystemModal?: () => void;
+  pendingAlterationCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -67,7 +70,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenPhotoQueueModal,
   currentUser,
   onLogout,
-  onOpenChangePassword
+  onOpenChangePassword,
+  onOpenEcosystemModal,
+  pendingAlterationCount = 0
 }) => {
   const [photoQueuePending, setPhotoQueuePending] = React.useState(0);
 
@@ -95,9 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
   const isSheetActive = activeStep >= 1 && activeStep <= 5;
 
   const userRole = (currentUser?.role || '').toLowerCase();
-  const isAdmin = userRole === 'administrador' || userRole === 'admin' || 
-    currentUser?.email?.toLowerCase() === 'yarageologa@gmail.com' || 
-    currentUser?.email?.toLowerCase() === 'csb.fiscaliza@sema.mt.gov.br';
+  const isAdmin = userRole === 'administrador' || userRole === 'admin';
   const isVisualizador = userRole === 'visualizador';
 
   // Saudação dinâmica conforme o horário do dia
@@ -239,6 +242,24 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden md:inline text-[10px] text-slate-400 font-mono">0</span>
             )}
           </button>
+
+          {/* Ecossistema CSB (Administra, Classifica, Notifica) */}
+          {onOpenEcosystemModal && (
+            <button
+              type="button"
+              onClick={onOpenEcosystemModal}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 transition cursor-pointer"
+              title="Integração com Administra Barragens, Classifica e Notifica"
+            >
+              <Network className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span className="hidden md:inline">Ecossistema CSB</span>
+              {pendingAlterationCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
+                  {pendingAlterationCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Criptografia Ativa */}
           <button

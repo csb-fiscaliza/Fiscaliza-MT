@@ -78,6 +78,10 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
   const [emailModalData, setEmailModalData] = useState<{ user: UserProfile; payload: ApprovalEmailPayload } | null>(null);
   const [copiedEmailText, setCopiedEmailText] = useState(false);
   
+  // Modal de Senha Temporária de Uso Único (gerada aleatoriamente)
+  const [oneTimePwdModal, setOneTimePwdModal] = useState<{ userEmail: string; userName: string; tempPwd: string } | null>(null);
+  const [copiedTempPwd, setCopiedTempPwd] = useState(false);
+
   // Feedback
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
@@ -153,11 +157,18 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
     });
 
     if (res.success) {
+      setShowCreateModal(false);
+      if (res.temporaryPassword) {
+        setOneTimePwdModal({
+          userEmail: formData.email,
+          userName: formData.name,
+          tempPwd: res.temporaryPassword
+        });
+      }
       setFeedback({ 
         type: 'success', 
-        message: `Usuário ${formData.name} cadastrado com sucesso com a senha padrão institucional.` 
+        message: `Usuário ${formData.name} cadastrado com senha temporária segura gerada em tempo de execução.` 
       });
-      setShowCreateModal(false);
       setTimeout(() => setFeedback(null), 6000);
     } else {
       setFeedback({ type: 'error', message: res.error || 'Erro ao criar usuário.' });
@@ -219,15 +230,20 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
   };
 
   const handleResetPassword = async (user: UserProfile) => {
-    if (!window.confirm(`Deseja redefinir a senha de "${user.name}" para a senha institucional padrão?`)) {
+    if (!window.confirm(`Deseja gerar uma nova senha temporária criptográfica para "${user.name}"?`)) {
       return;
     }
 
     const res = await resetUserPasswordToDefault(user.email);
-    if (res.success) {
+    if (res.success && res.temporaryPassword) {
+      setOneTimePwdModal({
+        userEmail: user.email,
+        userName: user.name,
+        tempPwd: res.temporaryPassword
+      });
       setFeedback({ 
         type: 'success', 
-        message: `Senha de ${user.name} redefinida com sucesso para o padrão institucional.` 
+        message: `Nova senha temporária gerada com segurança para ${user.name}.` 
       });
       setTimeout(() => setFeedback(null), 6000);
     } else {
@@ -319,19 +335,17 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
   const visualizadorCount = users.filter(u => u.role === 'visualizador').length;
   const activeCount = users.filter(u => u.status === 'ativo').length;
 
-  const sqlToTransformYaraAdmin = `-- ==============================================================================
+  const sqlToConfigureAuth = `-- ==============================================================================
 -- GOVERNO DO ESTADO DE MATO GROSSO / SEMA-MT / CSB
--- ATUALIZAÇÃO RESILIENTE DO BANCO DE DADOS (SUPABASE / POSTGRESQL)
--- GESTÃO DE USUÁRIOS, RBAC E ELEVAÇÃO DE ADMINISTRADOR: YARA DIAS
+-- CONFIGURAÇÃO SEGURA DE PERFIS DE USUÁRIOS (RBAC) E RLS ESTRITA
 -- ==============================================================================
 
--- 1. Cria a tabela pública se não existir com identificadores estáveis
 CREATE TABLE IF NOT EXISTS public.perfis_usuarios (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT UNIQUE NOT NULL,
   nome TEXT NOT NULL,
-  perfil TEXT NOT NULL DEFAULT 'analista',
-  status TEXT NOT NULL DEFAULT 'pendente',
+  perfil TEXT NOT NULL DEFAULT 'analista' CHECK (perfil IN ('administrador', 'analista', 'visualizador')),
+  status TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('ativo', 'inativo', 'pendente', 'reprovado')),
   cargo TEXT,
   matricula TEXT,
   setor TEXT DEFAULT 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
@@ -339,65 +353,6 @@ CREATE TABLE IF NOT EXISTS public.perfis_usuarios (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 2. Adiciona colunas que possam faltar caso a tabela já tenha sido criada anteriormente
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid();
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS email TEXT;
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS nome TEXT;
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS perfil TEXT DEFAULT 'analista';
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pendente';
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS cargo TEXT;
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS matricula TEXT;
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS setor TEXT DEFAULT 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT';
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
-ALTER TABLE public.perfis_usuarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
-
--- 3. Garante que id tenha valor padrão automático gen_random_uuid()
-DO $$
-BEGIN
-  ALTER TABLE public.perfis_usuarios ALTER COLUMN id SET DEFAULT gen_random_uuid();
-EXCEPTION
-  WHEN OTHERS THEN NULL;
-END $$;
-
--- 4. Remove chave estrangeira estrita para auth.users se existir (para permitir pré-cadastro de fiscais)
-DO $$
-BEGIN
-  ALTER TABLE public.perfis_usuarios DROP CONSTRAINT IF EXISTS perfis_usuarios_id_fkey;
-EXCEPTION
-  WHEN OTHERS THEN NULL;
-END $$;
-
--- 5. Normaliza e atualiza constraints de perfil e status
-DO $$
-BEGIN
-  UPDATE public.perfis_usuarios SET status = 'ativo' WHERE status IS NULL;
-  UPDATE public.perfis_usuarios SET perfil = 'analista' WHERE perfil IS NULL;
-
-  ALTER TABLE public.perfis_usuarios DROP CONSTRAINT IF EXISTS perfis_usuarios_perfil_check;
-  ALTER TABLE public.perfis_usuarios DROP CONSTRAINT IF EXISTS perfis_usuarios_status_check;
-
-  ALTER TABLE public.perfis_usuarios ADD CONSTRAINT perfis_usuarios_perfil_check 
-    CHECK (perfil IN ('administrador', 'analista', 'visualizador'));
-
-  ALTER TABLE public.perfis_usuarios ADD CONSTRAINT perfis_usuarios_status_check 
-    CHECK (status IN ('ativo', 'inativo', 'pendente', 'reprovado'));
-EXCEPTION
-  WHEN OTHERS THEN NULL;
-END $$;
-
--- 5.1 Garante constraint única no campo de e-mail para permitir ON CONFLICT
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'perfis_usuarios_email_key'
-  ) THEN
-    ALTER TABLE public.perfis_usuarios ADD CONSTRAINT perfis_usuarios_email_key UNIQUE (email);
-  END IF;
-EXCEPTION
-  WHEN OTHERS THEN NULL;
-END $$;
-
--- 6. Cria função auxiliar SECURITY DEFINER para verificar se o usuário atual é admin sem recursão
 CREATE OR REPLACE FUNCTION public.check_is_admin()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -405,149 +360,68 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT (
-    coalesce(auth.jwt() ->> 'email', '') IN ('yarageologa@gmail.com', 'csb.fiscaliza@sema.mt.gov.br')
-    OR coalesce(auth.jwt() -> 'user_metadata' ->> 'perfil', '') = 'administrador'
-    OR coalesce(auth.jwt() -> 'user_metadata' ->> 'role', '') = 'administrador'
-    OR EXISTS (
-      SELECT 1 FROM public.perfis_usuarios p
-      WHERE lower(trim(p.email)) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
-        AND p.perfil = 'administrador'
-        AND p.status = 'ativo'
-    )
+  SELECT auth.role() = 'authenticated' AND EXISTS (
+    SELECT 1 FROM public.perfis_usuarios p
+    WHERE lower(trim(p.email)) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
+      AND p.perfil = 'administrador'
+      AND p.status = 'ativo'
   );
 $$;
 
--- 7. Configura RLS (Row Level Security) sem recursão infinita
 ALTER TABLE public.perfis_usuarios ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Leitura de perfis por usuários autenticados" ON public.perfis_usuarios;
-DROP POLICY IF EXISTS "Administradores gerenciam perfis" ON public.perfis_usuarios;
 DROP POLICY IF EXISTS "perfis_select_policy" ON public.perfis_usuarios;
 DROP POLICY IF EXISTS "perfis_insert_policy" ON public.perfis_usuarios;
+DROP POLICY IF EXISTS "perfis_insert_self_pending" ON public.perfis_usuarios;
 DROP POLICY IF EXISTS "perfis_update_policy" ON public.perfis_usuarios;
 DROP POLICY IF EXISTS "perfis_delete_policy" ON public.perfis_usuarios;
 
-CREATE POLICY "perfis_select_policy" 
-  ON public.perfis_usuarios 
-  FOR SELECT 
-  TO authenticated, anon 
-  USING (true);
+CREATE POLICY "perfis_select_policy"
+  ON public.perfis_usuarios
+  FOR SELECT
+  TO authenticated
+  USING (
+    public.check_is_admin()
+    OR lower(trim(email)) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
+  );
 
-CREATE POLICY "perfis_insert_policy" 
-  ON public.perfis_usuarios 
-  FOR INSERT 
-  TO authenticated, anon 
-  WITH CHECK (true);
+CREATE POLICY "perfis_insert_self_pending"
+  ON public.perfis_usuarios
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    public.check_is_admin()
+    OR (
+      lower(trim(email)) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
+      AND status = 'pendente'
+      AND perfil = 'analista'
+    )
+  );
 
-CREATE POLICY "perfis_update_policy" 
-  ON public.perfis_usuarios 
-  FOR UPDATE 
-  TO authenticated 
+CREATE POLICY "perfis_update_policy"
+  ON public.perfis_usuarios
+  FOR UPDATE
+  TO authenticated
   USING (public.check_is_admin())
   WITH CHECK (public.check_is_admin());
 
-CREATE POLICY "perfis_delete_policy" 
-  ON public.perfis_usuarios 
-  FOR DELETE 
-  TO authenticated 
+CREATE POLICY "perfis_delete_policy"
+  ON public.perfis_usuarios
+  FOR DELETE
+  TO authenticated
   USING (public.check_is_admin());
 
--- 8. Insere ou Atualiza o usuário Yara Dias (yarageologa@gmail.com) como Administradora Ativa
-DO $$
-DECLARE
-  v_auth_id UUID;
-BEGIN
-  SELECT id INTO v_auth_id FROM auth.users WHERE lower(trim(email)) = 'yarageologa@gmail.com' LIMIT 1;
-
-  IF v_auth_id IS NOT NULL THEN
-    UPDATE auth.users
-    SET raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object(
-      'role', 'administrador',
-      'perfil', 'administrador',
-      'cargo', 'Coordenadora de Segurança de Barragens',
-      'full_name', 'Yara Dias',
-      'name', 'Yara Dias'
-    )
-    WHERE id = v_auth_id;
-  END IF;
-
-  INSERT INTO public.perfis_usuarios (
-    id,
-    email,
-    nome,
-    perfil,
-    status,
-    cargo,
-    matricula,
-    setor,
-    created_at,
-    updated_at
-  )
-  VALUES (
-    coalesce(v_auth_id, gen_random_uuid()),
-    'yarageologa@gmail.com',
-    'Yara Dias',
-    'administrador',
-    'ativo',
-    'Coordenadora de Segurança de Barragens',
-    'CSB-001',
-    'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
-    now(),
-    now()
-  )
-  ON CONFLICT (email) DO UPDATE SET
-    perfil = 'administrador',
-    status = 'ativo',
-    cargo = 'Coordenadora de Segurança de Barragens',
-    matricula = 'CSB-001',
-    updated_at = now();
-
-  INSERT INTO public.perfis_usuarios (
-    id,
-    email,
-    nome,
-    perfil,
-    status,
-    cargo,
-    matricula,
-    setor,
-    created_at,
-    updated_at
-  )
-  VALUES (
-    gen_random_uuid(),
-    'csb.fiscaliza@sema.mt.gov.br',
-    'Fiscaliza CSB Admin',
-    'administrador',
-    'ativo',
-    'Administrador Institucional CSB',
-    'CSB-000',
-    'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
-    now(),
-    now()
-  )
-  ON CONFLICT (email) DO UPDATE SET
-    perfil = 'administrador',
-    status = 'ativo',
-    updated_at = now();
-END $$;
-
--- 9. Concede permissões para as roles padrão do Supabase
-GRANT USAGE ON SCHEMA public TO anon, authenticated;
-GRANT ALL ON TABLE public.perfis_usuarios TO authenticated;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.perfis_usuarios TO anon;`;
+-- Para promover um usuário existente a Administrador no SQL Editor, informe o e-mail institucional:
+-- UPDATE public.perfis_usuarios SET perfil = 'administrador', status = 'ativo' WHERE email = 'SEU_ADMIN@DOMINIO';`;
 
   const copySqlToClipboard = () => {
-    navigator.clipboard.writeText(sqlToTransformYaraAdmin);
+    navigator.clipboard.writeText(sqlToConfigureAuth);
     setCopiedSql(true);
     setTimeout(() => setCopiedSql(false), 2500);
   };
 
   const userRole = (currentUser?.role || '').toLowerCase();
-  const isAdmin = userRole === 'administrador' || userRole === 'admin' || 
-    currentUser?.email?.toLowerCase() === 'yarageologa@gmail.com' || 
-    currentUser?.email?.toLowerCase() === 'csb.fiscaliza@sema.mt.gov.br';
+  const isAdmin = userRole === 'administrador' || userRole === 'admin';
 
   if (!isAdmin) {
     return (
@@ -952,13 +826,13 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.perfis_usuarios TO anon;`;
                         <button
                           type="button"
                           onClick={() => handleToggleStatus(user)}
-                          disabled={user.email.toLowerCase() === 'yarageologa@gmail.com'}
+                          disabled={isCurrentUser}
                           className={`p-2 rounded-xl transition cursor-pointer ${
                             isActive
                               ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
                               : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
                           } disabled:opacity-40 disabled:cursor-not-allowed`}
-                          title={isActive ? 'Inativar usuário (suspender acesso)' : 'Reativar usuário'}
+                          title={isCurrentUser ? 'Não é possível inativar sua conta em uso' : isActive ? 'Inativar usuário (suspender acesso)' : 'Reativar usuário'}
                         >
                           <Power className="w-4 h-4" />
                         </button>
@@ -977,15 +851,9 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.perfis_usuarios TO anon;`;
                         <button
                           type="button"
                           onClick={() => handleDelete(user)}
-                          disabled={user.email.toLowerCase() === 'yarageologa@gmail.com' || isCurrentUser}
+                          disabled={isCurrentUser}
                           className="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                          title={
-                            user.email.toLowerCase() === 'yarageologa@gmail.com' 
-                              ? 'Usuária titular protegida' 
-                              : isCurrentUser 
-                              ? 'Não é possível auto-excluir' 
-                              : 'Excluir usuário'
-                          }
+                          title={isCurrentUser ? 'Não é possível auto-excluir' : 'Excluir usuário'}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1269,10 +1137,10 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.perfis_usuarios TO anon;`;
               <div className="p-3 rounded-xl bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/50 text-[11px] text-purple-900 dark:text-purple-300 space-y-1">
                 <div className="font-bold flex items-center gap-1.5">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Senha Padrão Institucional Aplicada</span>
+                  <span>Geração de Senha Temporária Criptográfica</span>
                 </div>
                 <p className="text-purple-700 dark:text-purple-400">
-                  O usuário é criado com a credencial inicial institucional configurada pela administração. No primeiro acesso, o fiscal poderá alterar sua senha pelo menu superior.
+                  Uma senha aleatória única (12 caracteres) será gerada via WebCrypto e exibida apenas uma vez para entrega segura ao fiscal, que deverá alterá-la no primeiro acesso.
                 </p>
               </div>
 
@@ -1472,10 +1340,10 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.perfis_usuarios TO anon;`;
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white">
-                    Script SQL para o Supabase
+                    Script SQL Seguro para o Supabase
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Elevação do usuário yarageologa@gmail.com a Administrador e criação de perfis
+                    Tabela de perfis RBAC e políticas RLS estritas para contas autenticadas
                   </p>
                 </div>
               </div>
@@ -1490,12 +1358,12 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.perfis_usuarios TO anon;`;
 
             <div className="p-5 sm:p-6 space-y-4">
               <p className="text-xs text-slate-600 dark:text-slate-300">
-                Copie o script abaixo e execute no <strong>SQL Editor</strong> do seu painel Supabase. Ele configura a tabela de perfis de usuário, as regras de segurança RLS e concede privilégios totais de <strong>Administrador</strong> para <code>yarageologa@gmail.com</code>:
+                Copie o script abaixo e execute no <strong>SQL Editor</strong> do seu painel Supabase. Ele configura a tabela de perfis e as políticas RLS sem exposição de acesso anônimo:
               </p>
 
               <div className="relative">
                 <pre className="p-4 rounded-2xl bg-slate-950 text-slate-200 text-[11px] font-mono overflow-x-auto max-h-72 border border-slate-800 leading-relaxed selection:bg-purple-600 selection:text-white">
-                  {sqlToTransformYaraAdmin}
+                  {sqlToConfigureAuth}
                 </pre>
                 <button
                   type="button"
@@ -1711,6 +1579,52 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.perfis_usuarios TO anon;`;
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL: EXIBIÇÃO ÚNICA DE SENHA TEMPORÁRIA GERADA */}
+      {oneTimePwdModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-800 rounded-3xl w-full max-w-md shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white flex items-center justify-center shrink-0">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Senha Temporária de Uso Único</h3>
+                <p className="text-xs text-slate-500">{oneTimePwdModal.userName} ({oneTimePwdModal.userEmail})</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Esta senha aleatória é exibida apenas agora e não fica armazenada em texto plano. Copie-a para enviar ao usuário e oriente a alteração imediata no primeiro acesso.
+            </p>
+            <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-slate-950 text-emerald-400 font-mono text-sm border border-slate-800">
+              <span className="select-all">{oneTimePwdModal.tempPwd}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(oneTimePwdModal.tempPwd);
+                  setCopiedTempPwd(true);
+                  setTimeout(() => setCopiedTempPwd(false), 2500);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-sans font-bold flex items-center gap-1 cursor-pointer"
+              >
+                {copiedTempPwd ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedTempPwd ? 'Copiada!' : 'Copiar'}</span>
+              </button>
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setOneTimePwdModal(null);
+                  setCopiedTempPwd(false);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 text-white hover:bg-slate-700 cursor-pointer"
+              >
+                Entendido / Fechar
+              </button>
             </div>
           </div>
         </div>

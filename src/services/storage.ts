@@ -1,12 +1,15 @@
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { ComponentInspectionData, InspectionData, HistoricoAlteracaoEntity } from '../types/inspection';
-import { isSupabaseConfigured, syncVistoriaToSupabase } from './supabase';
+import { syncVistoriaToSupabase } from './supabase';
+import {
+  registerFiscalizaProductsFromInspection,
+  upsertMasterEntitiesFromInspection
+} from './administraEcosystemService';
 import { 
   createAuthenticitySeal, 
   sanitizeDeepObject, 
   computeSha256Sync,
-  encryptTextAesGcm,
-  decryptTextAesGcm
+  encryptTextAesGcm
 } from '../utils/securityCrypto';
 import {
   saveInspectionToIndexedDb,
@@ -36,11 +39,14 @@ function generateUUID(): string {
 export function isInspectionEmpty(inspection?: InspectionData | null): boolean {
   if (!inspection) return true;
 
-  // 1. Dados principais da barragem e empreendimento
+  // 1. Dados principais da barragem, empreendedor e responsável técnico
   if (inspection.damIdentification?.damName?.trim()) return false;
   if (inspection.damIdentification?.propertyOrBusinessName?.trim()) return false;
+  if (inspection.damIdentification?.ownerCpfCnpj?.trim()) return false;
   if (inspection.damIdentification?.waterCourse?.trim()) return false;
   if (inspection.damIdentification?.coordinates?.isManualEdit) return false;
+  if (inspection.responsavelTecnico?.nome?.trim()) return false;
+  if (inspection.itensObservacaoFutura && inspection.itensObservacaoFutura.length > 0) return false;
 
   // 2. Número do auto / termo da vistoria ou horário de término
   if (inspection.generalInfo?.recordNumber?.trim()) return false;
@@ -177,11 +183,17 @@ export function createEmptyInspection(creatorUser?: {
   const vistoriaId = generateUUID();
   const barragemId = generateUUID();
   const empreendedorId = generateUUID();
+  const responsavelTecnicoId = generateUUID();
 
   return {
     id: vistoriaId,
     barragemId,
     empreendedorId,
+    responsavelTecnicoId,
+    sistemaOrigem: 'fiscaliza',
+    empreendedorOrigemSistema: 'fiscaliza',
+    barragemOrigemSistema: 'fiscaliza',
+    responsavelTecnicoOrigemSistema: 'fiscaliza',
     createdByEmail: creatorUser?.email,
     createdByName: creatorUser?.fullName,
     createdByUserId: creatorUser?.id,
@@ -219,6 +231,13 @@ export function createEmptyInspection(creatorUser?: {
     damIdentification: {
       damName: '',
       propertyOrBusinessName: '',
+      ownerCpfCnpj: '',
+      ownerLegalType: 'empresa_privada',
+      ownerPhone: '',
+      ownerAddress: '',
+      damsCountOnProperty: '1',
+      workStartYear: '',
+      workEndYear: '',
       municipality: '',
       hydrographicBasin: '',
       waterCourse: '',
@@ -248,6 +267,17 @@ export function createEmptyInspection(creatorUser?: {
         carNumber: '',
         notes: ''
       }
+    },
+    responsavelTecnico: {
+      id: responsavelTecnicoId,
+      nome: '',
+      cpf: '',
+      registroProfissional: '',
+      artNumero: '',
+      especialidade: '',
+      telefone: '',
+      email: '',
+      sistemaOrigem: 'fiscaliza'
     },
     componentsData: initialComponents,
     photos: [],
@@ -353,7 +383,27 @@ export function createSampleInspection(): InspectionData {
 }
 
 const ENCRYPTION_STORAGE_KEY = 'fiscaliza_csb_sema_inspections_enc_v1';
-const VAULT_SALT_KEY = 'fiscaliza_csb_vault_key_2026';
+const DEVICE_VAULT_SECRET_KEY = 'fiscaliza_csb_device_secret_v2';
+
+function getOrCreateDeviceVaultSecret(): string | null {
+  if (typeof window === 'undefined' || !window.localStorage || !window.crypto?.getRandomValues) {
+    return null;
+  }
+  try {
+    let secret = localStorage.getItem(DEVICE_VAULT_SECRET_KEY);
+    if (!secret || secret.length < 32) {
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      secret = Array.from(bytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      localStorage.setItem(DEVICE_VAULT_SECRET_KEY, secret);
+    }
+    return secret;
+  } catch {
+    return null;
+  }
+}
 
 export function isSampleInspection(item?: InspectionData | null): boolean {
   if (!item) return false;
@@ -549,9 +599,10 @@ export function saveInspection(inspection: InspectionData): void {
       localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(serialized));
       localStorage.setItem(CURRENT_ACTIVE_KEY, updated.id);
 
-      // Criptografa assincronamente cópia de backup no cofre de dados protegido
-      if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
-        encryptTextAesGcm(serialized, VAULT_SALT_KEY)
+      // Criptografa cópia de backup usando segredo aleatório exclusivo do dispositivo (nunca chave fixa em código)
+      const deviceSecret = getOrCreateDeviceVaultSecret();
+      if (deviceSecret && typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+        encryptTextAesGcm(serialized, deviceSecret)
           .then(encData => {
             try {
               localStorage.setItem(ENCRYPTION_STORAGE_KEY, encData);
@@ -562,14 +613,17 @@ export function saveInspection(inspection: InspectionData): void {
           .catch(() => {});
       }
     } catch (storageErr) {
-      console.warn('[OfflineStore] Limite de cota do localStorage atingido no celular/tablet. Dados preservados com segurança total no IndexedDB.', storageErr);
-      // Se a cota do localStorage estourar devido a fotos, tenta salvar apenas o ID ativo
+      console.warn('[OfflineStore] Limite de cota do localStorage atingido no dispositivo. Dados preservados no IndexedDB.', storageErr);
       try {
         localStorage.setItem(CURRENT_ACTIVE_KEY, updated.id);
       } catch {
         // ignore
       }
     }
+
+    // Atualiza o catálogo central do Administra (cache local/remoto respeitando propriedade) e índice de produtos
+    upsertMasterEntitiesFromInspection(updated, updated.createdByEmail).catch(() => {});
+    registerFiscalizaProductsFromInspection(updated).catch(() => {});
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('csb:notificacao_changed', {
@@ -778,9 +832,13 @@ export function exportInspectionToJson(inspection: InspectionData): void {
 }
 
 /**
- * Exportação com Criptografia Anti-Invasão AES-GCM (Arquivo Protegido)
+ * Exportação com Criptografia AES-GCM 256-bit (Exige frase-chave fornecida pelo usuário)
  */
-export async function exportEncryptedInspectionToJson(inspection: InspectionData, password?: string): Promise<void> {
+export async function exportEncryptedInspectionToJson(inspection: InspectionData, passphrase: string): Promise<void> {
+  if (!passphrase || passphrase.trim().length < 6) {
+    throw new Error('Informe uma senha de proteção com no mínimo 6 caracteres para exportar o arquivo criptografado.');
+  }
+
   const seal = createAuthenticitySeal(inspection, 'EXPORTAÇÃO CRIPTOGRAFADA CSB/SEMA-MT');
   const exportPayload: InspectionData = {
     ...inspection,
@@ -798,7 +856,7 @@ export async function exportEncryptedInspectionToJson(inspection: InspectionData
   };
 
   const rawJson = JSON.stringify(exportPayload);
-  const encrypted = await encryptTextAesGcm(rawJson, password || 'SEMA_MT_SECURE_VAULT_2026');
+  const encrypted = await encryptTextAesGcm(rawJson, passphrase.trim());
   const envelope = {
     protocolo: 'SEMA-MT/CSB-ENCRYPTED-V1',
     hashSha256: seal.sha256Hash,

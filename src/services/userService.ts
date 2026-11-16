@@ -2,45 +2,26 @@
 // ARQUIVO: src/services/userService.ts
 // Serviço de Gestão de Usuários e Controle de Perfis de Acesso (RBAC)
 // Coordenadoria de Segurança de Barragens - CSB / SEMA-MT
-// Suporta 3 Perfis: Administrador, Analista e Visualizador
-// Sincronização Local Persistente + Banco Supabase
+// Segurança Reforçada:
+// - Sem usuários ou e-mails pessoais hardcoded no código-fonte
+// - Sem senhas padrão estáticas e sem gravação de senha em texto plano
+// - Fluxo de Bootstrap Seguro do Primeiro Administrador + senhas temporárias
+//   geradas aleatoriamente via crypto.getRandomValues e armazenadas em PBKDF2
 // ==============================================================================
 
 import { UserProfile, UserRole, UserStatus, InspectionData } from '../types/inspection';
-import { supabase } from './supabase';
+import {
+  supabase,
+  storeSecureLocalPasswordHash,
+  purgeLegacyPlaintextCredentials
+} from './supabase';
+import {
+  generateSecureTemporaryPassword,
+  validatePasswordStrength
+} from '../utils/securityCrypto';
 
 const USERS_STORAGE_KEY = 'fiscaliza_csb_users_catalog_v1';
 const USERS_EVENT = 'csb:users_updated';
-
-// Usuários institucionais oficiais (Administradores nativos da CSB/SEMA-MT - sem exemplos fictícios)
-const INITIAL_USERS: UserProfile[] = [
-  {
-    id: 'usr-admin-yara-001',
-    email: 'yarageologa@gmail.com',
-    name: 'Yara Dias',
-    role: 'administrador',
-    status: 'ativo',
-    cargo: 'Coordenadora de Segurança de Barragens',
-    matricula: 'CSB-001',
-    setor: 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
-    createdAt: '2026-01-10T08:00:00.000Z',
-    updatedAt: '2026-10-14T12:00:00.000Z',
-    lastLoginAt: '2026-10-14T14:30:00.000Z'
-  },
-  {
-    id: 'usr-admin-csb-000',
-    email: 'csb.fiscaliza@sema.mt.gov.br',
-    name: 'Fiscaliza CSB Admin',
-    role: 'administrador',
-    status: 'ativo',
-    cargo: 'Administrador Institucional CSB',
-    matricula: 'CSB-000',
-    setor: 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
-    createdAt: '2026-01-10T08:00:00.000Z',
-    updatedAt: '2026-10-14T12:00:00.000Z',
-    lastLoginAt: '2026-10-14T14:30:00.000Z'
-  }
-];
 
 function generateUUID(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -48,59 +29,59 @@ function generateUUID(): string {
       return crypto.randomUUID();
     } catch {}
   }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 }
 
+function emitUsersUpdated() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(USERS_EVENT));
+  }
+}
+
+export function subscribeUsers(callback: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener(USERS_EVENT, callback);
+  return () => {
+    window.removeEventListener(USERS_EVENT, callback);
+  };
+}
+
 /**
- * Carrega a lista de usuários com persistência resiliente (sem cadastros de exemplo)
+ * Carrega a lista de usuários cadastrados sem nenhuma inserção automática de contas hardcoded
  */
 export async function getUsers(): Promise<UserProfile[]> {
+  purgeLegacyPlaintextCredentials();
   let localUsers: UserProfile[] = [];
 
   try {
     const raw = localStorage.getItem(USERS_STORAGE_KEY);
     if (raw) {
-      localUsers = JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        localUsers = parsed;
+      }
     }
   } catch (e) {
-    console.warn('Erro ao ler usuários do armazenamento local:', e);
+    console.warn('[Users] Erro ao ler catálogo local de usuários:', e);
   }
 
-  // Remove qualquer usuário de exemplo/teste legado do armazenamento local
+  // Expurga eventuais contas de exemplo herdadas
   const LEGACY_EXAMPLE_EMAILS = [
     'marcos.engenheiro@sema.mt.gov.br',
     'auditoria.gestao@sema.mt.gov.br'
   ];
-  localUsers = localUsers.filter(u => 
-    !LEGACY_EXAMPLE_EMAILS.includes(u.email.toLowerCase()) &&
-    !u.name.toLowerCase().includes('marcos vinícius') &&
-    !u.name.toLowerCase().includes('camila nogueira')
+  localUsers = localUsers.filter(
+    u =>
+      u?.email &&
+      !LEGACY_EXAMPLE_EMAILS.includes(u.email.toLowerCase()) &&
+      !u.name?.toLowerCase().includes('marcos vinícius') &&
+      !u.name?.toLowerCase().includes('camila nogueira')
   );
 
-  // Se estiver vazio, inicializa apenas com os administradores oficiais
-  if (!localUsers || localUsers.length === 0) {
-    localUsers = [...INITIAL_USERS];
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(localUsers));
-  } else {
-    // Garante que os administradores institucionais estejam sempre presentes e ativos
-    INITIAL_USERS.forEach(initUser => {
-      const idx = localUsers.findIndex(u => u.email.toLowerCase() === initUser.email.toLowerCase());
-      if (idx === -1) {
-        localUsers.push(initUser);
-      } else {
-        localUsers[idx].role = 'administrador';
-        localUsers[idx].status = 'ativo';
-      }
-    });
-
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(localUsers));
-  }
-
-  // Se Supabase estiver disponível, tenta buscar/sincronizar da tabela remota perfis_usuarios
   if (supabase) {
     try {
       const { data, error } = await supabase
@@ -109,7 +90,6 @@ export async function getUsers(): Promise<UserProfile[]> {
         .order('created_at', { ascending: false });
 
       if (!error && data && data.length > 0) {
-        // Mapeia do esquema PostgreSQL para o frontend
         const remoteUsers: UserProfile[] = data.map((item: any) => ({
           id: item.id || item.user_id,
           email: item.email,
@@ -123,7 +103,6 @@ export async function getUsers(): Promise<UserProfile[]> {
           updatedAt: item.updated_at || new Date().toISOString()
         }));
 
-        // Mescla com locais garantindo completude
         const mergedMap = new Map<string, UserProfile>();
         localUsers.forEach(u => mergedMap.set(u.email.toLowerCase(), u));
         remoteUsers.forEach(u => {
@@ -131,7 +110,6 @@ export async function getUsers(): Promise<UserProfile[]> {
           if (!local) {
             mergedMap.set(u.email.toLowerCase(), u);
           } else {
-            // Mescla preservando campos preenchidos
             mergedMap.set(u.email.toLowerCase(), {
               ...local,
               ...u,
@@ -141,13 +119,13 @@ export async function getUsers(): Promise<UserProfile[]> {
             });
           }
         });
-        
+
         const merged = Array.from(mergedMap.values());
         localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(merged));
         return merged;
       }
     } catch {
-      // Falha silenciosa em caso de sem internet / offline
+      // Falha silenciosa em modo offline
     }
   }
 
@@ -155,8 +133,99 @@ export async function getUsers(): Promise<UserProfile[]> {
 }
 
 /**
- * Busca usuário específico por e-mail
+ * Verifica se já existe ao menos um Administrador ativo no sistema
  */
+export async function hasAnyAdminUser(): Promise<boolean> {
+  const users = await getUsers();
+  return users.some(u => u.role === 'administrador' && u.status === 'ativo');
+}
+
+/**
+ * Configura o primeiro Administrador do sistema de forma segura (somente permitido quando não há nenhum admin ativo)
+ */
+export async function bootstrapFirstAdmin(data: {
+  name: string;
+  email: string;
+  cargo: string;
+  matricula: string;
+  password: string;
+}): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+  const alreadyHasAdmin = await hasAnyAdminUser();
+  if (alreadyHasAdmin) {
+    return {
+      success: false,
+      error: 'Já existe um Administrador configurado neste ambiente. Entre com sua conta ou solicite acesso.'
+    };
+  }
+
+  const cleanEmail = data.email.trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return { success: false, error: 'Informe um e-mail institucional válido.' };
+  }
+  if (!data.name.trim()) {
+    return { success: false, error: 'Informe o nome completo do Administrador.' };
+  }
+
+  const strength = validatePasswordStrength(data.password);
+  if (!strength.valid) {
+    return { success: false, error: strength.reason };
+  }
+
+  const now = new Date().toISOString();
+  const adminUser: UserProfile = {
+    id: generateUUID(),
+    email: cleanEmail,
+    name: data.name.trim(),
+    role: 'administrador',
+    status: 'ativo',
+    cargo: data.cargo.trim() || 'Coordenador(a) de Segurança de Barragens',
+    matricula: data.matricula.trim() || 'CSB-001',
+    setor: 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await storeSecureLocalPasswordHash(cleanEmail, data.password);
+
+  const users = await getUsers();
+  const updated = [adminUser, ...users.filter(u => u.email.toLowerCase() !== cleanEmail)];
+  localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updated));
+
+  if (supabase) {
+    try {
+      await supabase.auth.signUp({
+        email: cleanEmail,
+        password: data.password,
+        options: {
+          data: {
+            full_name: adminUser.name,
+            perfil: 'administrador',
+            cargo: adminUser.cargo,
+            matricula: adminUser.matricula
+          }
+        }
+      });
+      await supabase.from('perfis_usuarios').upsert({
+        id: adminUser.id,
+        email: adminUser.email,
+        nome: adminUser.name,
+        perfil: 'administrador',
+        status: 'ativo',
+        cargo: adminUser.cargo,
+        matricula: adminUser.matricula,
+        setor: adminUser.setor,
+        created_at: now,
+        updated_at: now
+      });
+    } catch (e) {
+      console.warn('[Users] Bootstrap salvo localmente; aguardando conexão remota:', e);
+    }
+  }
+
+  emitUsersUpdated();
+  return { success: true, user: adminUser };
+}
+
 export async function getUserByEmail(email: string): Promise<UserProfile | null> {
   const users = await getUsers();
   const cleanEmail = email.trim().toLowerCase();
@@ -164,13 +233,14 @@ export async function getUserByEmail(email: string): Promise<UserProfile | null>
 }
 
 /**
- * Cadastra um novo usuário no sistema
+ * Cadastra um novo usuário com geração de senha temporária criptograficamente aleatória
+ * (exibida uma única vez para o administrador repassar com segurança)
  */
 export async function createUser(
-  data: Omit<UserProfile, 'id' | 'createdAt' | 'updatedAt'>
-): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+  data: Omit<UserProfile, 'id' | 'createdAt' | 'updatedAt'> & { initialPassword?: string }
+): Promise<{ success: boolean; user?: UserProfile; temporaryPassword?: string; error?: string }> {
   const cleanEmail = data.email.trim().toLowerCase();
-  if (!cleanEmail) {
+  if (!cleanEmail || !cleanEmail.includes('@')) {
     return { success: false, error: 'O e-mail é obrigatório.' };
   }
   if (!data.name.trim()) {
@@ -183,9 +253,15 @@ export async function createUser(
     return { success: false, error: 'Já existe um usuário cadastrado com este e-mail institucional.' };
   }
 
+  const tempPassword =
+    data.initialPassword && validatePasswordStrength(data.initialPassword).valid
+      ? data.initialPassword
+      : generateSecureTemporaryPassword(12);
+
+  await storeSecureLocalPasswordHash(cleanEmail, tempPassword);
+
   const now = new Date().toISOString();
   const newUser: UserProfile = {
-    ...data,
     id: generateUUID(),
     email: cleanEmail,
     name: data.name.trim(),
@@ -201,13 +277,6 @@ export async function createUser(
   const updatedList = [newUser, ...users];
   localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedList));
 
-  // Garante a senha padrão institucional @12345 no banco local de credenciais
-  try {
-    const LOCAL_PWD_PREFIX = 'fiscaliza_csb_pwd_';
-    localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, '@12345');
-  } catch {}
-
-  // Tenta sincronizar com o Supabase se configurado
   if (supabase) {
     try {
       await supabase.from('perfis_usuarios').upsert({
@@ -223,12 +292,12 @@ export async function createUser(
         updated_at: newUser.updatedAt
       });
     } catch (e) {
-      console.warn('Falha ao persistir novo usuário no Supabase:', e);
+      console.warn('[Users] Falha ao persistir novo usuário no Supabase:', e);
     }
   }
 
   emitUsersUpdated();
-  return { success: true, user: newUser };
+  return { success: true, user: newUser, temporaryPassword: tempPassword };
 }
 
 /**
@@ -244,14 +313,21 @@ export async function updateUser(
     return { success: false, error: 'Usuário não localizado no sistema.' };
   }
 
-  const now = new Date().toISOString();
   const current = users[idx];
+  const activeAdmins = users.filter(u => u.role === 'administrador' && u.status === 'ativo');
 
-  // Proteção: não permitir remover admin de Yara Dias
-  if (current.email.toLowerCase() === 'yarageologa@gmail.com' && updates.role && updates.role !== 'administrador') {
-    return { success: false, error: 'A usuária titular Yara Dias não pode ser desprovida do perfil de Administrador.' };
+  if (
+    current.role === 'administrador' &&
+    activeAdmins.length <= 1 &&
+    ((updates.role && updates.role !== 'administrador') || updates.status === 'inativo')
+  ) {
+    return {
+      success: false,
+      error: 'Não é possível remover ou inativar o único Administrador ativo do sistema.'
+    };
   }
 
+  const now = new Date().toISOString();
   const updatedUser: UserProfile = {
     ...current,
     ...updates,
@@ -275,7 +351,7 @@ export async function updateUser(
         updated_at: updatedUser.updatedAt
       });
     } catch (e) {
-      console.warn('Falha ao sincronizar atualização de usuário no Supabase:', e);
+      console.warn('[Users] Falha ao sincronizar atualização no Supabase:', e);
     }
   }
 
@@ -284,7 +360,7 @@ export async function updateUser(
 }
 
 /**
- * Exclui um usuário do sistema
+ * Exclui um usuário do sistema (protegendo último admin e auto-exclusão)
  */
 export async function deleteUser(
   id: string,
@@ -296,14 +372,19 @@ export async function deleteUser(
     return { success: false, error: 'Usuário não encontrado.' };
   }
 
-  // Proteção: não excluir Yara Dias
-  if (userToDelete.email.toLowerCase() === 'yarageologa@gmail.com') {
-    return { success: false, error: 'O usuário principal yarageologa@gmail.com não pode ser excluído.' };
+  if (currentAdminEmail && userToDelete.email.toLowerCase() === currentAdminEmail.toLowerCase()) {
+    return {
+      success: false,
+      error: 'Você não pode excluir sua própria conta de administrador em uso.'
+    };
   }
 
-  // Proteção contra auto-exclusão do admin logado
-  if (currentAdminEmail && userToDelete.email.toLowerCase() === currentAdminEmail.toLowerCase()) {
-    return { success: false, error: 'Você não pode excluir sua própria conta de administrador em uso.' };
+  const activeAdmins = users.filter(u => u.role === 'administrador' && u.status === 'ativo');
+  if (userToDelete.role === 'administrador' && activeAdmins.length <= 1) {
+    return {
+      success: false,
+      error: 'Não é possível excluir o único Administrador ativo do sistema.'
+    };
   }
 
   const updatedList = users.filter(u => u.id !== id);
@@ -313,7 +394,7 @@ export async function deleteUser(
     try {
       await supabase.from('perfis_usuarios').delete().eq('id', id);
     } catch (e) {
-      console.warn('Falha ao excluir usuário no Supabase:', e);
+      console.warn('[Users] Falha ao excluir usuário no Supabase:', e);
     }
   }
 
@@ -333,29 +414,34 @@ export async function toggleUserStatus(
     return { success: false, error: 'Usuário não encontrado.' };
   }
 
-  if (user.email.toLowerCase() === 'yarageologa@gmail.com') {
-    return { success: false, error: 'A usuária titular Yara Dias não pode ser inativada.' };
+  const activeAdmins = users.filter(u => u.role === 'administrador' && u.status === 'ativo');
+  if (user.role === 'administrador' && user.status === 'ativo' && activeAdmins.length <= 1) {
+    return {
+      success: false,
+      error: 'Não é possível inativar o único Administrador ativo do sistema.'
+    };
   }
 
   const newStatus: UserStatus = user.status === 'ativo' ? 'inativo' : 'ativo';
-  return updateUser(id, { status: newStatus }).then(res => ({
+  const res = await updateUser(id, { status: newStatus });
+  return {
     success: res.success,
     newStatus,
     error: res.error
-  }));
+  };
 }
 
 /**
- * Redefine a senha do usuário para a senha institucional padrão
+ * Redefine a senha do usuário para uma nova senha temporária gerada aleatoriamente (nunca fixa)
  */
 export async function resetUserPasswordToDefault(
   email: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; temporaryPassword?: string; error?: string }> {
   const cleanEmail = email.trim().toLowerCase();
   try {
-    const LOCAL_PWD_PREFIX = 'fiscaliza_csb_pwd_';
-    localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, '@12345');
-    return { success: true };
+    const tempPassword = generateSecureTemporaryPassword(12);
+    await storeSecureLocalPasswordHash(cleanEmail, tempPassword);
+    return { success: true, temporaryPassword: tempPassword };
   } catch (err: any) {
     return { success: false, error: err.message || 'Falha ao redefinir senha do usuário.' };
   }
@@ -369,21 +455,32 @@ export interface ApprovalEmailPayload {
 }
 
 /**
- * Gera os dados e o corpo do e-mail oficial de notificação de acesso liberado
+ * Gera os dados e o corpo do e-mail oficial de notificação de acesso liberado (sem expor senhas hardcoded)
  */
-export function generateApprovalEmail(user: UserProfile, customAppUrl?: string): ApprovalEmailPayload {
-  const appUrl = customAppUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://fiscaliza-csb-sema.web.app');
-  const roleName = user.role === 'administrador' 
-    ? 'Administrador' 
-    : user.role === 'analista' 
-    ? 'Analista de Vistorias' 
-    : 'Visualizador Institucional';
+export function generateApprovalEmail(
+  user: UserProfile,
+  customAppUrl?: string,
+  temporaryPassword?: string
+): ApprovalEmailPayload {
+  const appUrl =
+    customAppUrl ||
+    (typeof window !== 'undefined' ? window.location.origin : 'https://fiscaliza-csb-sema.web.app');
+  const roleName =
+    user.role === 'administrador'
+      ? 'Administrador'
+      : user.role === 'analista'
+      ? 'Analista de Vistorias'
+      : 'Visualizador Institucional';
 
   const subject = `[CSB/SEMA-MT] Acesso Liberado ao Sistema Fiscaliza MT - ${user.name}`;
-  
+
+  const pwdInstruction = temporaryPassword
+    ? `2. Sua senha temporária de primeiro acesso é: ${temporaryPassword} (altere-a imediatamente após entrar no menu "Alterar Senha").`
+    : '2. Utilize a senha forte cadastrada por você no momento da solicitação de acesso.';
+
   const body = `Olá, ${user.name}!
 
-Sua solicitação de acesso prévio ao Fiscaliza MT (Sistema Oficial de Fiscalização de Segurança de Barragens - CSB/SEMA-MT) foi APROVADA pela Administração.
+Sua solicitação de acesso ao FISCALIZA - Etapa de Campo (Sistema Oficial de Fiscalização de Segurança de Barragens - CSB/SEMA-MT) foi APROVADA pela Administração.
 
 Dados do seu cadastro institucional:
 • Nome Completo: ${user.name}
@@ -398,8 +495,8 @@ ${appUrl}
 
 Instruções de Acesso:
 1. Acesse o link acima com o seu e-mail institucional (${user.email}).
-2. Utilize a sua senha cadastrada no momento da solicitação de acesso.
-3. Caso esqueça a senha, solicite para algum administrador resetar, e informe a senha padrão @12345.
+${pwdInstruction}
+3. Caso esqueça sua senha, solicite a um administrador a geração de uma nova senha temporária de uso único.
 
 Atenciosamente,
 Coordenadoria de Segurança de Barragens – CSB
@@ -407,7 +504,9 @@ Superintendência de Recursos Hídricos (SURH)
 Secretaria de Estado de Meio Ambiente – SEMA-MT
 Governo do Estado de Mato Grosso`;
 
-  const mailtoUrl = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const mailtoUrl = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent(
+    subject
+  )}&body=${encodeURIComponent(body)}`;
 
   return {
     to: user.email,
@@ -418,19 +517,18 @@ Governo do Estado de Mato Grosso`;
 }
 
 /**
- * Solicitação Prévia de Acesso (Novo Fiscal)
- * Cadastra o fiscal com status 'pendente' para análise prévia do administrador
+ * Solicitação Prévia de Acesso (Novo Fiscal) — exige senha própria forte definida pelo solicitante
  */
 export async function requestUserAccess(data: {
   name: string;
   email: string;
   cargo: string;
   matricula: string;
-  password?: string;
+  password: string;
 }): Promise<{ success: boolean; user?: UserProfile; error?: string; message?: string }> {
   const cleanEmail = data.email.trim().toLowerCase();
-  if (!cleanEmail) {
-    return { success: false, error: 'O e-mail institucional é obrigatório.' };
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return { success: false, error: 'O e-mail institucional válido é obrigatório.' };
   }
   if (!data.name.trim()) {
     return { success: false, error: 'O nome completo é obrigatório.' };
@@ -442,26 +540,31 @@ export async function requestUserAccess(data: {
     return { success: false, error: 'A matrícula funcional é obrigatória.' };
   }
 
+  const strength = validatePasswordStrength(data.password);
+  if (!strength.valid) {
+    return { success: false, error: strength.reason };
+  }
+
   const users = await getUsers();
   const existing = users.find(u => u.email.toLowerCase() === cleanEmail);
   if (existing) {
     if (existing.status === 'pendente') {
-      return { 
-        success: false, 
-        error: 'Já existe uma solicitação de acesso em análise para este e-mail. Aguarde a avaliação de um Administrador.' 
+      return {
+        success: false,
+        error: 'Já existe uma solicitação de acesso em análise para este e-mail. Aguarde a avaliação de um Administrador.'
       };
     }
     if (existing.status === 'ativo') {
-      return { 
-        success: false, 
-        error: 'Este e-mail já possui cadastro ativo no sistema. Por favor, acesse utilizando sua senha.' 
+      return {
+        success: false,
+        error: 'Este e-mail já possui cadastro ativo no sistema. Por favor, acesse utilizando sua senha.'
       };
     }
   }
 
-  const now = new Date().toISOString();
-  const initialPassword = (data.password && data.password.trim()) ? data.password.trim() : '@12345';
+  await storeSecureLocalPasswordHash(cleanEmail, data.password);
 
+  const now = new Date().toISOString();
   const newRequest: UserProfile = {
     id: generateUUID(),
     email: cleanEmail,
@@ -476,18 +579,24 @@ export async function requestUserAccess(data: {
     requestedAt: now
   };
 
-  // Salva credencial no storage local para quando o acesso for liberado
-  try {
-    const LOCAL_PWD_PREFIX = 'fiscaliza_csb_pwd_';
-    localStorage.setItem(LOCAL_PWD_PREFIX + cleanEmail, initialPassword);
-  } catch {}
-
   const updatedList = [newRequest, ...users.filter(u => u.email.toLowerCase() !== cleanEmail)];
   localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedList));
 
-  // Tenta sincronizar com o Supabase se disponível usando INSERT em conformidade com RLS
   if (supabase) {
     try {
+      await supabase.auth.signUp({
+        email: cleanEmail,
+        password: data.password,
+        options: {
+          data: {
+            full_name: newRequest.name,
+            cargo: newRequest.cargo,
+            matricula: newRequest.matricula,
+            perfil: 'analista'
+          }
+        }
+      });
+
       const { error: insErr } = await supabase.from('perfis_usuarios').insert({
         id: newRequest.id,
         email: newRequest.email,
@@ -500,35 +609,33 @@ export async function requestUserAccess(data: {
         created_at: newRequest.createdAt,
         updated_at: newRequest.updatedAt
       });
-      if (insErr) {
-        if (insErr.code === '23505' || insErr.message?.includes('duplicate key') || insErr.message?.includes('unique')) {
-          await supabase.from('perfis_usuarios').update({
+
+      if (insErr && (insErr.code === '23505' || insErr.message?.includes('duplicate'))) {
+        await supabase
+          .from('perfis_usuarios')
+          .update({
             nome: newRequest.name,
             status: 'pendente',
             cargo: newRequest.cargo,
             matricula: newRequest.matricula,
             updated_at: newRequest.updatedAt
-          }).eq('email', newRequest.email);
-        } else {
-          console.warn('Falha ao inserir solicitação no Supabase:', insErr);
-        }
+          })
+          .eq('email', newRequest.email);
       }
     } catch (e) {
-      console.warn('Falha ao persistir solicitação no Supabase:', e);
+      console.warn('[Users] Falha ao persistir solicitação no Supabase:', e);
     }
   }
 
   emitUsersUpdated();
-  return { 
-    success: true, 
+  return {
+    success: true,
     user: newRequest,
-    message: 'Solicitação de acesso enviada com sucesso! O cadastro foi encaminhado para análise da Administração da CSB/SEMA-MT. Aguarde a liberação do seu acesso.'
+    message:
+      'Solicitação de acesso enviada com sucesso! O cadastro foi encaminhado para análise de um Administrador da CSB/SEMA-MT.'
   };
 }
 
-/**
- * Aprova a solicitação prévia de acesso do usuário e gera o e-mail de notificação
- */
 export async function approveUserAccess(
   id: string,
   role: UserRole = 'analista',
@@ -557,15 +664,17 @@ export async function approveUserAccess(
 
   if (supabase) {
     try {
-      // Sincroniza a aprovação no banco remoto Supabase
-      const { error: updErr } = await supabase.from('perfis_usuarios').update({
-        perfil: updatedUser.role,
-        status: 'ativo',
-        cargo: updatedUser.cargo,
-        matricula: updatedUser.matricula,
-        setor: updatedUser.setor,
-        updated_at: updatedUser.updatedAt
-      }).eq('email', updatedUser.email);
+      const { error: updErr } = await supabase
+        .from('perfis_usuarios')
+        .update({
+          perfil: updatedUser.role,
+          status: 'ativo',
+          cargo: updatedUser.cargo,
+          matricula: updatedUser.matricula,
+          setor: updatedUser.setor,
+          updated_at: updatedUser.updatedAt
+        })
+        .eq('email', updatedUser.email);
 
       if (updErr) {
         await supabase.from('perfis_usuarios').upsert({
@@ -581,7 +690,7 @@ export async function approveUserAccess(
         });
       }
     } catch (e) {
-      console.warn('Falha ao sincronizar aprovação no Supabase:', e);
+      console.warn('[Users] Falha ao sincronizar aprovação no Supabase:', e);
     }
   }
 
@@ -591,9 +700,6 @@ export async function approveUserAccess(
   return { success: true, user: updatedUser, emailPayload };
 }
 
-/**
- * Reprova a solicitação de acesso do usuário
- */
 export async function rejectUserAccess(
   id: string,
   reason?: string
@@ -622,7 +728,7 @@ export async function rejectUserAccess(
         updated_at: now
       });
     } catch (e) {
-      console.warn('Falha ao atualizar reprovação no Supabase:', e);
+      console.warn('[Users] Falha ao atualizar reprovação no Supabase:', e);
     }
   }
 
@@ -630,57 +736,22 @@ export async function rejectUserAccess(
   return { success: true };
 }
 
-/**
- * Emite evento para que componentes reajam instantaneamente
- */
-function emitUsersUpdated() {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(USERS_EVENT));
-  }
-}
-
-/**
- * Assina atualizações da lista de usuários
- */
-export function subscribeUsers(callback: () => void): () => void {
-  if (typeof window === 'undefined') return () => {};
-  window.addEventListener(USERS_EVENT, callback);
-  return () => {
-    window.removeEventListener(USERS_EVENT, callback);
-  };
-}
-
 // ==============================================================================
 // HELPERS DE REGRAS DE ACESSO (RBAC) E PERMISSÕES
 // ==============================================================================
 
-/**
- * Verifica se o usuário tem privilégio de Administrador
- */
 export function canUserManageUsers(role?: string): boolean {
   if (!role) return false;
   const r = role.toLowerCase();
   return r === 'administrador' || r === 'admin';
 }
 
-/**
- * Verifica se o usuário pode criar uma nova ficha de vistoria
- * Administrador: Sim
- * Analista: Sim
- * Visualizador: Não (somente leitura)
- */
 export function canUserCreateInspection(role?: string): boolean {
   if (!role) return false;
   const r = role.toLowerCase();
   return r !== 'visualizador';
 }
 
-/**
- * Verifica se o usuário pode editar/preencher os dados de uma vistoria
- * - Administrador: Todos os acessos
- * - Analista: Apenas fichas criadas por ele mesmo OU que ele esteja na equipe
- * - Visualizador: Apenas visualização (somente leitura)
- */
 export function canUserEditInspection(
   currentUser: { email?: string; fullName?: string; role?: string; id?: string } | null,
   inspection: InspectionData
@@ -691,12 +762,10 @@ export function canUserEditInspection(
 
   const role = (currentUser.role || 'analista').toLowerCase();
 
-  // 1. Administrador tem acesso total irrestrito
   if (role === 'administrador' || role === 'admin') {
     return { allowed: true };
   }
 
-  // 2. Visualizador: somente leitura
   if (role === 'visualizador') {
     return {
       allowed: false,
@@ -704,12 +773,9 @@ export function canUserEditInspection(
     };
   }
 
-  // 3. Analista:
-  // Podera preencher e editar/excluir as fichas criadas apenas por ele mesmo ou que ele esteja elencado na equipe que participou
   const userEmail = currentUser.email.trim().toLowerCase();
   const userName = (currentUser.fullName || '').trim().toLowerCase();
 
-  // Caso A: Criador explícito da ficha
   if (inspection.createdByEmail && inspection.createdByEmail.trim().toLowerCase() === userEmail) {
     return { allowed: true };
   }
@@ -717,16 +783,17 @@ export function canUserEditInspection(
     return { allowed: true };
   }
 
-  // Caso B: Rascunho inicial novo sem autor registrado ainda
-  if (!inspection.createdByEmail && !inspection.generalInfo?.recordNumber && !inspection.damIdentification?.damName) {
+  if (
+    !inspection.createdByEmail &&
+    !inspection.generalInfo?.recordNumber &&
+    !inspection.damIdentification?.damName
+  ) {
     return { allowed: true };
   }
 
-  // Caso C: Elencado na equipe de fiscais técnicos da vistoria
   const inspectors = inspection.generalInfo?.inspectors || [];
   const isInTeam = inspectors.some(insp => {
     const inspName = (insp.name || '').trim().toLowerCase();
-    const inspReg = (insp.registrationNumber || '').trim().toLowerCase();
     if (inspName && userName && (inspName.includes(userName) || userName.includes(inspName))) {
       return true;
     }
@@ -737,17 +804,14 @@ export function canUserEditInspection(
     return { allowed: true };
   }
 
-  // Bloqueio de segurança para evitar edição acidental de trabalho de colega
-  const ownerLabel = inspection.createdByName || inspection.createdByEmail || inspectors[0]?.name || 'outro analista';
+  const ownerLabel =
+    inspection.createdByName || inspection.createdByEmail || inspectors[0]?.name || 'outro analista';
   return {
     allowed: false,
     reason: `Ficha criada por ${ownerLabel}. Como Analista, você só possui permissão de edição em vistorias próprias ou das quais participe na equipe técnica.`
   };
 }
 
-/**
- * Verifica se o usuário pode excluir uma vistoria
- */
 export function canUserDeleteInspection(
   currentUser: { email?: string; fullName?: string; role?: string; id?: string } | null,
   inspection: InspectionData

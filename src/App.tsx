@@ -20,11 +20,17 @@ import { PhotoSyncQueueModal } from './components/PhotoSyncQueueModal';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UsersManagementStep } from './components/UsersManagementStep';
+import { EcosystemIntegrationModal, MasterSelectionPayload } from './components/EcosystemIntegrationModal';
 import { FiscalizaLogo } from './components/FiscalizaLogo';
 import { OfficialFooter } from './components/OfficialFooter';
 import { InspectionProgressBar } from './components/InspectionProgressBar';
 import { MobileBottomNav } from './components/MobileBottomNav';
-import { InspectionData } from './types/inspection';
+import { EntidadeMestreTipo, InspectionData, SistemaOrigem } from './types/inspection';
+import {
+  applyMasterSelectionToInspection,
+  listAlterationRequests,
+  subscribeEcosystemUpdates
+} from './services/administraEcosystemService';
 import { getInspectorSession, signOutInspector, fetchLatestNumeroVistoriaFromSupabase } from './services/supabase';
 import { 
   canUserCreateInspection, 
@@ -142,11 +148,43 @@ function AppContent() {
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [showPhotoQueueModal, setShowPhotoQueueModal] = useState<boolean>(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState<boolean>(false);
+  const [showEcosystemModal, setShowEcosystemModal] = useState<boolean>(false);
+  const [ecosystemModalTab, setEcosystemModalTab] = useState<'status' | 'catalogo' | 'solicitacoes' | 'notificacoes'>('catalogo');
+  const [ecosystemRequestTarget, setEcosystemRequestTarget] = useState<{
+    entidadeTipo: EntidadeMestreTipo;
+    entidadeId: string;
+    entidadeNome: string;
+    sistemaDetentor: SistemaOrigem;
+    campoSugerido?: string;
+    valorAtualSugerido?: string;
+  } | null>(null);
+  const [pendingAlterationCount, setPendingAlterationCount] = useState<number>(0);
+  const [importCryptoPrompt, setImportCryptoPrompt] = useState<{ rawEnvelope: any } | null>(null);
+  const [importPassphrase, setImportPassphrase] = useState<string>('');
+  const [importCryptoError, setImportCryptoError] = useState<string>('');
   const [session, setSession] = useState<{ authenticated: boolean; email?: string; fullName?: string; role?: string } | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; type: 'success' | 'info' | 'error'; isRls?: boolean } | null>(null);
   const saveTimeoutRef = useRef<any>(null);
+
+  useEffect(() => {
+    let active = true;
+    const refreshPending = async () => {
+      try {
+        const reqs = await listAlterationRequests();
+        if (active) {
+          setPendingAlterationCount(reqs.filter(r => r.status === 'pendente').length);
+        }
+      } catch {}
+    };
+    refreshPending();
+    const unsub = subscribeEcosystemUpdates(refreshPending);
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, []);
 
   // Monitora sessão ativa do Fiscal e mudanças de autenticação
   useEffect(() => {
@@ -631,6 +669,24 @@ function AppContent() {
     exportInspectionToJson(currentInspection);
   };
 
+  const finalizeImportedInspection = (parsed: any) => {
+    const validated = validateAndSanitizeImportedInspection(parsed);
+    if (validated && validated.damIdentification && validated.generalInfo) {
+      saveInspection(validated);
+      setInspections(getAllInspections());
+      setCurrentInspection(validated);
+      setSyncFeedback({
+        message: 'Vistoria importada, autenticada e protegida com sucesso.',
+        type: 'success'
+      });
+    } else {
+      setSyncFeedback({
+        message: 'Arquivo JSON não possui a estrutura padrão de vistoria da CSB/SEMA-MT ou foi rejeitado na verificação de integridade.',
+        type: 'error'
+      });
+    }
+  };
+
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -639,37 +695,53 @@ function AppContent() {
     reader.onload = async event => {
       try {
         const content = event.target?.result as string;
-        let parsed = JSON.parse(content);
+        const parsed = JSON.parse(content);
 
-        // Suporte a envelope criptografado AES-GCM
+        // Suporte a envelope criptografado AES-GCM (exige senha definida na exportação)
         if (parsed && parsed.protocolo === 'SEMA-MT/CSB-ENCRYPTED-V1' && parsed.conteudoCriptografado) {
-          try {
-            const decryptedStr = await decryptTextAesGcm(parsed.conteudoCriptografado);
-            parsed = JSON.parse(decryptedStr);
-          } catch (decErr) {
-            console.error('Falha ao descriptografar arquivo protegido:', decErr);
-            alert('Falha na autenticação/chave do arquivo criptografado.');
-            return;
-          }
+          setImportPassphrase('');
+          setImportCryptoError('');
+          setImportCryptoPrompt({ rawEnvelope: parsed });
+          return;
         }
 
-        // Sanitização profunda anti-poluição de protótipo e validação de integridade
-        const validated = validateAndSanitizeImportedInspection(parsed);
-        if (validated && validated.damIdentification && validated.generalInfo) {
-          saveInspection(validated);
-          setInspections(getAllInspections());
-          setCurrentInspection(validated);
-          alert('Vistoria importada, autenticada e protegida com sucesso!');
-        } else {
-          alert('Arquivo JSON não possui a estrutura padrão de vistoria da CSB/SEMA-MT ou foi rejeitado na verificação de integridade.');
-        }
+        finalizeImportedInspection(parsed);
       } catch (err) {
         console.error('Erro ao processar importação:', err);
-        alert('Erro ao ler arquivo JSON. Verifique o formato ou integridade.');
+        setSyncFeedback({
+          message: 'Erro ao ler arquivo JSON. Verifique o formato ou integridade.',
+          type: 'error'
+        });
       }
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const handleConfirmEncryptedImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importCryptoPrompt?.rawEnvelope?.conteudoCriptografado) return;
+    if (!importPassphrase.trim()) {
+      setImportCryptoError('Informe a senha utilizada no momento da exportação criptografada.');
+      return;
+    }
+    try {
+      const decryptedStr = await decryptTextAesGcm(
+        importCryptoPrompt.rawEnvelope.conteudoCriptografado,
+        importPassphrase
+      );
+      const parsed = JSON.parse(decryptedStr);
+      setImportCryptoPrompt(null);
+      setImportPassphrase('');
+      setImportCryptoError('');
+      finalizeImportedInspection(parsed);
+    } catch {
+      setImportCryptoError('Senha inválida ou arquivo corrompido/adulterado.');
+    }
+  };
+
+  const handleApplyMasterSelection = (payload: MasterSelectionPayload) => {
+    setCurrentInspection(prev => applyMasterSelectionToInspection(prev, payload));
   };
 
   const handleGoToPhotosForComponent = (componentId: string) => {
@@ -678,9 +750,7 @@ function AppContent() {
   };
 
   const userRole = (session?.role || '').toLowerCase();
-  const isAdminUser = userRole === 'administrador' || userRole === 'admin' || 
-    session?.email?.toLowerCase() === 'yarageologa@gmail.com' || 
-    session?.email?.toLowerCase() === 'csb.fiscaliza@sema.mt.gov.br';
+  const isAdminUser = userRole === 'administrador' || userRole === 'admin';
 
   // Protege a etapa 7 (Módulo de Usuários): exclusivo para perfil Administrador
   useEffect(() => {
@@ -792,6 +862,12 @@ function AppContent() {
         currentUser={session}
         onLogout={handleLogout}
         onOpenChangePassword={() => setShowChangePasswordModal(true)}
+        onOpenEcosystemModal={() => {
+          setEcosystemRequestTarget(null);
+          setEcosystemModalTab('catalogo');
+          setShowEcosystemModal(true);
+        }}
+        pendingAlterationCount={pendingAlterationCount}
       />
 
       {/* Barra de Progresso Visual de Preenchimento da Inspeção de Campo (visível apenas na Nova Ficha) */}
@@ -889,6 +965,11 @@ function AppContent() {
                 onSyncNow={handleSyncNow}
                 isSyncing={isSyncing}
                 onOpenAuthModal={() => setShowAuthModal(true)}
+                onOpenEcosystemModal={(opts) => {
+                  setEcosystemModalTab(opts?.tab || 'catalogo');
+                  setEcosystemRequestTarget(opts?.requestTarget || null);
+                  setShowEcosystemModal(true);
+                }}
               />
             )}
 
@@ -1017,6 +1098,75 @@ function AppContent() {
         onClose={() => setShowChangePasswordModal(false)}
         userEmail={session?.email}
       />
+
+      {/* Central de Integração do Ecossistema CSB (Administra / Classifica / Notifica) */}
+      <EcosystemIntegrationModal
+        isOpen={showEcosystemModal}
+        onClose={() => setShowEcosystemModal(false)}
+        currentInspection={currentInspection}
+        currentUser={session}
+        onApplyMasterSelection={handleApplyMasterSelection}
+        initialTab={ecosystemModalTab}
+        initialRequestTarget={ecosystemRequestTarget}
+      />
+
+      {/* Modal de Senha para Importação de Arquivo Criptografado AES-GCM */}
+      {importCryptoPrompt && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <form
+            onSubmit={handleConfirmEncryptedImport}
+            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-md p-5 space-y-4"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                  Arquivo Criptografado AES-GCM-256
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Informe a senha definida durante a exportação segura do arquivo.
+                </p>
+              </div>
+            </div>
+
+            <input
+              type="password"
+              autoFocus
+              required
+              value={importPassphrase}
+              onChange={e => setImportPassphrase(e.target.value)}
+              placeholder="Senha do envelope criptografado"
+              className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+            />
+
+            {importCryptoError && (
+              <p className="text-xs font-semibold text-rose-600">{importCryptoError}</p>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setImportCryptoPrompt(null);
+                  setImportPassphrase('');
+                  setImportCryptoError('');
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+              >
+                Descriptografar e Importar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

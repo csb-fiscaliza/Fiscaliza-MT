@@ -60,6 +60,9 @@ export const OperationalReviewModal: React.FC<Props> = ({
   const [loadingDiag, setLoadingDiag] = useState(false);
   const [maskSensitiveData, setMaskSensitiveData] = useState(true);
   const [copiedBundle, setCopiedBundle] = useState(false);
+  const [exportPassphrase, setExportPassphrase] = useState('');
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -506,12 +509,38 @@ export const OperationalReviewModal: React.FC<Props> = ({
 
                   {supabaseDiag?.warnings && supabaseDiag.warnings.length > 0 && (
                     <div className="bg-slate-100 p-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-700 space-y-1">
-                      <span className="font-bold block">Status do Banco de Dados:</span>
+                      <span className="font-bold block">Status de Segurança e Migração:</span>
                       <ul className="list-disc list-inside space-y-0.5">
                         {supabaseDiag.warnings.map((w: string, idx: number) => (
                           <li key={idx}>{w}</li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {supabaseDiag?.ecosystemNodes && Array.isArray(supabaseDiag.ecosystemNodes) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      {supabaseDiag.ecosystemNodes.map((node: any) => (
+                        <div key={node.sistema} className="p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-[11px] space-y-0.5">
+                          <div className="flex items-center justify-between gap-2 font-bold text-slate-800">
+                            <span>{node.nomeExibicao}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                              node.modoOperacao === 'supabase_remoto'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : node.modoOperacao === 'bloqueado_seguranca'
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {node.modoOperacao === 'supabase_remoto'
+                                ? 'Conectado'
+                                : node.modoOperacao === 'bloqueado_seguranca'
+                                ? 'Chave Bloqueada'
+                                : 'Aguardando Chaves'}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500">{node.papel}</p>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -560,16 +589,48 @@ export const OperationalReviewModal: React.FC<Props> = ({
                         </div>
                       </div>
 
-                      <div className="pt-2 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => exportEncryptedInspectionToJson(data)}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-                          title="Exportar arquivo protegido com criptografia AES-GCM 256-bit"
-                        >
-                          <Lock className="w-3.5 h-3.5 text-emerald-300" />
-                          <span>Exportar Cópia Protegida com Criptografia (AES-GCM)</span>
-                        </button>
+                      <div className="pt-2 border-t border-emerald-200 space-y-2">
+                        <label className="block text-[11px] font-bold text-emerald-950">
+                          Senha de Proteção AES-GCM 256-bit para Exportação (mín. 6 caracteres):
+                        </label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="password"
+                            value={exportPassphrase}
+                            onChange={e => {
+                              setExportPassphrase(e.target.value);
+                              setExportError(null);
+                              setExportSuccess(false);
+                            }}
+                            placeholder="Defina uma senha forte para este arquivo..."
+                            className="flex-1 px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-xs text-slate-900 font-mono"
+                          />
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setExportError(null);
+                              setExportSuccess(false);
+                              try {
+                                await exportEncryptedInspectionToJson(data, exportPassphrase);
+                                setExportSuccess(true);
+                                setExportPassphrase('');
+                              } catch (err: any) {
+                                setExportError(err?.message || 'Erro ao exportar arquivo criptografado.');
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                            title="Exportar arquivo protegido com criptografia AES-GCM 256-bit"
+                          >
+                            <Lock className="w-3.5 h-3.5 text-emerald-300" />
+                            <span>Exportar Cópia Criptografada</span>
+                          </button>
+                        </div>
+                        {exportError && (
+                          <p className="text-[11px] text-rose-700 font-semibold">{exportError}</p>
+                        )}
+                        {exportSuccess && (
+                          <p className="text-[11px] text-emerald-800 font-semibold">Arquivo exportado e protegido com sucesso!</p>
+                        )}
                       </div>
                     </div>
                   </div>

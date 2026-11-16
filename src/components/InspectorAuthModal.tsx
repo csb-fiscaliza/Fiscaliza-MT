@@ -19,8 +19,7 @@ import {
   signInInspector, 
   signUpInspector, 
   signOutInspector, 
-  getInspectorSession,
-  ensureAuthenticatedSession
+  getInspectorSession
 } from '../services/supabase';
 
 interface InspectorAuthModalProps {
@@ -102,28 +101,6 @@ export const InspectorAuthModal: React.FC<InspectorAuthModalProps> = ({
     }
   };
 
-  const handleTryAnonAuth = async () => {
-    setLoading(true);
-    setStatusMsg({ type: 'info', text: 'Verificando autorização automática de campo...' });
-    try {
-      const res = await ensureAuthenticatedSession();
-      if (res.authenticated) {
-        setStatusMsg({ type: 'success', text: 'Acesso automático de campo estabelecido com sucesso!' });
-        await checkSession();
-        if (onAuthSuccess) onAuthSuccess();
-      } else {
-        setStatusMsg({ 
-          type: 'error', 
-          text: 'O banco de dados requer e-mail/senha cadastrado ou a execução do script SQL de liberação das regras RLS.' 
-        });
-      }
-    } catch {
-      setStatusMsg({ type: 'error', text: 'Não foi possível estabelecer sessão anônima.' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleLogout = async () => {
     setLoading(true);
     await signOutInspector();
@@ -132,21 +109,16 @@ export const InspectorAuthModal: React.FC<InspectorAuthModalProps> = ({
     setLoading(false);
   };
 
-  const sqlScript = `-- SCRIPT DE LIBERAÇÃO RLS PARA COLETA DE CAMPO (SEMA-MT / FISCALIZA CSB)
--- Execute este script no SQL Editor do Supabase para autorizar o envio de vistorias:
+  const sqlScript = `-- POLÍTICAS RLS ESTRITAS PARA USUÁRIOS ATIVOS AUTENTICADOS (CSB / SEMA-MT)
+-- Execute a migração completa: supabase/migrations/20261115_ecosystem_administra_integration.sql
+-- Acesso anônimo bloqueado por segurança contra vazamento de PII:
 
-CREATE POLICY "Fiscaliza CSB: Empreendedores" ON empreendedores FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Barragens" ON barragens FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Vistorias" ON vistorias FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Equipe" ON vistoria_equipe FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Acompanhantes" ON vistoria_acompanhantes FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Medições" ON vistoria_medicoes FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Condição Componentes" ON vistoria_componentes_condicao FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Itens Avaliados" ON vistoria_itens_avaliados FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Observações" ON vistoria_observacoes_componentes FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Fotos" ON vistoria_fotos FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Documentos" ON vistoria_documentos FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Fiscaliza CSB: Auditoria" ON vistoria_historico_alteracoes FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);`;
+CREATE POLICY "CSB Auth: Vistorias" ON vistorias FOR ALL TO authenticated USING (public.is_active_csb_user()) WITH CHECK (public.is_active_csb_user());
+CREATE POLICY "CSB Auth: Medicoes" ON vistoria_medicoes FOR ALL TO authenticated USING (public.is_active_csb_user()) WITH CHECK (public.is_active_csb_user());
+CREATE POLICY "CSB Auth: Itens Avaliados" ON vistoria_itens_avaliados FOR ALL TO authenticated USING (public.is_active_csb_user()) WITH CHECK (public.is_active_csb_user());
+CREATE POLICY "CSB Auth: Documentos" ON vistoria_documentos FOR ALL TO authenticated USING (public.is_active_csb_user()) WITH CHECK (public.is_active_csb_user());
+CREATE POLICY "CSB Auth: Solicitacoes Alteracao" ON solicitacoes_alteracao_ecossistema FOR ALL TO authenticated USING (public.is_active_csb_user()) WITH CHECK (public.is_active_csb_user());
+CREATE POLICY "CSB Auth: Produtos Ecossistema" ON produtos_ecossistema FOR ALL TO authenticated USING (public.is_active_csb_user()) WITH CHECK (public.is_active_csb_user());`;
 
   const handleCopySql = () => {
     navigator.clipboard.writeText(sqlScript);
@@ -368,17 +340,12 @@ CREATE POLICY "Fiscaliza CSB: Auditoria" ON vistoria_historico_alteracoes FOR AL
                     </button>
                   </div>
 
-                  {/* Opção de login anônimo rápido */}
+                  {/* Aviso de acesso autenticado obrigatório */}
                   <div className="pt-3 border-t border-slate-200 dark:border-slate-800 text-center">
-                    <button
-                      type="button"
-                      onClick={handleTryAnonAuth}
-                      disabled={loading}
-                      className="text-[11px] text-slate-500 hover:text-emerald-600 dark:text-slate-400 font-medium flex items-center justify-center gap-1.5 mx-auto cursor-pointer"
-                    >
-                      <Server className="w-3.5 h-3.5" />
-                      <span>Testar Conexão Anônima Automática</span>
-                    </button>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1.5">
+                      <Server className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Sincronização remota protegida por RLS exclusivo para contas autenticadas.</span>
+                    </p>
                   </div>
                 </form>
               )}
@@ -387,10 +354,10 @@ CREATE POLICY "Fiscaliza CSB: Auditoria" ON vistoria_historico_alteracoes FOR AL
             <div className="space-y-3.5">
               <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1.5">
                 <p>
-                  O erro <strong>42501 (Row-Level Security)</strong> ocorre porque as tabelas do banco possuem RLS ativado e restrito apenas a usuários logados.
+                  O erro <strong>42501 (Row-Level Security)</strong> ocorre quando a sessão não está autenticada no Supabase ou as políticas da migração do ecossistema ainda não foram aplicadas.
                 </p>
                 <p>
-                  Para permitir que o app sincronize tanto em modo anônimo quanto autenticado sem exigir senhas de todos os fiscais no campo, execute o seguinte comando no <strong>SQL Editor</strong> do seu banco:
+                  Por segurança, políticas abertas a usuários anônimos (<code>anon</code>) são bloqueadas. Utilize o comando estrito para contas autenticadas no <strong>SQL Editor</strong>:
                 </p>
               </div>
 
