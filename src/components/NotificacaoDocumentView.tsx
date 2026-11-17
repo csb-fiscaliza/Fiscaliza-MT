@@ -499,7 +499,8 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
           </div>
 
           {/* FOLHA 1 - TIMBRADA SIGA AUTUAÇÃO */}
-          <div className="bg-white border border-slate-300 shadow-md p-6 sm:p-10 font-sans text-slate-900 space-y-4 max-w-4xl mx-auto rounded-lg">
+          <div className="document-sheet-scroll rounded-lg print:overflow-visible">
+          <div className="bg-white border border-slate-300 shadow-md p-4 xs:p-6 sm:p-10 font-sans text-slate-900 space-y-4 min-w-[600px] sm:min-w-0 max-w-4xl mx-auto rounded-lg">
             {/* Cabeçalho Oficial com Brasão SEMA */}
             <div className="flex flex-col items-center justify-center text-center border-b border-slate-300 pb-3">
               <div className="w-12 h-12 mb-1 flex items-center justify-center text-slate-700">
@@ -709,9 +710,11 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
               <span className="font-bold text-black">Página 1 de 2</span>
             </div>
           </div>
+          </div>
 
           {/* FOLHA 2 - ASSINATURAS E CONFIRMAÇÃO DE RECEBIMENTO */}
-          <div className="bg-white border border-slate-300 shadow-md p-6 sm:p-10 font-sans text-slate-900 space-y-6 max-w-4xl mx-auto rounded-lg">
+          <div className="document-sheet-scroll rounded-lg print:overflow-visible">
+          <div className="bg-white border border-slate-300 shadow-md p-4 xs:p-6 sm:p-10 font-sans text-slate-900 space-y-6 min-w-[600px] sm:min-w-0 max-w-4xl mx-auto rounded-lg">
             {/* Cabeçalho Página 2 */}
             <div className="flex flex-col items-center justify-center text-center border-b border-slate-300 pb-3">
               <div className="w-10 h-10 mb-1 flex items-center justify-center text-slate-700">
@@ -800,6 +803,7 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
               <span>{generated.sistemaEmissor}</span>
               <span className="font-bold text-black">Página 2 de 2</span>
             </div>
+          </div>
           </div>
         </div>
       )}

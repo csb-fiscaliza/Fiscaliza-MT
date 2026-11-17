@@ -838,30 +838,30 @@ export const PhotoManagerStep: React.FC<Props> = ({
 
       {/* Modal Zoom */}
       {zoomPhoto && (
-        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3 sm:p-4">
-          <div className="relative max-w-4xl w-full bg-slate-900 text-white rounded-xl overflow-hidden shadow-2xl">
-            <div className="p-3 bg-slate-950 flex items-center justify-between border-b border-slate-800">
-              <div>
-                <span className="font-bold text-xs text-emerald-400">{zoomPhoto.componenteNome}</span>
-                <p className="text-xs text-slate-300 font-medium">{zoomPhoto.descricao || 'Sem descrição'}</p>
+        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto">
+          <div className="relative max-w-4xl w-full bg-slate-900 text-white rounded-2xl overflow-hidden shadow-2xl max-h-[92dvh] flex flex-col my-auto">
+            <div className="p-3 bg-slate-950 flex items-center justify-between border-b border-slate-800 shrink-0">
+              <div className="min-w-0 pr-2">
+                <span className="font-bold text-xs text-emerald-400 block truncate">{zoomPhoto.componenteNome}</span>
+                <p className="text-xs text-slate-300 font-medium truncate">{zoomPhoto.descricao || 'Sem descrição'}</p>
               </div>
               <button
                 onClick={() => setZoomPhoto(null)}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="max-h-[70vh] flex items-center justify-center p-2 bg-black">
+            <div className="flex-1 min-h-0 max-h-[68dvh] flex items-center justify-center p-2 bg-black">
               <img
                 src={photoObjectUrls[zoomPhoto.id] || zoomPhoto.remoteStorageUrl || zoomPhoto.thumbnailPreviewUrl || ''}
                 alt={zoomPhoto.descricao || 'Foto'}
-                className="max-h-[68vh] max-w-full object-contain"
+                className="max-h-[64dvh] max-w-full object-contain"
               />
             </div>
 
-            <div className="p-3 bg-slate-950 text-xs text-slate-400 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
+            <div className="p-3 bg-slate-950 text-xs text-slate-400 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 shrink-0">
               <span>Data/Hora: {zoomPhoto.timestampInclusao}</span>
               {zoomPhoto.coordenadas && (
                 <span>
@@ -874,12 +874,12 @@ export const PhotoManagerStep: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Navegação Inferior */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between shadow-lg sm:static sm:bg-transparent sm:border-0 sm:shadow-none sm:px-0 sm:pt-4 transition-colors">
+      {/* Navegação Inferior (In-flow para nunca colidir com a barra inferior móvel) */}
+      <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 transition-colors">
         <button
           type="button"
           onClick={onPrev}
-          className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs sm:text-sm font-semibold transition cursor-pointer"
+          className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs sm:text-sm font-semibold transition cursor-pointer active:scale-95"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Voltar</span>
@@ -888,7 +888,7 @@ export const PhotoManagerStep: React.FC<Props> = ({
         <button
           type="button"
           onClick={onNext}
-          className="min-h-[44px] flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs sm:text-sm shadow-xs transition cursor-pointer"
+          className="min-h-[44px] flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold text-xs sm:text-sm shadow-xs transition cursor-pointer"
         >
           <span>Avançar para Conclusões</span>
           <ArrowRight className="w-4 h-4" />

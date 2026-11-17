@@ -196,23 +196,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
   };
 
   return (
-    <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-900 to-slate-950 text-slate-100 flex flex-col justify-between selection:bg-emerald-500 selection:text-white font-sans">
+    <div className="min-h-[100dvh] bg-linear-to-b from-slate-900 via-slate-900 to-slate-950 text-slate-100 flex flex-col justify-between pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] selection:bg-emerald-500 selection:text-white font-sans">
       {!isOnline && (
-        <div className="bg-amber-600/90 text-amber-50 px-4 py-2 text-xs font-semibold flex items-center justify-center gap-2 border-b border-amber-500/50">
+        <div className="bg-amber-600/90 text-amber-50 px-3 sm:px-4 py-2 text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-2 border-b border-amber-500/50">
           <WifiOff className="w-4 h-4 shrink-0" />
           <span>Dispositivo em modo campo (sem internet). A autenticação operará em contingência segura local (PBKDF2).</span>
         </div>
       )}
 
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-6 my-auto">
-        <div className="w-full max-w-md bg-white dark:bg-slate-900/95 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden backdrop-blur-md transition-all">
-          <div className="p-6 sm:p-8 bg-linear-to-b from-emerald-950/20 to-transparent border-b border-slate-100 dark:border-slate-800/80 text-center">
-            <div className="inline-block p-2 rounded-2xl bg-white dark:bg-slate-800 shadow-md border border-slate-200/60 dark:border-slate-700/60 mb-3.5">
+      <div className="flex-1 flex items-center justify-center p-3 xs:p-4 sm:p-6 my-auto">
+        <div className="w-full max-w-md bg-white dark:bg-slate-900/95 border border-slate-200/80 dark:border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden backdrop-blur-md transition-all">
+          <div className="p-4 xs:p-6 sm:p-8 bg-linear-to-b from-emerald-950/20 to-transparent border-b border-slate-100 dark:border-slate-800/80 text-center">
+            <div className="inline-block p-2 rounded-2xl bg-white dark:bg-slate-800 shadow-md border border-slate-200/60 dark:border-slate-700/60 mb-3">
               <FiscalizaLogo size="lg" />
             </div>
 
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
+            <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 mb-1">
+              <h1 className="text-lg xs:text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
                 FISCALIZA - Etapa de Campo
               </h1>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
@@ -232,7 +232,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
             <button
               type="button"
               onClick={() => handleSwitchMode('login')}
-              className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`min-h-[42px] flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 mode === 'login'
                   ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -245,7 +245,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
             <button
               type="button"
               onClick={() => handleSwitchMode('register')}
-              className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`min-h-[42px] flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 mode === 'register'
                   ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -259,7 +259,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
               <button
                 type="button"
                 onClick={() => handleSwitchMode('bootstrap')}
-                className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`min-h-[42px] flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                   mode === 'bootstrap'
                     ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -271,7 +271,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
             )}
           </div>
 
-          <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-4">
+          <form onSubmit={handleSubmit} className="p-4 xs:p-6 sm:p-8 space-y-4">
             {feedback && (
               <div
                 className={`p-3 rounded-xl text-xs font-medium flex items-start gap-2 border ${

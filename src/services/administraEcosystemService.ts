@@ -15,6 +15,8 @@
 // ==============================================================================
 
 import {
+  AdministraCadastroStatus,
+  AdministraEntityCadastroState,
   BarragemEntity,
   EmpreendedorEntity,
   EntidadeMestreTipo,
@@ -566,10 +568,719 @@ export async function fetchAdministraMasterCatalog(searchTerms: string[] = []): 
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function ensureValidUuid(candidate?: string | null): string {
+  if (candidate && UUID_REGEX.test(candidate.trim())) {
+    return candidate.trim();
+  }
+  return generateUUID();
+}
+
+function toNullableStr(val?: string | null): string | null {
+  if (val === undefined || val === null) return null;
+  const trimmed = String(val).trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+function toNullableNum(val?: string | number | null): number | null {
+  if (val === undefined || val === null || val === '') return null;
+  const parsed = typeof val === 'number' ? val : Number(String(val).replace(',', '.').trim());
+  return isNaN(parsed) ? null : parsed;
+}
+
+function toNullableInt(val?: string | number | null): number | null {
+  const num = toNullableNum(val);
+  return num === null ? null : Math.trunc(num);
+}
+
+export function hasEntityDataInForm(inspection: InspectionData, tipo: EntidadeMestreTipo): boolean {
+  const d = inspection.damIdentification;
+  if (tipo === 'empreendedor') {
+    return Boolean(
+      d?.propertyOrBusinessName?.trim() ||
+        d?.ownerCpfCnpj?.trim() ||
+        d?.ownerAddress?.trim() ||
+        d?.ownerPhone?.trim() ||
+        d?.regulatoryStatus?.carNumber?.trim() ||
+        inspection.conclusions?.notificationDetails?.destinatario?.email?.trim()
+    );
+  }
+  if (tipo === 'barragem') {
+    return Boolean(
+      d?.damName?.trim() ||
+        d?.municipality?.trim() ||
+        d?.waterCourse?.trim() ||
+        d?.hydrographicBasin?.trim() ||
+        d?.workStartYear?.trim() ||
+        d?.workEndYear?.trim() ||
+        d?.mainWaterUse?.trim() ||
+        d?.coordinates?.isManualEdit ||
+        (d?.coordinates?.latitude?.trim() && d?.coordinates?.longitude?.trim())
+    );
+  }
+  const rt = inspection.responsavelTecnico;
+  return Boolean(
+    rt?.nome?.trim() ||
+      rt?.cpf?.trim() ||
+      rt?.registroProfissional?.trim() ||
+      rt?.artNumero?.trim() ||
+      rt?.especialidade?.trim() ||
+      rt?.telefone?.trim() ||
+      rt?.email?.trim()
+  );
+}
+
+export function getEntityCadastroStatus(
+  inspection: InspectionData,
+  tipo: EntidadeMestreTipo
+): AdministraEntityCadastroState {
+  const statusMap = inspection.administraCadastroStatus;
+  const statusKey: keyof AdministraCadastroStatus =
+    tipo === 'empreendedor'
+      ? 'empreendedor'
+      : tipo === 'barragem'
+      ? 'barragem'
+      : 'responsavelTecnico';
+
+  const explicit = statusMap?.[statusKey];
+  if (explicit !== undefined) {
+    return {
+      ...explicit,
+      cadastrado: explicit.cadastrado === true
+    };
+  }
+
+  // Retrocompatibilidade para fichas antigas sem `administraCadastroStatus`
+  const importedOriginEntries = Object.values(inspection.importedFieldsOrigin || {});
+  if (importedOriginEntries.some(entry => entry.entidadeTipo === tipo)) {
+    const first = importedOriginEntries.find(entry => entry.entidadeTipo === tipo)!;
+    return {
+      cadastrado: true,
+      modo: 'vinculado_existente',
+      entidadeId: first.entidadeId,
+      sistemaOrigem: first.sourceSystem,
+      registradoEm: first.importedAt
+    };
+  }
+
+  const origin =
+    tipo === 'empreendedor'
+      ? inspection.empreendedorOrigemSistema
+      : tipo === 'barragem'
+      ? inspection.barragemOrigemSistema
+      : inspection.responsavelTecnicoOrigemSistema || inspection.responsavelTecnico?.sistemaOrigem;
+
+  const entidadeId =
+    tipo === 'empreendedor'
+      ? inspection.empreendedorId
+      : tipo === 'barragem'
+      ? inspection.barragemId
+      : inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id;
+
+  if (origin && origin !== 'fiscaliza' && entidadeId) {
+    return {
+      cadastrado: true,
+      modo: 'vinculado_existente',
+      entidadeId,
+      sistemaOrigem: origin
+    };
+  }
+
+  if (entidadeId && hasEntityDataInForm(inspection, tipo)) {
+    const catalog = loadLocalAdministraCatalog();
+    const existsInCatalog =
+      tipo === 'empreendedor'
+        ? catalog.empreendedores.some(e => e.id === entidadeId)
+        : tipo === 'barragem'
+        ? catalog.barragens.some(b => b.id === entidadeId)
+        : catalog.responsaveisTecnicos.some(r => r.id === entidadeId);
+    if (existsInCatalog || inspection.syncStatus === 'synced') {
+      return {
+        cadastrado: true,
+        modo: 'cadastrado_manual',
+        entidadeId,
+        sistemaOrigem: origin || 'fiscaliza'
+      };
+    }
+  }
+
+  return { cadastrado: false };
+}
+
+export function isEntityRegisteredInAdministra(
+  inspection: InspectionData,
+  tipo: EntidadeMestreTipo
+): boolean {
+  return getEntityCadastroStatus(inspection, tipo).cadastrado === true;
+}
+
+export interface AdministraConclusionValidation {
+  canConclude: boolean;
+  missingEntities: {
+    tipo: EntidadeMestreTipo;
+    label: string;
+    usedInForm: boolean;
+    hasMinimumFields: boolean;
+    missingFields: string[];
+    reason: string;
+  }[];
+  summaryMessage: string;
+}
+
+export function getAdministraConclusionValidation(
+  inspection: InspectionData
+): AdministraConclusionValidation {
+  const missingEntities: AdministraConclusionValidation['missingEntities'] = [];
+
+  const damName = (inspection.damIdentification?.damName || '').trim();
+  const damMun = (inspection.damIdentification?.municipality || '').trim();
+  const damMissingFields: string[] = [];
+  if (!damName) damMissingFields.push('Nome da Barragem');
+  if (!damMun) damMissingFields.push('Município');
+  if (!isEntityRegisteredInAdministra(inspection, 'barragem')) {
+    missingEntities.push({
+      tipo: 'barragem',
+      label: 'Barragem',
+      usedInForm: hasEntityDataInForm(inspection, 'barragem'),
+      hasMinimumFields: damMissingFields.length === 0,
+      missingFields: damMissingFields,
+      reason:
+        damMissingFields.length > 0
+          ? `Preencha (${damMissingFields.join(', ')}) e clique em "Cadastrar Barragem na Base de Dados" (ou vincule uma existente).`
+          : 'A barragem preenchida manualmente ainda não foi cadastrada na base do Administra. Clique em "Cadastrar Barragem na Base de Dados".'
+    });
+  }
+
+  const empName = (inspection.damIdentification?.propertyOrBusinessName || '').trim();
+  const empMissingFields: string[] = [];
+  if (!empName) empMissingFields.push('Nome do Empreendedor / Razão Social');
+  if (!isEntityRegisteredInAdministra(inspection, 'empreendedor')) {
+    missingEntities.push({
+      tipo: 'empreendedor',
+      label: 'Empreendedor',
+      usedInForm: hasEntityDataInForm(inspection, 'empreendedor'),
+      hasMinimumFields: empMissingFields.length === 0,
+      missingFields: empMissingFields,
+      reason:
+        empMissingFields.length > 0
+          ? `Preencha (${empMissingFields.join(', ')}) e clique em "Cadastrar Empreendedor na Base de Dados" (ou vincule um existente).`
+          : 'O empreendedor preenchido manualmente ainda não foi cadastrado na base do Administra. Clique em "Cadastrar Empreendedor na Base de Dados".'
+    });
+  }
+
+  const rtUsed = hasEntityDataInForm(inspection, 'responsavel_tecnico');
+  if (rtUsed && !isEntityRegisteredInAdministra(inspection, 'responsavel_tecnico')) {
+    const rtName = (inspection.responsavelTecnico?.nome || '').trim();
+    const rtMissingFields = rtName ? [] : ['Nome do Responsável Técnico'];
+    missingEntities.push({
+      tipo: 'responsavel_tecnico',
+      label: 'Responsável Técnico (RT)',
+      usedInForm: true,
+      hasMinimumFields: rtMissingFields.length === 0,
+      missingFields: rtMissingFields,
+      reason:
+        rtMissingFields.length > 0
+          ? `Preencha (${rtMissingFields.join(', ')}) e clique em "Cadastrar Responsável Técnico na Base de Dados" (ou limpe os campos de RT se não aplicável).`
+          : 'O Responsável Técnico informado manualmente ainda não foi cadastrado na base do Administra. Clique em "Cadastrar Responsável Técnico na Base de Dados".'
+    });
+  }
+
+  const canConclude = missingEntities.length === 0;
+  const summaryMessage = canConclude
+    ? 'Todos os cadastros utilizados estão efetivamente registrados na base do Administra.'
+    : `Não é possível concluir a vistoria enquanto houver dados não cadastrados na base do Administra (${missingEntities
+        .map(m => m.label)
+        .join(', ')}). Você pode salvar como rascunho temporário até efetivar os cadastros.`;
+
+  return {
+    canConclude,
+    missingEntities,
+    summaryMessage
+  };
+}
+
+function buildEmpreendedorFromInspection(
+  inspection: InspectionData,
+  existingEmp?: EmpreendedorEntity,
+  actorEmail?: string,
+  now: string = new Date().toISOString()
+): { entity: EmpreendedorEntity; payload: Record<string, any> } {
+  const targetEmpId = ensureValidUuid(existingEmp?.id || inspection.empreendedorId);
+  const empName = (inspection.damIdentification?.propertyOrBusinessName || '').trim();
+  const empEntity: EmpreendedorEntity = {
+    id: targetEmpId,
+    administraId: existingEmp?.administraId || targetEmpId,
+    sistemaOrigem: existingEmp?.sistemaOrigem || 'fiscaliza',
+    criadoPorEmail: existingEmp?.criadoPorEmail || actorEmail || inspection.createdByEmail || null,
+    nomeRazaoSocial: empName,
+    cpfCnpj:
+      toNullableStr(inspection.damIdentification?.ownerCpfCnpj) ||
+      toNullableStr(inspection.conclusions?.notificationDetails?.destinatario?.cpfCnpj) ||
+      existingEmp?.cpfCnpj ||
+      null,
+    figuraJuridica:
+      inspection.damIdentification?.ownerLegalType || existingEmp?.figuraJuridica || 'empresa_privada',
+    processoNumero: toNullableStr(inspection.generalInfo?.recordNumber) || existingEmp?.processoNumero || null,
+    endereco:
+      toNullableStr(inspection.damIdentification?.ownerAddress) ||
+      toNullableStr(inspection.conclusions?.notificationDetails?.destinatario?.enderecoCorrespondencia) ||
+      existingEmp?.endereco ||
+      '',
+    municipio: toNullableStr(inspection.damIdentification?.municipality) || existingEmp?.municipio || null,
+    uf: existingEmp?.uf || 'MT',
+    telefone:
+      toNullableStr(inspection.damIdentification?.ownerPhone) ||
+      toNullableStr(inspection.conclusions?.notificationDetails?.destinatario?.telefone) ||
+      existingEmp?.telefone ||
+      null,
+    email:
+      toNullableStr(inspection.conclusions?.notificationDetails?.destinatario?.email) ||
+      existingEmp?.email ||
+      null,
+    documentosPessoais: existingEmp?.documentosPessoais || null,
+    carNumero:
+      toNullableStr(inspection.damIdentification?.regulatoryStatus?.carNumber) || existingEmp?.carNumero || null,
+    declaracaoUsoOutorga:
+      toNullableStr(inspection.damIdentification?.regulatoryStatus?.permitNumber) ||
+      existingEmp?.declaracaoUsoOutorga ||
+      null,
+    quantidadeBarragens:
+      toNullableInt(inspection.damIdentification?.damsCountOnProperty) ??
+      existingEmp?.quantidadeBarragens ??
+      1,
+    comentarios: toNullableStr(inspection.sectionComments?.sec2) || existingEmp?.comentarios || null,
+    sincronizadoAdministraEm: now,
+    createdAt: existingEmp?.createdAt || inspection.createdAt || now,
+    updatedAt: now
+  };
+
+  const payload: Record<string, any> = {
+    id: empEntity.id,
+    administra_id: empEntity.administraId,
+    sistema_origem: empEntity.sistemaOrigem,
+    criado_por_email: empEntity.criadoPorEmail,
+    nome_razao_social: empEntity.nomeRazaoSocial,
+    cpf_cnpj: empEntity.cpfCnpj,
+    figura_juridica: empEntity.figuraJuridica,
+    processo_numero: empEntity.processoNumero,
+    endereco: toNullableStr(empEntity.endereco),
+    municipio: empEntity.municipio,
+    uf: empEntity.uf || 'MT',
+    telefone: empEntity.telefone,
+    email: empEntity.email,
+    car_numero: empEntity.carNumero,
+    declaracao_uso: empEntity.declaracaoUsoOutorga,
+    quantidade_barragens_propriedade: empEntity.quantidadeBarragens,
+    comentarios: empEntity.comentarios,
+    sincronizado_administra_em: now,
+    updated_at: now
+  };
+
+  return { entity: empEntity, payload };
+}
+
+function buildBarragemFromInspection(
+  inspection: InspectionData,
+  existingBar?: BarragemEntity,
+  registeredEmpId?: string | null,
+  actorEmail?: string,
+  now: string = new Date().toISOString()
+): { entity: BarragemEntity; payload: Record<string, any> } {
+  const targetBarId = ensureValidUuid(existingBar?.id || inspection.barragemId);
+  const damName = (inspection.damIdentification?.damName || '').trim();
+  const latDec = parseGmsToDecimal(inspection.damIdentification?.coordinates?.latitude || '', true);
+  const lngDec = parseGmsToDecimal(inspection.damIdentification?.coordinates?.longitude || '', false);
+  const startYr = toNullableInt(inspection.damIdentification?.workStartYear);
+  const endYr = toNullableInt(inspection.damIdentification?.workEndYear);
+
+  const barEntity: BarragemEntity = {
+    id: targetBarId,
+    administraId: existingBar?.administraId || targetBarId,
+    sistemaOrigem: existingBar?.sistemaOrigem || 'fiscaliza',
+    criadoPorEmail: existingBar?.criadoPorEmail || actorEmail || inspection.createdByEmail || null,
+    empreendedorId: registeredEmpId ?? existingBar?.empreendedorId ?? '',
+    nome: damName,
+    municipio: (inspection.damIdentification?.municipality || existingBar?.municipio || '').trim(),
+    baciaHidrografica:
+      toNullableStr(inspection.damIdentification?.hydrographicBasin) || existingBar?.baciaHidrografica || null,
+    cursoDagua: toNullableStr(inspection.damIdentification?.waterCourse) || existingBar?.cursoDagua || null,
+    coordenadas: {
+      latitude: latDec,
+      longitude: lngDec,
+      horarioCaptura: inspection.damIdentification?.coordinates?.captureTimestamp || now,
+      acuraciaMetros: toNullableNum(inspection.damIdentification?.coordinates?.accuracyMeters),
+      altitudeEstimadaDispositivo: toNullableNum(inspection.damIdentification?.coordinates?.altitudeMeters),
+      editadoManualmente: !!inspection.damIdentification?.coordinates?.isManualEdit,
+      datum: inspection.damIdentification?.coordinates?.datum || 'SIRGAS 2000'
+    },
+    latitudeGms: toNullableStr(inspection.damIdentification?.coordinates?.latitude),
+    longitudeGms: toNullableStr(inspection.damIdentification?.coordinates?.longitude),
+    cotaCoroamentoMetros:
+      toNullableNum(inspection.damIdentification?.estimatedDimensions?.heightMeters) ??
+      existingBar?.cotaCoroamentoMetros ??
+      null,
+    anoInicioObra: startYr ?? existingBar?.anoInicioObra ?? null,
+    anoFinalObra: endYr ?? existingBar?.anoFinalObra ?? null,
+    idadeBarragemAnos: existingBar?.idadeBarragemAnos ?? null,
+    tipoMaterial: inspection.damIdentification?.damType || existingBar?.tipoMaterial || 'terra_homogenea',
+    usoPrincipal:
+      toNullableStr(inspection.damIdentification?.mainWaterUse) || existingBar?.usoPrincipal || 'Não informado',
+    usosSecundarios: inspection.damIdentification?.secondaryWaterUses || existingBar?.usosSecundarios || [],
+    sincronizadoAdministraEm: now,
+    createdAt: existingBar?.createdAt || inspection.createdAt || now,
+    updatedAt: now
+  };
+
+  const payload: Record<string, any> = {
+    id: barEntity.id,
+    administra_id: barEntity.administraId,
+    sistema_origem: barEntity.sistemaOrigem,
+    criado_por_email: barEntity.criadoPorEmail,
+    empreendedor_id: registeredEmpId || null,
+    nome: barEntity.nome,
+    municipio: barEntity.municipio,
+    bacia_hidrografica: barEntity.baciaHidrografica,
+    curso_dagua: barEntity.cursoDagua,
+    latitude_decimal: barEntity.coordenadas.latitude,
+    longitude_decimal: barEntity.coordenadas.longitude,
+    latitude_gms: barEntity.latitudeGms || null,
+    longitude_gms: barEntity.longitudeGms || null,
+    datum: barEntity.coordenadas.datum,
+    acuracia_metros: barEntity.coordenadas.acuraciaMetros,
+    altitude_metros: barEntity.coordenadas.altitudeEstimadaDispositivo,
+    cota_coroamento_metros: barEntity.cotaCoroamentoMetros,
+    ano_inicio_obra: barEntity.anoInicioObra,
+    ano_final_obra: barEntity.anoFinalObra,
+    tipo_barragem_material: barEntity.tipoMaterial,
+    uso_principal: barEntity.usoPrincipal,
+    usos_secundarios: barEntity.usosSecundarios,
+    vertedouro_tipo: inspection.damIdentification?.spillwayType || 'canal_lateral_escavado',
+    outorga_possui: inspection.damIdentification?.regulatoryStatus?.hasWaterPermit || 'nao_informado',
+    outorga_numero: toNullableStr(inspection.damIdentification?.regulatoryStatus?.permitNumber),
+    licenca_ambiental_possui:
+      inspection.damIdentification?.regulatoryStatus?.hasEnvironmentalLicense || 'nao_informado',
+    licenca_ambiental_numero: toNullableStr(inspection.damIdentification?.regulatoryStatus?.licenseNumber),
+    car_possui: inspection.damIdentification?.regulatoryStatus?.hasCar || 'nao_informado',
+    car_numero: toNullableStr(inspection.damIdentification?.regulatoryStatus?.carNumber),
+    sincronizado_administra_em: now,
+    updated_at: now
+  };
+
+  return { entity: barEntity, payload };
+}
+
+function buildRtFromInspection(
+  inspection: InspectionData,
+  existingRt?: ResponsavelTecnicoEntity,
+  registeredEmpId?: string | null,
+  registeredBarId?: string | null,
+  actorEmail?: string,
+  now: string = new Date().toISOString()
+): { entity: ResponsavelTecnicoEntity; payload: Record<string, any> } {
+  const targetRtId = ensureValidUuid(
+    existingRt?.id || inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id
+  );
+  const rtName = (inspection.responsavelTecnico?.nome || '').trim();
+
+  const rtEntity: ResponsavelTecnicoEntity = {
+    id: targetRtId,
+    administraId: existingRt?.administraId || targetRtId,
+    sistemaOrigem: existingRt?.sistemaOrigem || 'fiscaliza',
+    criadoPorEmail: existingRt?.criadoPorEmail || actorEmail || inspection.createdByEmail || null,
+    empreendedorId: registeredEmpId ?? existingRt?.empreendedorId ?? null,
+    barragemId: registeredBarId ?? existingRt?.barragemId ?? null,
+    nome: rtName,
+    cpf: toNullableStr(inspection.responsavelTecnico?.cpf) || existingRt?.cpf || null,
+    registroProfissional:
+      toNullableStr(inspection.responsavelTecnico?.registroProfissional) ||
+      existingRt?.registroProfissional ||
+      null,
+    ufRegistro: existingRt?.ufRegistro || 'MT',
+    artNumero: toNullableStr(inspection.responsavelTecnico?.artNumero) || existingRt?.artNumero || null,
+    especialidade:
+      toNullableStr(inspection.responsavelTecnico?.especialidade) || existingRt?.especialidade || null,
+    telefone: toNullableStr(inspection.responsavelTecnico?.telefone) || existingRt?.telefone || null,
+    email: toNullableStr(inspection.responsavelTecnico?.email) || existingRt?.email || null,
+    sincronizadoAdministraEm: now,
+    createdAt: existingRt?.createdAt || now,
+    updatedAt: now
+  };
+
+  const payload: Record<string, any> = {
+    id: rtEntity.id,
+    administra_id: rtEntity.administraId,
+    sistema_origem: rtEntity.sistemaOrigem,
+    criado_por_email: rtEntity.criadoPorEmail,
+    empreendedor_id: registeredEmpId || null,
+    barragem_id: registeredBarId || null,
+    nome: rtEntity.nome,
+    cpf: rtEntity.cpf,
+    registro_profissional: rtEntity.registroProfissional,
+    uf_registro: rtEntity.ufRegistro,
+    art_numero: rtEntity.artNumero,
+    especialidade: rtEntity.especialidade,
+    telefone: rtEntity.telefone,
+    email: rtEntity.email,
+    sincronizado_administra_em: now,
+    updated_at: now
+  };
+
+  return { entity: rtEntity, payload };
+}
+
 /**
- * Persiste Empreendedor, Barragem e Responsável Técnico preenchidos em formulários do Fiscaliza
- * DIRETAMENTE na base do Administra Barragens (ou cache local de migração se chave ainda ausente),
- * RESPEITANDO estritamente a regra de não sobrescrever registros inseridos por outros sistemas.
+ * Cadastra EXPLICITAMENTE uma única entidade (Empreendedor, Barragem ou RT) preenchida
+ * manualmente no formulário diretamente na base do Administra (local + remota),
+ * mantendo o histórico e os vínculos atualizados na ficha.
+ */
+export async function registerSingleEntityToAdministra(params: {
+  tipo: EntidadeMestreTipo;
+  inspection: InspectionData;
+  actorEmail?: string;
+}): Promise<{
+  success: boolean;
+  updatedInspection?: InspectionData;
+  entidadeId?: string;
+  savedRemote: boolean;
+  error?: string;
+}> {
+  const { tipo, inspection, actorEmail } = params;
+  const now = new Date().toISOString();
+  const catalog = loadLocalAdministraCatalog();
+
+  // 1. Validação dos campos obrigatórios por tipo
+  if (tipo === 'empreendedor') {
+    if (!(inspection.damIdentification?.propertyOrBusinessName || '').trim()) {
+      return {
+        success: false,
+        savedRemote: false,
+        error: 'Informe o Nome do Empreendedor / Razão Social antes de cadastrar na base do Administra.'
+      };
+    }
+  } else if (tipo === 'barragem') {
+    if (!(inspection.damIdentification?.damName || '').trim()) {
+      return {
+        success: false,
+        savedRemote: false,
+        error: 'Informe o Nome da Barragem antes de cadastrar na base do Administra.'
+      };
+    }
+    if (!(inspection.damIdentification?.municipality || '').trim()) {
+      return {
+        success: false,
+        savedRemote: false,
+        error: 'Selecione o Município (MT) da barragem antes de cadastrar na base do Administra.'
+      };
+    }
+  } else if (tipo === 'responsavel_tecnico') {
+    if (!(inspection.responsavelTecnico?.nome || '').trim()) {
+      return {
+        success: false,
+        savedRemote: false,
+        error: 'Informe o Nome do Responsável Técnico antes de cadastrar na base do Administra.'
+      };
+    }
+  }
+
+  // 2. Se servidor remoto está configurado mas o aparelho está offline, mantém no rascunho local
+  const remoteClient = administraSupabase || fiscalizaSupabase;
+  if (remoteClient && typeof navigator !== 'undefined' && !navigator.onLine) {
+    return {
+      success: false,
+      savedRemote: false,
+      error:
+        'Dispositivo sem internet no momento. O formulário segue salvo temporariamente no rascunho local; conecte-se para efetivar o cadastro na base do Administra.'
+    };
+  }
+
+  await ensureEcosystemClientsSession();
+
+  const empRegistered = isEntityRegisteredInAdministra(inspection, 'empreendedor');
+  const barRegistered = isEntityRegisteredInAdministra(inspection, 'barragem');
+
+  let targetId = '';
+  let tableName = '';
+  let remotePayload: Record<string, any> = {};
+  const statusKey: keyof AdministraCadastroStatus =
+    tipo === 'empreendedor'
+      ? 'empreendedor'
+      : tipo === 'barragem'
+      ? 'barragem'
+      : 'responsavelTecnico';
+
+  if (tipo === 'empreendedor') {
+    tableName = 'empreendedores';
+    const empDocDigits = normalizeDocumentDigits(inspection.damIdentification?.ownerCpfCnpj);
+    const existingEmp = catalog.empreendedores.find(
+      e =>
+        (inspection.empreendedorId && e.id === inspection.empreendedorId) ||
+        (empDocDigits.length >= 11 && normalizeDocumentDigits(e.cpfCnpj) === empDocDigits)
+    );
+    if (existingEmp && existingEmp.sistemaOrigem !== 'fiscaliza') {
+      const perm = canFiscalizaEditMasterEntity(existingEmp.sistemaOrigem);
+      if (!perm.allowed) {
+        // Caso já exista vínculo sob outra titularidade, atualiza via superioridade de vistoria
+        targetId = existingEmp.id;
+      }
+    }
+    const { entity, payload } = buildEmpreendedorFromInspection(inspection, existingEmp, actorEmail, now);
+    targetId = entity.id;
+    remotePayload = payload;
+
+    const empIdx = catalog.empreendedores.findIndex(e => e.id === targetId);
+    if (empIdx >= 0) catalog.empreendedores[empIdx] = entity;
+    else catalog.empreendedores.unshift(entity);
+
+    // Se a barragem da mesma vistoria já estiver cadastrada no Administra, vincula o empreendedor_id nela
+    if (barRegistered && inspection.barragemId) {
+      const bIdx = catalog.barragens.findIndex(b => b.id === inspection.barragemId);
+      if (bIdx >= 0) {
+        catalog.barragens[bIdx] = { ...catalog.barragens[bIdx], empreendedorId: targetId, updatedAt: now };
+      }
+    }
+  } else if (tipo === 'barragem') {
+    tableName = 'barragens';
+    const damName = (inspection.damIdentification?.damName || '').trim();
+    const damMun = (inspection.damIdentification?.municipality || '').trim();
+    const existingBar = catalog.barragens.find(
+      b =>
+        (inspection.barragemId && b.id === inspection.barragemId) ||
+        (damName &&
+          normalizeNameForMatch(b.nome) === normalizeNameForMatch(damName) &&
+          normalizeNameForMatch(b.municipio) === normalizeNameForMatch(damMun))
+    );
+    const regEmpId = empRegistered && inspection.empreendedorId ? ensureValidUuid(inspection.empreendedorId) : null;
+    const { entity, payload } = buildBarragemFromInspection(inspection, existingBar, regEmpId, actorEmail, now);
+    targetId = entity.id;
+    remotePayload = payload;
+
+    const barIdx = catalog.barragens.findIndex(b => b.id === targetId);
+    if (barIdx >= 0) catalog.barragens[barIdx] = entity;
+    else catalog.barragens.unshift(entity);
+  } else {
+    tableName = 'responsaveis_tecnicos';
+    const rtCpfDigits = normalizeDocumentDigits(inspection.responsavelTecnico?.cpf);
+    const existingRt = catalog.responsaveisTecnicos.find(
+      r =>
+        (inspection.responsavelTecnicoId && r.id === inspection.responsavelTecnicoId) ||
+        (rtCpfDigits.length === 11 && normalizeDocumentDigits(r.cpf) === rtCpfDigits)
+    );
+    const regEmpId = empRegistered && inspection.empreendedorId ? ensureValidUuid(inspection.empreendedorId) : null;
+    const regBarId = barRegistered && inspection.barragemId ? ensureValidUuid(inspection.barragemId) : null;
+    const { entity, payload } = buildRtFromInspection(
+      inspection,
+      existingRt,
+      regEmpId,
+      regBarId,
+      actorEmail,
+      now
+    );
+    targetId = entity.id;
+    remotePayload = payload;
+
+    const rtIdx = catalog.responsaveisTecnicos.findIndex(r => r.id === targetId);
+    if (rtIdx >= 0) catalog.responsaveisTecnicos[rtIdx] = entity;
+    else catalog.responsaveisTecnicos.unshift(entity);
+  }
+
+  let savedRemote = false;
+  if (remoteClient) {
+    try {
+      const { error } = await remoteClient.from(tableName).upsert(remotePayload);
+      if (error) {
+        // Fallback para RPC segura caso o gatilho cross-system ou esquema exija invocação privilegiada
+        const { error: rpcError } = await remoteClient.rpc('rpc_cadastrar_entidade_administra', {
+          p_entidade_tipo: tipo,
+          p_dados: remotePayload,
+          p_vistoria_id: inspection.id && UUID_REGEX.test(inspection.id) ? inspection.id : null
+        });
+        if (rpcError) {
+          return {
+            success: false,
+            savedRemote: false,
+            error:
+              error.code === '42501' || error.message?.includes('row-level security')
+                ? 'Sessão autenticada necessária para gravar na base do Administra. Verifique seu login institucional e tente novamente.'
+                : `Falha ao cadastrar na base do Administra: ${error.message}`
+          };
+        }
+      }
+      savedRemote = true;
+
+      // Propaga vínculo nas entidades filhas já registradas se necessário
+      if (tipo === 'empreendedor' && barRegistered && inspection.barragemId) {
+        await remoteClient
+          .from('barragens')
+          .update({ empreendedor_id: targetId, updated_at: now })
+          .eq('id', inspection.barragemId);
+      }
+      if (tipo !== 'responsavel_tecnico' && isEntityRegisteredInAdministra(inspection, 'responsavel_tecnico')) {
+        const rtTargetId = inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id;
+        if (rtTargetId && UUID_REGEX.test(rtTargetId)) {
+          const patch =
+            tipo === 'empreendedor'
+              ? { empreendedor_id: targetId, updated_at: now }
+              : { barragem_id: targetId, updated_at: now };
+          await remoteClient.from('responsaveis_tecnicos').update(patch).eq('id', rtTargetId);
+        }
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        savedRemote: false,
+        error: err?.message || 'Erro de comunicação ao cadastrar na base do Administra.'
+      };
+    }
+  }
+
+  saveLocalAdministraCatalog(catalog);
+
+  const prevStatus = inspection.administraCadastroStatus || {};
+  const newEntityState: AdministraEntityCadastroState = {
+    cadastrado: true,
+    modo: 'cadastrado_manual',
+    entidadeId: targetId,
+    sistemaOrigem: 'fiscaliza',
+    registradoEm: now,
+    registradoPorEmail: actorEmail || inspection.createdByEmail || null
+  };
+
+  const updatedInspection: InspectionData = {
+    ...inspection,
+    empreendedorId: tipo === 'empreendedor' ? targetId : inspection.empreendedorId,
+    barragemId: tipo === 'barragem' ? targetId : inspection.barragemId,
+    responsavelTecnicoId: tipo === 'responsavel_tecnico' ? targetId : inspection.responsavelTecnicoId,
+    empreendedorOrigemSistema: tipo === 'empreendedor' ? 'fiscaliza' : inspection.empreendedorOrigemSistema,
+    barragemOrigemSistema: tipo === 'barragem' ? 'fiscaliza' : inspection.barragemOrigemSistema,
+    responsavelTecnicoOrigemSistema:
+      tipo === 'responsavel_tecnico' ? 'fiscaliza' : inspection.responsavelTecnicoOrigemSistema,
+    responsavelTecnico:
+      tipo === 'responsavel_tecnico' && inspection.responsavelTecnico
+        ? {
+            ...inspection.responsavelTecnico,
+            id: targetId,
+            sistemaOrigem: 'fiscaliza'
+          }
+        : inspection.responsavelTecnico,
+    administraCadastroStatus: {
+      ...prevStatus,
+      [statusKey]: newEntityState
+    }
+  };
+
+  return {
+    success: true,
+    updatedInspection,
+    entidadeId: targetId,
+    savedRemote
+  };
+}
+
+/**
+ * Persiste APENAS entidades já efetivamente cadastradas/vinculadas ao Administra.
+ * Dados preenchidos manualmente ainda no rascunho permanecem exclusivamente locais
+ * na ficha até que o analista acione o botão explícito de cadastro na base de dados.
  */
 export async function upsertMasterEntitiesFromInspection(
   inspection: InspectionData,
@@ -584,265 +1295,120 @@ export async function upsertMasterEntitiesFromInspection(
   const skippedReadOnlyEntities: string[] = [];
   const warnings: string[] = [];
 
+  const empRegistered = isEntityRegisteredInAdministra(inspection, 'empreendedor');
+  const barRegistered = isEntityRegisteredInAdministra(inspection, 'barragem');
+  const rtRegistered = isEntityRegisteredInAdministra(inspection, 'responsavel_tecnico');
+
   const damName = (inspection.damIdentification?.damName || '').trim();
   const empName = (inspection.damIdentification?.propertyOrBusinessName || '').trim();
-  const empDocDigits = normalizeDocumentDigits(
-    inspection.damIdentification?.ownerCpfCnpj || inspection.generalInfo?.accompaniedBy?.document
-  );
   const rtName = (inspection.responsavelTecnico?.nome || '').trim();
 
-  if (!damName && !empName && !rtName) {
+  if (!empRegistered && !barRegistered && !rtRegistered) {
     return { savedToAdministraRemote: false, skippedReadOnlyEntities, warnings };
   }
 
-  // --------------------------------------------------------------------------
-  // A. EMPREENDEDOR
-  // --------------------------------------------------------------------------
-  const empId = inspection.empreendedorId || inspection.id;
-  const existingEmp = catalog.empreendedores.find(
-    e =>
-      e.id === empId ||
-      (empDocDigits && empDocDigits.length >= 11 && normalizeDocumentDigits(e.cpfCnpj) === empDocDigits)
-  );
-  const resolvedEmpOrigin: SistemaOrigem =
-    existingEmp?.sistemaOrigem || inspection.empreendedorOrigemSistema || 'fiscaliza';
-  const empPerm = canFiscalizaEditMasterEntity(resolvedEmpOrigin);
-
+  // A. EMPREENDEDOR (somente se já cadastrado/vinculado no Administra)
   let empPayloadForRemote: Record<string, any> | null = null;
-  if (empName) {
+  let resolvedRegisteredEmpId: string | null = null;
+  if (empRegistered && empName) {
+    const empId = ensureValidUuid(inspection.empreendedorId);
+    const empDocDigits = normalizeDocumentDigits(
+      inspection.damIdentification?.ownerCpfCnpj || inspection.generalInfo?.accompaniedBy?.document
+    );
+    const existingEmp = catalog.empreendedores.find(
+      e =>
+        e.id === empId ||
+        (empDocDigits && empDocDigits.length >= 11 && normalizeDocumentDigits(e.cpfCnpj) === empDocDigits)
+    );
+    const resolvedEmpOrigin: SistemaOrigem =
+      existingEmp?.sistemaOrigem || inspection.empreendedorOrigemSistema || 'fiscaliza';
+    const empPerm = canFiscalizaEditMasterEntity(resolvedEmpOrigin);
+
     if (!empPerm.allowed) {
       skippedReadOnlyEntities.push(`Empreendedor (${resolvedEmpOrigin})`);
+      resolvedRegisteredEmpId = existingEmp?.id || empId;
     } else {
-      const targetEmpId = existingEmp?.id || empId;
-      const empEntity: EmpreendedorEntity = {
-        id: targetEmpId,
-        administraId: existingEmp?.administraId || targetEmpId,
-        sistemaOrigem: 'fiscaliza',
-        criadoPorEmail: existingEmp?.criadoPorEmail || actorEmail || inspection.createdByEmail || null,
-        nomeRazaoSocial: empName,
-        cpfCnpj:
-          inspection.damIdentification?.ownerCpfCnpj ||
-          inspection.conclusions?.notificationDetails?.destinatario?.cpfCnpj ||
-          existingEmp?.cpfCnpj ||
-          null,
-        figuraJuridica: inspection.damIdentification?.ownerLegalType || existingEmp?.figuraJuridica || 'empresa_privada',
-        processoNumero: inspection.generalInfo?.recordNumber || existingEmp?.processoNumero || null,
-        endereco:
-          inspection.damIdentification?.ownerAddress ||
-          inspection.conclusions?.notificationDetails?.destinatario?.enderecoCorrespondencia ||
-          existingEmp?.endereco ||
-          '',
-        municipio: inspection.damIdentification?.municipality || existingEmp?.municipio || null,
-        uf: 'MT',
-        telefone:
-          inspection.damIdentification?.ownerPhone ||
-          inspection.conclusions?.notificationDetails?.destinatario?.telefone ||
-          existingEmp?.telefone ||
-          null,
-        email:
-          inspection.conclusions?.notificationDetails?.destinatario?.email ||
-          existingEmp?.email ||
-          null,
-        documentosPessoais: null,
-        carNumero: inspection.damIdentification?.regulatoryStatus?.carNumber || existingEmp?.carNumero || null,
-        declaracaoUsoOutorga:
-          inspection.damIdentification?.regulatoryStatus?.permitNumber || existingEmp?.declaracaoUsoOutorga || null,
-        quantidadeBarragens: inspection.damIdentification?.damsCountOnProperty
-          ? Number(inspection.damIdentification.damsCountOnProperty) || 1
-          : existingEmp?.quantidadeBarragens || 1,
-        comentarios: null,
-        sincronizadoAdministraEm: administraSupabase ? now : existingEmp?.sincronizadoAdministraEm || null,
-        createdAt: existingEmp?.createdAt || inspection.createdAt || now,
-        updatedAt: now
-      };
-
-      const empIdx = catalog.empreendedores.findIndex(e => e.id === targetEmpId);
-      if (empIdx >= 0) catalog.empreendedores[empIdx] = empEntity;
-      else catalog.empreendedores.unshift(empEntity);
-
-      empPayloadForRemote = {
-        id: empEntity.id,
-        administra_id: empEntity.administraId,
-        sistema_origem: 'fiscaliza',
-        criado_por_email: empEntity.criadoPorEmail,
-        nome_razao_social: empEntity.nomeRazaoSocial,
-        cpf_cnpj: empEntity.cpfCnpj,
-        figura_juridica: empEntity.figuraJuridica,
-        endereco: empEntity.endereco,
-        telefone: empEntity.telefone,
-        email: empEntity.email,
-        car_numero: empEntity.carNumero,
-        declaracao_uso: empEntity.declaracaoUsoOutorga,
-        quantidade_barragens_propriedade: empEntity.quantidadeBarragens,
-        updated_at: now
-      };
+      const { entity, payload } = buildEmpreendedorFromInspection(inspection, existingEmp, actorEmail, now);
+      resolvedRegisteredEmpId = entity.id;
+      const empIdx = catalog.empreendedores.findIndex(e => e.id === entity.id);
+      if (empIdx >= 0) catalog.empreendedores[empIdx] = entity;
+      else catalog.empreendedores.unshift(entity);
+      empPayloadForRemote = payload;
     }
   }
 
-  // --------------------------------------------------------------------------
-  // B. BARRAGEM
-  // --------------------------------------------------------------------------
-  const barId = inspection.barragemId || inspection.id;
-  const existingBar = catalog.barragens.find(
-    b =>
-      b.id === barId ||
-      (damName &&
-        normalizeNameForMatch(b.nome) === normalizeNameForMatch(damName) &&
-        normalizeNameForMatch(b.municipio) === normalizeNameForMatch(inspection.damIdentification?.municipality))
-  );
-  const resolvedBarOrigin: SistemaOrigem =
-    existingBar?.sistemaOrigem || inspection.barragemOrigemSistema || 'fiscaliza';
-  const barPerm = canFiscalizaEditMasterEntity(resolvedBarOrigin);
-
+  // B. BARRAGEM (somente se já cadastrada/vinculada no Administra)
   let barPayloadForRemote: Record<string, any> | null = null;
-  if (damName) {
+  let resolvedRegisteredBarId: string | null = null;
+  if (barRegistered && damName) {
+    const barId = ensureValidUuid(inspection.barragemId);
+    const existingBar = catalog.barragens.find(
+      b =>
+        b.id === barId ||
+        (damName &&
+          normalizeNameForMatch(b.nome) === normalizeNameForMatch(damName) &&
+          normalizeNameForMatch(b.municipio) === normalizeNameForMatch(inspection.damIdentification?.municipality))
+    );
+    const resolvedBarOrigin: SistemaOrigem =
+      existingBar?.sistemaOrigem || inspection.barragemOrigemSistema || 'fiscaliza';
+    const barPerm = canFiscalizaEditMasterEntity(resolvedBarOrigin);
+
     if (!barPerm.allowed) {
       skippedReadOnlyEntities.push(`Barragem (${resolvedBarOrigin})`);
+      resolvedRegisteredBarId = existingBar?.id || barId;
     } else {
-      const targetBarId = existingBar?.id || barId;
-      const latDec = parseGmsToDecimal(inspection.damIdentification?.coordinates?.latitude || '', true);
-      const lngDec = parseGmsToDecimal(inspection.damIdentification?.coordinates?.longitude || '', false);
-      const startYr = inspection.damIdentification?.workStartYear
-        ? parseInt(inspection.damIdentification.workStartYear, 10)
-        : null;
-      const endYr = inspection.damIdentification?.workEndYear
-        ? parseInt(inspection.damIdentification.workEndYear, 10)
-        : null;
-
-      const barEntity: BarragemEntity = {
-        id: targetBarId,
-        administraId: existingBar?.administraId || targetBarId,
-        sistemaOrigem: 'fiscaliza',
-        criadoPorEmail: existingBar?.criadoPorEmail || actorEmail || inspection.createdByEmail || null,
-        empreendedorId: existingEmp?.id || empId,
-        nome: damName,
-        municipio: inspection.damIdentification?.municipality || existingBar?.municipio || '',
-        baciaHidrografica: inspection.damIdentification?.hydrographicBasin || existingBar?.baciaHidrografica || null,
-        cursoDagua: inspection.damIdentification?.waterCourse || existingBar?.cursoDagua || null,
-        coordenadas: {
-          latitude: latDec,
-          longitude: lngDec,
-          horarioCaptura: inspection.damIdentification?.coordinates?.captureTimestamp || now,
-          acuraciaMetros: inspection.damIdentification?.coordinates?.accuracyMeters || null,
-          altitudeEstimadaDispositivo: inspection.damIdentification?.coordinates?.altitudeMeters || null,
-          editadoManualmente: !!inspection.damIdentification?.coordinates?.isManualEdit,
-          datum: inspection.damIdentification?.coordinates?.datum || 'SIRGAS 2000'
-        },
-        latitudeGms: inspection.damIdentification?.coordinates?.latitude || null,
-        longitudeGms: inspection.damIdentification?.coordinates?.longitude || null,
-        cotaCoroamentoMetros: inspection.damIdentification?.estimatedDimensions?.heightMeters
-          ? Number(inspection.damIdentification.estimatedDimensions.heightMeters) || null
-          : existingBar?.cotaCoroamentoMetros || null,
-        anoInicioObra: !isNaN(Number(startYr)) ? startYr : existingBar?.anoInicioObra || null,
-        anoFinalObra: !isNaN(Number(endYr)) ? endYr : existingBar?.anoFinalObra || null,
-        idadeBarragemAnos: null,
-        tipoMaterial: inspection.damIdentification?.damType || existingBar?.tipoMaterial || 'terra_homogenea',
-        usoPrincipal: inspection.damIdentification?.mainWaterUse || existingBar?.usoPrincipal || '',
-        usosSecundarios: inspection.damIdentification?.secondaryWaterUses || existingBar?.usosSecundarios || [],
-        sincronizadoAdministraEm: administraSupabase ? now : existingBar?.sincronizadoAdministraEm || null,
-        createdAt: existingBar?.createdAt || inspection.createdAt || now,
-        updatedAt: now
-      };
-
-      const barIdx = catalog.barragens.findIndex(b => b.id === targetBarId);
-      if (barIdx >= 0) catalog.barragens[barIdx] = barEntity;
-      else catalog.barragens.unshift(barEntity);
-
-      barPayloadForRemote = {
-        id: barEntity.id,
-        administra_id: barEntity.administraId,
-        sistema_origem: 'fiscaliza',
-        criado_por_email: barEntity.criadoPorEmail,
-        empreendedor_id: barEntity.empreendedorId,
-        nome: barEntity.nome,
-        municipio: barEntity.municipio,
-        bacia_hidrografica: barEntity.baciaHidrografica,
-        curso_dagua: barEntity.cursoDagua,
-        latitude_decimal: barEntity.coordenadas.latitude,
-        longitude_decimal: barEntity.coordenadas.longitude,
-        datum: barEntity.coordenadas.datum,
-        cota_coroamento_metros: barEntity.cotaCoroamentoMetros,
-        ano_inicio_obra: barEntity.anoInicioObra,
-        ano_final_obra: barEntity.anoFinalObra,
-        tipo_barragem_material: barEntity.tipoMaterial,
-        uso_principal: barEntity.usoPrincipal,
-        usos_secundarios: barEntity.usosSecundarios,
-        updated_at: now
-      };
+      const { entity, payload } = buildBarragemFromInspection(
+        inspection,
+        existingBar,
+        resolvedRegisteredEmpId,
+        actorEmail,
+        now
+      );
+      resolvedRegisteredBarId = entity.id;
+      const barIdx = catalog.barragens.findIndex(b => b.id === entity.id);
+      if (barIdx >= 0) catalog.barragens[barIdx] = entity;
+      else catalog.barragens.unshift(entity);
+      barPayloadForRemote = payload;
     }
   }
 
-  // --------------------------------------------------------------------------
-  // C. RESPONSÁVEL TÉCNICO
-  // --------------------------------------------------------------------------
-  const rtId = inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id || `${inspection.id}_rt`;
-  const rtCpfDigits = normalizeDocumentDigits(inspection.responsavelTecnico?.cpf);
-  const existingRt = catalog.responsaveisTecnicos.find(
-    r => r.id === rtId || (rtCpfDigits && rtCpfDigits.length === 11 && normalizeDocumentDigits(r.cpf) === rtCpfDigits)
-  );
-  const resolvedRtOrigin: SistemaOrigem =
-    existingRt?.sistemaOrigem ||
-    inspection.responsavelTecnicoOrigemSistema ||
-    inspection.responsavelTecnico?.sistemaOrigem ||
-    'fiscaliza';
-  const rtPerm = canFiscalizaEditMasterEntity(resolvedRtOrigin);
-
+  // C. RESPONSÁVEL TÉCNICO (somente se já cadastrado/vinculado no Administra)
   let rtPayloadForRemote: Record<string, any> | null = null;
-  if (rtName) {
+  if (rtRegistered && rtName) {
+    const rtId = ensureValidUuid(inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id);
+    const rtCpfDigits = normalizeDocumentDigits(inspection.responsavelTecnico?.cpf);
+    const existingRt = catalog.responsaveisTecnicos.find(
+      r => r.id === rtId || (rtCpfDigits && rtCpfDigits.length === 11 && normalizeDocumentDigits(r.cpf) === rtCpfDigits)
+    );
+    const resolvedRtOrigin: SistemaOrigem =
+      existingRt?.sistemaOrigem ||
+      inspection.responsavelTecnicoOrigemSistema ||
+      inspection.responsavelTecnico?.sistemaOrigem ||
+      'fiscaliza';
+    const rtPerm = canFiscalizaEditMasterEntity(resolvedRtOrigin);
+
     if (!rtPerm.allowed) {
       skippedReadOnlyEntities.push(`Responsável Técnico (${resolvedRtOrigin})`);
     } else {
-      const targetRtId = existingRt?.id || rtId;
-      const rtEntity: ResponsavelTecnicoEntity = {
-        id: targetRtId,
-        administraId: existingRt?.administraId || targetRtId,
-        sistemaOrigem: 'fiscaliza',
-        criadoPorEmail: existingRt?.criadoPorEmail || actorEmail || inspection.createdByEmail || null,
-        empreendedorId: existingEmp?.id || empId,
-        barragemId: existingBar?.id || barId,
-        nome: rtName,
-        cpf: inspection.responsavelTecnico?.cpf || existingRt?.cpf || null,
-        registroProfissional:
-          inspection.responsavelTecnico?.registroProfissional || existingRt?.registroProfissional || null,
-        ufRegistro: 'MT',
-        artNumero: inspection.responsavelTecnico?.artNumero || existingRt?.artNumero || null,
-        especialidade: inspection.responsavelTecnico?.especialidade || existingRt?.especialidade || null,
-        telefone: inspection.responsavelTecnico?.telefone || existingRt?.telefone || null,
-        email: inspection.responsavelTecnico?.email || existingRt?.email || null,
-        sincronizadoAdministraEm: administraSupabase ? now : existingRt?.sincronizadoAdministraEm || null,
-        createdAt: existingRt?.createdAt || now,
-        updatedAt: now
-      };
-
-      const rtIdx = catalog.responsaveisTecnicos.findIndex(r => r.id === targetRtId);
-      if (rtIdx >= 0) catalog.responsaveisTecnicos[rtIdx] = rtEntity;
-      else catalog.responsaveisTecnicos.unshift(rtEntity);
-
-      rtPayloadForRemote = {
-        id: rtEntity.id,
-        administra_id: rtEntity.administraId,
-        sistema_origem: 'fiscaliza',
-        criado_por_email: rtEntity.criadoPorEmail,
-        empreendedor_id: rtEntity.empreendedorId,
-        barragem_id: rtEntity.barragemId,
-        nome: rtEntity.nome,
-        cpf: rtEntity.cpf,
-        registro_profissional: rtEntity.registroProfissional,
-        uf_registro: rtEntity.ufRegistro,
-        art_numero: rtEntity.artNumero,
-        especialidade: rtEntity.especialidade,
-        telefone: rtEntity.telefone,
-        email: rtEntity.email,
-        updated_at: now
-      };
+      const { entity, payload } = buildRtFromInspection(
+        inspection,
+        existingRt,
+        resolvedRegisteredEmpId,
+        resolvedRegisteredBarId,
+        actorEmail,
+        now
+      );
+      const rtIdx = catalog.responsaveisTecnicos.findIndex(r => r.id === entity.id);
+      if (rtIdx >= 0) catalog.responsaveisTecnicos[rtIdx] = entity;
+      else catalog.responsaveisTecnicos.unshift(entity);
+      rtPayloadForRemote = payload;
     }
   }
 
   saveLocalAdministraCatalog(catalog);
 
-  // Grava no servidor remoto do Administra quando ativo
   let savedToAdministraRemote = false;
-  if (administraSupabase) {
+  if (administraSupabase && (empPayloadForRemote || barPayloadForRemote || rtPayloadForRemote)) {
     try {
       if (empPayloadForRemote) {
         const { error } = await administraSupabase.from('empreendedores').upsert(empPayloadForRemote);
@@ -862,7 +1428,6 @@ export async function upsertMasterEntitiesFromInspection(
     }
   }
 
-  // Aplica superioridade da Vistoria para qualquer dado importado/pré-carregado que o fiscal tenha editado
   if (inspection.importedFieldsOrigin && Object.keys(inspection.importedFieldsOrigin).length > 0) {
     const supRes = await applyVistoriaSuperiorityUpdates(
       inspection,
@@ -916,8 +1481,19 @@ export async function registerFiscalizaProductsFromInspection(
   const empNome = (inspection.damIdentification?.propertyOrBusinessName || '').trim();
   if (!barragemNome && !empNome) return;
 
-  const barragemId = inspection.barragemId || inspection.id;
-  const empreendedorId = inspection.empreendedorId || inspection.id;
+  const barReg = isEntityRegisteredInAdministra(inspection, 'barragem');
+  const empReg = isEntityRegisteredInAdministra(inspection, 'empreendedor');
+  const rtReg = isEntityRegisteredInAdministra(inspection, 'responsavel_tecnico');
+
+  const barragemId = barReg && inspection.barragemId && UUID_REGEX.test(inspection.barragemId) ? inspection.barragemId : '';
+  const empreendedorId =
+    empReg && inspection.empreendedorId && UUID_REGEX.test(inspection.empreendedorId) ? inspection.empreendedorId : '';
+  const rtId =
+    rtReg && (inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id) &&
+    UUID_REGEX.test((inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id)!)
+      ? (inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id)!
+      : null;
+
   const now = new Date().toISOString();
   const isFutura = inspection.tipoPlanejamento === 'futura';
   const numVistoria = isFutura
@@ -938,7 +1514,7 @@ export async function registerFiscalizaProductsFromInspection(
       barragemNome: barragemNome || 'Barragem sem nome',
       empreendedorId,
       empreendedorNome: empNome || 'Empreendedor não informado',
-      responsavelTecnicoId: inspection.responsavelTecnicoId || null,
+      responsavelTecnicoId: rtId,
       origemRegistroId: inspection.id,
       statusProduto: isFutura ? 'futura_planejada' : inspection.isDraft ? 'em_andamento' : 'concluida',
       dataEmissao: inspection.generalInfo?.inspectionDate || now.split('T')[0],
@@ -961,7 +1537,7 @@ export async function registerFiscalizaProductsFromInspection(
       barragemNome: barragemNome || 'Barragem sem nome',
       empreendedorId,
       empreendedorNome: empNome || 'Empreendedor não informado',
-      responsavelTecnicoId: inspection.responsavelTecnicoId || null,
+      responsavelTecnicoId: rtId,
       origemRegistroId: inspection.id,
       statusProduto: 'minuta_gerada',
       dataEmissao: inspection.generalInfo?.inspectionDate || now.split('T')[0],
@@ -983,7 +1559,7 @@ export async function registerFiscalizaProductsFromInspection(
       barragemNome: barragemNome || 'Barragem sem nome',
       empreendedorId,
       empreendedorNome: empNome || 'Empreendedor não informado',
-      responsavelTecnicoId: inspection.responsavelTecnicoId || null,
+      responsavelTecnicoId: rtId,
       origemRegistroId: inspection.id,
       statusProduto: 'minuta_gerada',
       dataEmissao: inspection.generalInfo?.inspectionDate || now.split('T')[0],
@@ -1005,7 +1581,7 @@ export async function registerFiscalizaProductsFromInspection(
       barragemNome: barragemNome || 'Barragem sem nome',
       empreendedorId,
       empreendedorNome: empNome || 'Empreendedor não informado',
-      responsavelTecnicoId: inspection.responsavelTecnicoId || null,
+      responsavelTecnicoId: rtId,
       origemRegistroId: inspection.id,
       statusProduto: inspection.drafts?.notificationLetter?.trim() ? 'minuta_gerada' : 'requerida',
       dataEmissao: inspection.conclusions?.notificationDetails?.dataEmissao || now.split('T')[0],
@@ -1032,11 +1608,12 @@ export async function registerFiscalizaProductsFromInspection(
         titulo: p.titulo,
         numero_documento: p.numeroDocumento,
         processo_numero: p.processoNumero,
-        barragem_id: p.barragemId,
+        barragem_id: p.barragemId && UUID_REGEX.test(p.barragemId) ? p.barragemId : null,
         barragem_nome: p.barragemNome,
-        empreendedor_id: p.empreendedorId,
+        empreendedor_id: p.empreendedorId && UUID_REGEX.test(p.empreendedorId) ? p.empreendedorId : null,
         empreendedor_nome: p.empreendedorNome,
-        responsavel_tecnico_id: p.responsavelTecnicoId,
+        responsavel_tecnico_id:
+          p.responsavelTecnicoId && UUID_REGEX.test(p.responsavelTecnicoId) ? p.responsavelTecnicoId : null,
         origem_registro_id: p.origemRegistroId,
         status_produto: p.statusProduto,
         data_emissao: p.dataEmissao,
@@ -1867,6 +2444,9 @@ export function applyMasterSelectionToInspection(
 
   const next: InspectionData = {
     ...prev,
+    administraCadastroStatus: {
+      ...(prev.administraCadastroStatus || {})
+    },
     damIdentification: {
       ...prev.damIdentification,
       coordinates: { ...prev.damIdentification.coordinates },
@@ -1909,6 +2489,16 @@ export function applyMasterSelectionToInspection(
     const emp = payload.empreendedor;
     next.empreendedorId = emp.id;
     next.empreendedorOrigemSistema = emp.sistemaOrigem;
+    next.administraCadastroStatus = {
+      ...(next.administraCadastroStatus || {}),
+      empreendedor: {
+        cadastrado: true,
+        modo: 'vinculado_existente',
+        entidadeId: emp.id,
+        sistemaOrigem: emp.sistemaOrigem,
+        registradoEm: emp.sincronizadoAdministraEm || now
+      }
+    };
     next.damIdentification.propertyOrBusinessName = emp.nomeRazaoSocial;
     next.damIdentification.ownerCpfCnpj = emp.cpfCnpj || '';
     next.damIdentification.ownerLegalType = emp.figuraJuridica || 'empresa_privada';
@@ -2024,6 +2614,16 @@ export function applyMasterSelectionToInspection(
     next.barragemId = bar.id;
     next.barragemOrigemSistema = bar.sistemaOrigem;
     next.sistemaOrigem = bar.sistemaOrigem;
+    next.administraCadastroStatus = {
+      ...(next.administraCadastroStatus || {}),
+      barragem: {
+        cadastrado: true,
+        modo: 'vinculado_existente',
+        entidadeId: bar.id,
+        sistemaOrigem: bar.sistemaOrigem,
+        registradoEm: bar.sincronizadoAdministraEm || now
+      }
+    };
     if (bar.empreendedorId && !next.empreendedorId) {
       next.empreendedorId = bar.empreendedorId;
     }
@@ -2092,6 +2692,16 @@ export function applyMasterSelectionToInspection(
     const rt = payload.responsavelTecnico;
     next.responsavelTecnicoId = rt.id;
     next.responsavelTecnicoOrigemSistema = rt.sistemaOrigem;
+    next.administraCadastroStatus = {
+      ...(next.administraCadastroStatus || {}),
+      responsavelTecnico: {
+        cadastrado: true,
+        modo: 'vinculado_existente',
+        entidadeId: rt.id,
+        sistemaOrigem: rt.sistemaOrigem,
+        registradoEm: rt.sincronizadoAdministraEm || now
+      }
+    };
     next.responsavelTecnico = {
       id: rt.id,
       nome: rt.nome,

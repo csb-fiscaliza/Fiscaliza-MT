@@ -194,6 +194,11 @@ export function createEmptyInspection(creatorUser?: {
     empreendedorOrigemSistema: 'fiscaliza',
     barragemOrigemSistema: 'fiscaliza',
     responsavelTecnicoOrigemSistema: 'fiscaliza',
+    administraCadastroStatus: {
+      empreendedor: { cadastrado: false },
+      barragem: { cadastrado: false },
+      responsavelTecnico: { cadastrado: false }
+    },
     createdByEmail: creatorUser?.email,
     createdByName: creatorUser?.fullName,
     createdByUserId: creatorUser?.id,

@@ -19,14 +19,23 @@ import { NotificacaoDocumentView } from './NotificacaoDocumentView';
 import { RelatorioInspecaoDocumentView } from './RelatorioInspecaoDocumentView';
 import { exportAnonymizedJsonFile } from '../utils/anonymizer';
 import { exportInspectionSheetPdf } from '../utils/exportInspectionSheetPdf';
+import { VistoriaConclusaoBar } from './VistoriaConclusaoBar';
 
 interface Props {
   data: InspectionData;
   onChange: (updater: (prev: InspectionData) => InspectionData) => void;
   onPrev: () => void;
+  onSaveDraft?: (updated?: InspectionData) => void;
+  onGoToSheet?: () => void;
 }
 
-export const DocumentReviewStep: React.FC<Props> = ({ data, onChange, onPrev }) => {
+export const DocumentReviewStep: React.FC<Props> = ({
+  data,
+  onChange,
+  onPrev,
+  onSaveDraft,
+  onGoToSheet
+}) => {
   const [activeDoc, setActiveDoc] = useState<'auto' | 'relatorio' | 'notificacao'>('relatorio');
 
   return (
@@ -134,6 +143,14 @@ export const DocumentReviewStep: React.FC<Props> = ({ data, onChange, onPrev }) 
       ) : (
         <RelatorioInspecaoDocumentView data={data} onChange={onChange} />
       )}
+
+      {/* Status de Rascunho / Conclusão & Validação Administra */}
+      <VistoriaConclusaoBar
+        data={data}
+        onChange={onChange}
+        onSaveDraft={onSaveDraft}
+        onNavigateToEntityBlock={onGoToSheet ? () => onGoToSheet() : undefined}
+      />
 
       {/* Navegação Inferior */}
       <div className="flex justify-between items-center pt-2 print:hidden">

@@ -130,12 +130,12 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   }
 
   return (
-    <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] print:hidden select-none">
+    <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 shadow-[0_-4px_24px_rgba(0,0,0,0.12)] print:hidden select-none pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)]">
       {/* Barra de utilitários rápidos com toque no topo da barra inferior */}
-      <div className="px-3 py-1 bg-slate-100/90 dark:bg-slate-950/90 border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px]">
+      <div className="px-2.5 sm:px-4 py-1 bg-slate-100/90 dark:bg-slate-950/90 border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px]">
         <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-mono truncate min-w-0 pr-2">
           {currentInspection.damIdentification?.damName ? (
-            <span className="font-sans font-bold text-slate-800 dark:text-slate-200 truncate max-w-[100px] xs:max-w-[140px] text-xs">
+            <span className="font-sans font-bold text-slate-800 dark:text-slate-200 truncate max-w-[95px] xs:max-w-[140px] sm:max-w-[220px] text-xs">
               {currentInspection.damIdentification.damName}
             </span>
           ) : null}
@@ -149,13 +149,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* Fila de Fotos no Topo da Barra Móvel */}
           {photoQueuePending > 0 && onOpenPhotoQueueModal && (
             <button
               type="button"
               onClick={onOpenPhotoQueueModal}
-              className="flex items-center gap-1 px-2 py-0.8 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-700 dark:text-amber-300 font-bold text-[10px] active:scale-95 transition animate-pulse"
+              className="min-h-[34px] flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-700 dark:text-amber-300 font-bold text-[10px] active:scale-95 transition animate-pulse cursor-pointer"
               title="Fotos aguardando upload no banco de dados"
             >
               <Camera className="w-3 h-3 text-amber-600 dark:text-amber-400" />
@@ -168,7 +168,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             <button
               type="button"
               onClick={onOpenNavMenu}
-              className="flex items-center gap-1 px-2.5 py-0.8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-semibold text-[11px] active:scale-95 transition"
+              className="min-h-[34px] flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-semibold text-[11px] active:scale-95 transition cursor-pointer"
               title="Abrir menu de tópicos e subtópicos"
             >
               <Compass className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -181,7 +181,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             type="button"
             onClick={onSave}
             disabled={isSaving}
-            className="flex items-center gap-1 px-3 py-0.8 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-[11px] shadow-xs transition"
+            className="min-h-[34px] flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-[11px] shadow-xs transition cursor-pointer"
             title="Salvar imediatamente no aparelho e capturar coordenadas"
           >
             {isSaving ? (
@@ -195,7 +195,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       </div>
 
       {/* Grid de Ícones de Navegação das Etapas */}
-      <nav className={`grid ${isAdmin ? 'grid-cols-8' : 'grid-cols-7'} gap-0.5 px-1 py-1 max-w-lg mx-auto`}>
+      <nav className={`grid ${isAdmin ? 'grid-cols-8' : 'grid-cols-7'} gap-0.5 sm:gap-1 px-1 sm:px-3 py-1 max-w-2xl mx-auto`}>
         {navItems.map(item => {
           const isActive = activeStep === item.step;
           const Icon = item.icon;
@@ -205,7 +205,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               key={item.step}
               type="button"
               onClick={() => setActiveStep(item.step)}
-              className={`relative flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl transition-all cursor-pointer min-h-[46px] ${
+              className={`relative flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl transition-all cursor-pointer min-h-[46px] min-w-0 ${
                 isActive
                   ? 'text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/50'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 active:scale-95'
@@ -217,7 +217,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               )}
 
               <div className="relative">
-                <Icon className={`w-5 h-5 transition-transform ${isActive ? 'scale-110 text-emerald-600 dark:text-emerald-400' : ''}`} />
+                <Icon className={`w-4 h-4 xs:w-5 xs:h-5 transition-transform ${isActive ? 'scale-110 text-emerald-600 dark:text-emerald-400' : ''}`} />
                 {item.badge !== null && (
                   <span className="absolute -top-1 -right-2 min-w-[15px] h-[15px] px-1 bg-amber-500 text-slate-950 text-[9px] font-black rounded-full flex items-center justify-center leading-none">
                     {item.badge}
@@ -225,7 +225,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 )}
               </div>
 
-              <span className={`text-[10px] mt-0.5 truncate leading-tight max-w-full ${isActive ? 'font-bold' : 'font-medium'}`}>
+              <span className={`text-[9px] xs:text-[10px] sm:text-[11px] mt-0.5 truncate leading-tight max-w-full ${isActive ? 'font-bold' : 'font-medium'}`}>
                 {item.label}
               </span>
             </button>

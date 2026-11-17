@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { DAM_COMPONENTS } from '../data/damComponents';
+import { getAdministraConclusionValidation } from '../services/administraEcosystemService';
 
 interface InspectionProgressBarProps {
   currentInspection: InspectionData;
@@ -67,8 +68,13 @@ export const InspectionProgressBar: React.FC<InspectionProgressBarProps> = ({
     if (!d.mainWaterUse?.trim()) pendingDam.push('Uso principal da água');
     if (!d.spillwayType) pendingDam.push('Tipo de vertedouro');
 
-    const totalDam = 10;
-    const filledDam = totalDam - pendingDam.length;
+    const administraCheck = getAdministraConclusionValidation(currentInspection);
+    administraCheck.missingEntities.forEach(item => {
+      pendingDam.push(`Cadastro Administra: ${item.label}`);
+    });
+
+    const totalDam = 10 + administraCheck.missingEntities.length;
+    const filledDam = 10 - (pendingDam.length - administraCheck.missingEntities.length);
 
     // 2. Vistoria & Equipe Fiscal (5 campos)
     const pendingGeneral: string[] = [];
@@ -211,15 +217,15 @@ export const InspectionProgressBar: React.FC<InspectionProgressBarProps> = ({
 
   return (
     <div className="w-full bg-white dark:bg-slate-900 border-b border-slate-200/90 dark:border-slate-800 shadow-xs transition-colors duration-200">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5">
+      <div className="max-w-7xl 2xl:max-w-[1440px] mx-auto px-2.5 xs:px-3 sm:px-5 lg:px-8 pl-[max(0.625rem,env(safe-area-inset-left))] pr-[max(0.625rem,env(safe-area-inset-right))] py-2 sm:py-2.5">
         {/* Linha Principal de Indicador e Botão de Expansão */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Progresso da Vistoria:
               </span>
-              <span className={`text-base font-extrabold ${colorConfig.textColor}`}>
+              <span className={`text-sm sm:text-base font-extrabold ${colorConfig.textColor}`}>
                 {overallPercentage}%
               </span>
             </div>
@@ -243,7 +249,7 @@ export const InspectionProgressBar: React.FC<InspectionProgressBarProps> = ({
                 <button
                   key={section.id}
                   onClick={() => onNavigateToStep(section.step)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all shrink-0 ${
+                  className={`min-h-[36px] sm:min-h-0 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all shrink-0 cursor-pointer ${
                     isCurrentStep
                       ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-2xs'
                       : isSectionComplete
@@ -268,7 +274,7 @@ export const InspectionProgressBar: React.FC<InspectionProgressBarProps> = ({
             {/* Botão para Expandir Detalhes dos Campos Pendentes */}
             <button
               onClick={() => setIsExpanded(!isExpanded)}
-              className="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors shrink-0 ml-1"
+              className="min-h-[36px] sm:min-h-0 flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors shrink-0 ml-1 cursor-pointer"
               title={isExpanded ? 'Ocultar detalhes dos campos pendentes' : 'Ver campos que faltam preencher'}
             >
               <span>{isExpanded ? 'Recolher' : 'O que falta?'}</span>

@@ -365,8 +365,8 @@ export const DeviceCameraCaptureModal: React.FC<DeviceCameraCaptureModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col my-auto animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-2 xs:p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl max-h-[92dvh] shadow-2xl overflow-y-auto flex flex-col my-auto animate-in fade-in zoom-in duration-200">
         
         {/* Header do Modal */}
         <div className="bg-slate-900 text-white px-4 sm:px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">

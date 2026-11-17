@@ -14,15 +14,25 @@ import { InspectionData } from '../types/inspection';
 import { NOTIFICATION_TEMPLATES } from '../config/notificationTemplates';
 import { NotificacaoModelType } from '../types/inspection';
 import { SpeechTextarea } from './SpeechTextarea';
+import { VistoriaConclusaoBar } from './VistoriaConclusaoBar';
 
 interface Props {
   data: InspectionData;
   onChange: (updater: (prev: InspectionData) => InspectionData) => void;
   onNext: () => void;
   onPrev: () => void;
+  onSaveDraft?: (updated?: InspectionData) => void;
+  onGoToSheet?: () => void;
 }
 
-export const ConclusionsStep: React.FC<Props> = ({ data, onChange, onNext, onPrev }) => {
+export const ConclusionsStep: React.FC<Props> = ({
+  data,
+  onChange,
+  onNext,
+  onPrev,
+  onSaveDraft,
+  onGoToSheet
+}) => {
   const c = data.conclusions;
   const notif = c.notificationDetails;
 
@@ -361,6 +371,14 @@ export const ConclusionsStep: React.FC<Props> = ({ data, onChange, onNext, onPre
           </div>
         )}
       </div>
+
+      {/* Status de Rascunho / Conclusão & Validação de Cadastros no Administra */}
+      <VistoriaConclusaoBar
+        data={data}
+        onChange={onChange}
+        onSaveDraft={onSaveDraft}
+        onNavigateToEntityBlock={onGoToSheet ? () => onGoToSheet() : undefined}
+      />
 
       {/* Footer Navigation */}
       <div className="flex justify-between items-center pt-2">

@@ -234,7 +234,8 @@ export const AutoInspecaoDocumentView: React.FC<Props> = ({ data, onChange }) =>
 
       {/* ABA 1: MODELO VISUAL OFICIAL (SIGA AUTUAÇÃO SEMA-MT) */}
       {activeTab === 'visual' && (
-        <div className="bg-white text-black p-6 sm:p-10 rounded-xl border border-slate-300 shadow-sm printable-document font-sans text-xs leading-relaxed max-w-4xl mx-auto">
+        <div className="document-sheet-scroll rounded-xl print:overflow-visible">
+        <div className="bg-white text-black p-4 xs:p-6 sm:p-10 rounded-xl border border-slate-300 shadow-sm printable-document font-sans text-xs leading-relaxed min-w-[600px] sm:min-w-0 max-w-4xl mx-auto">
           {/* Cabeçalho do Estado */}
           <div className="border border-black mb-3">
             <div className="grid grid-cols-12 border-b border-black text-center items-center p-2">
@@ -465,6 +466,7 @@ export const AutoInspecaoDocumentView: React.FC<Props> = ({ data, onChange }) =>
             <span>Auto de Inspeção Nº {autoData.numeroAuto}</span>
             <span>SIGA AUTUAÇÃO • SEMA-MT</span>
           </div>
+        </div>
         </div>
       )}
 

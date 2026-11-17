@@ -448,8 +448,8 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
       {/* MODAL PARA PREENCHIMENTO DE LEGENDA E COMPONENTE                          */}
       {/* ========================================================================= */}
       {pendingModalPhoto && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
             <div className="p-4 bg-emerald-600 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Camera className="w-5 h-5" />

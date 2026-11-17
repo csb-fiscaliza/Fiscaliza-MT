@@ -258,19 +258,19 @@ export const FloatingSheetNavMenu: React.FC<FloatingSheetNavMenuProps> = ({
       {isOpen && (
         <div 
           onClick={() => setIsOpen(false)}
-          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 md:hidden animate-in fade-in duration-150"
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 lg:hidden animate-in fade-in duration-150"
           aria-hidden="true"
         />
       )}
 
       {/* Barra Flutuante Otimizada para Celular e Tablet: Anterior / Menu / Próximo */}
       {!isOpen && (
-        <div className="fixed bottom-24 right-2 sm:bottom-20 sm:right-6 z-40 flex items-center gap-1.5 p-1 rounded-full bg-slate-900/95 dark:bg-slate-950/95 text-white shadow-2xl border border-emerald-500/50 backdrop-blur-md animate-in fade-in zoom-in duration-150">
+        <div className="fixed bottom-[calc(7rem+env(safe-area-inset-bottom,0px))] lg:bottom-6 right-2.5 sm:right-6 z-40 flex items-center gap-1 p-1 rounded-full bg-slate-900/95 dark:bg-slate-950/95 text-white shadow-2xl border border-emerald-500/50 backdrop-blur-md animate-in fade-in zoom-in duration-150">
           {/* Botão Tópico Anterior */}
           <button
             type="button"
             onClick={handlePrevSection}
-            className="w-9 h-9 rounded-full bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
+            className="w-10 h-10 sm:w-9 sm:h-9 rounded-full bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
             title="Ir para o tópico anterior da ficha"
           >
             <ArrowUp className="w-4 h-4" />
@@ -280,7 +280,7 @@ export const FloatingSheetNavMenu: React.FC<FloatingSheetNavMenuProps> = ({
           <button
             type="button"
             onClick={() => setIsOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all cursor-pointer group active:scale-95 min-h-[36px]"
+            className="flex items-center gap-2 px-3 sm:px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all cursor-pointer group active:scale-95 min-h-[40px] sm:min-h-[36px]"
             title="Abrir menu de todos os tópicos e subtópicos"
           >
             <div className="w-5 h-5 rounded-full bg-slate-950/40 text-emerald-300 flex items-center justify-center font-bold text-xs shrink-0 group-hover:rotate-45 transition-transform">
@@ -301,7 +301,7 @@ export const FloatingSheetNavMenu: React.FC<FloatingSheetNavMenuProps> = ({
           <button
             type="button"
             onClick={handleNextSection}
-            className="w-9 h-9 rounded-full bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
+            className="w-10 h-10 sm:w-9 sm:h-9 rounded-full bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition active:scale-95 cursor-pointer shadow-xs"
             title="Ir para o próximo tópico da ficha"
           >
             <ArrowDown className="w-4 h-4" />
@@ -311,7 +311,7 @@ export const FloatingSheetNavMenu: React.FC<FloatingSheetNavMenuProps> = ({
 
       {/* Painel Flutuante Aberto */}
       {isOpen && (
-        <div className="fixed bottom-24 right-2 sm:bottom-6 sm:right-6 z-50 w-[94vw] max-w-sm max-h-[75vh] sm:max-h-[82vh] bg-white dark:bg-slate-900 border-2 border-emerald-500/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-5 duration-200 backdrop-blur-lg">
+        <div className="fixed bottom-[calc(7rem+env(safe-area-inset-bottom,0px))] lg:bottom-6 right-2.5 sm:right-6 z-50 w-[calc(100vw-1.25rem)] max-w-sm max-h-[min(70dvh,560px)] lg:max-h-[80dvh] bg-white dark:bg-slate-900 border-2 border-emerald-500/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-5 duration-200 backdrop-blur-lg">
           
           {/* Header do Menu Flutuante */}
           <div className="p-3.5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800 shrink-0">

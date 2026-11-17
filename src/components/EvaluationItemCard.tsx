@@ -163,7 +163,10 @@ export const EvaluationItemCard: React.FC<Props> = ({
       : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900';
 
   return (
-    <div className={`p-3.5 sm:p-4 rounded-xl border ${cardStatusBorder} space-y-3 transition-all duration-150`}>
+    <div
+      data-eval-label={itemLabel}
+      className={`p-3.5 sm:p-4 rounded-xl border ${cardStatusBorder} space-y-3 transition-all duration-150`}
+    >
       {/* Input oculto de galeria para seleção rápida de arquivo com posterior legenda/timestamp */}
       <input
         ref={galleryInputRef}

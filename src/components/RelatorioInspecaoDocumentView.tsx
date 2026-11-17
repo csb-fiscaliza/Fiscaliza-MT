@@ -288,7 +288,7 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
       {/* ABA 1: RELATÓRIO COMPLETO COM FOTOS (ESTRUTURA OFICIAL CSB)               */}
       {/* ========================================================================= */}
       {activeTab === 'relatorio_completo' && (
-        <div className="bg-white border border-slate-300 shadow-md p-6 sm:p-12 font-sans text-slate-900 space-y-8 max-w-4xl mx-auto rounded-lg">
+        <div className="bg-white border border-slate-300 shadow-md p-4 xs:p-5 sm:p-10 lg:p-12 font-sans text-slate-900 space-y-6 sm:space-y-8 max-w-4xl mx-auto rounded-lg">
           {/* Cabeçalho Oficial do Relatório */}
           <div className="flex flex-col items-center justify-center text-center border-b border-slate-300 pb-4">
             <div className="w-12 h-12 mb-2 flex items-center justify-center text-slate-800">
@@ -551,7 +551,8 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
       {/* ABA 2: FOLHA DE ROSTO SIGAMT (CONFERÊNCIA DA CAPA OFICIAL)                */}
       {/* ========================================================================= */}
       {activeTab === 'folha_rosto' && (
-        <div className="bg-white border border-slate-300 shadow-md p-6 sm:p-10 font-sans text-slate-900 space-y-4 max-w-4xl mx-auto rounded-lg">
+        <div className="document-sheet-scroll rounded-lg print:overflow-visible">
+        <div className="bg-white border border-slate-300 shadow-md p-4 xs:p-6 sm:p-10 font-sans text-slate-900 space-y-4 min-w-[600px] sm:min-w-0 max-w-4xl mx-auto rounded-lg">
           {/* Cabeçalho Oficial SIGAMT */}
           <div className="flex flex-col items-center justify-center text-center border-b border-slate-300 pb-3">
             <div className="w-10 h-10 mb-1 flex items-center justify-center text-slate-700">
@@ -720,6 +721,7 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
             <span>SIGAMT</span>
             <span className="font-bold text-black">Página 1 de 1</span>
           </div>
+        </div>
         </div>
       )}
 

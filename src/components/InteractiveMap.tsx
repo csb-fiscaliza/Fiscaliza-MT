@@ -139,6 +139,25 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [baseMap, setBaseMap] = useState<'satellite' | 'osm'>('satellite');
   const [liveCoords, setLiveCoords] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isLegendOpen, setIsLegendOpen] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 640 : true
+  );
+
+  // Recalcula dimensões do Leaflet ao redimensionar, rotacionar aparelho ou alternar tela cheia
+  useEffect(() => {
+    const refreshMapSize = () => {
+      window.setTimeout(() => {
+        mapInstanceRef.current?.invalidateSize({ animate: false });
+      }, 150);
+    };
+    refreshMapSize();
+    window.addEventListener('resize', refreshMapSize);
+    window.addEventListener('orientationchange', refreshMapSize);
+    return () => {
+      window.removeEventListener('resize', refreshMapSize);
+      window.removeEventListener('orientationchange', refreshMapSize);
+    };
+  }, [isFullscreen]);
 
   // Carregamento de dados das planilhas e do Supabase
   const loadData = async () => {
@@ -1167,14 +1186,14 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       {/* ===================================================================== */}
       {/* 1. BARRA SUPERIOR DE FILTROS & COORDENADAS (EXATAMENTE COMO NA IMAGEM) */}
       {/* ===================================================================== */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 sm:p-5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-3 sm:p-4 lg:p-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 sm:gap-4">
           {/* Linhas de Campos da Esquerda */}
-          <div className="space-y-3.5 flex-1">
+          <div className="space-y-3 flex-1 min-w-0">
             {/* Linha 1: LAT, LONG, BOTAO LOCALIZAR, BOTAO LIMPAR */}
-            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-1.5 flex-1 min-w-[140px] sm:flex-none">
+                <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider shrink-0">
                   LAT:
                 </span>
                 <input
@@ -1182,12 +1201,12 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   placeholder="Ex: 15° 35' 55&quot; S"
                   value={latInput}
                   onChange={(e) => setLatInput(e.target.value)}
-                  className="w-36 sm:w-44 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 font-mono shadow-2xs focus:outline-none focus:border-slate-800"
+                  className="w-full sm:w-44 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 font-mono shadow-2xs focus:outline-none focus:border-slate-800"
                 />
               </div>
 
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+              <div className="flex items-center gap-1.5 flex-1 min-w-[140px] sm:flex-none">
+                <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider shrink-0">
                   LONG:
                 </span>
                 <input
@@ -1195,7 +1214,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   placeholder="Ex: 56° 05' 47&quot; W"
                   value={longInput}
                   onChange={(e) => setLongInput(e.target.value)}
-                  className="w-36 sm:w-44 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 font-mono shadow-2xs focus:outline-none focus:border-slate-800"
+                  className="w-full sm:w-44 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 font-mono shadow-2xs focus:outline-none focus:border-slate-800"
                 />
               </div>
 
@@ -1428,14 +1447,18 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       {/* ===================================================================== */}
       {/* 2. ÁREA PRINCIPAL: MAPA GEOESPACIAL LEAFLET                           */}
       {/* ===================================================================== */}
-      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md p-3 sm:p-4">
+      <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 shadow-md p-2 sm:p-3 lg:p-4">
         {/* MAPA LEAFLET EM LARGURA TOTAL COM LEGENDA FLUTUANTE */}
-        <div className="w-full relative rounded-2xl overflow-hidden border border-slate-200 min-h-[560px] lg:min-h-[640px]">
-          <div ref={mapContainerRef} className="w-full h-full min-h-[560px] lg:min-h-[640px] z-10" />
+        <div className={`w-full relative rounded-xl sm:rounded-2xl overflow-hidden border border-slate-200 ${
+          isFullscreen
+            ? 'h-[calc(100dvh-13rem)] min-h-[340px]'
+            : 'h-[340px] sm:h-[440px] md:h-[520px] lg:h-[600px] xl:h-[660px]'
+        }`}>
+          <div ref={mapContainerRef} className="w-full h-full z-10" />
 
-            {/* Barra de Coordenadas Flutuante no Topo (Fiel à Imagem de Monitoramento) */}
+            {/* Barra de Coordenadas Flutuante no Topo */}
             {liveCoords && (
-              <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-20 bg-slate-900/90 backdrop-blur-md text-white text-xs font-mono font-bold px-4 py-1.5 rounded-full shadow-xl border border-slate-700/80 pointer-events-none tracking-wide select-none">
+              <div className="hidden xs:block absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-slate-900/90 backdrop-blur-md text-white text-[10px] sm:text-xs font-mono font-bold px-3 sm:px-4 py-1 sm:py-1.5 rounded-full shadow-xl border border-slate-700/80 pointer-events-none tracking-wide select-none max-w-[calc(100%-8.5rem)] truncate">
                 {liveCoords}
               </div>
             )}
@@ -1495,32 +1518,39 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               </button>
             </div>
 
-            {/* LEGENDA FLUTUANTE NO CANTO INFERIOR ESQUERDO (IDÊNTICA À IMAGEM) */}
-            <div className="absolute bottom-4 left-4 z-20 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/90 p-3 shadow-xl max-w-[240px] text-xs font-semibold text-slate-700 select-none">
-              <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
-                <span className="font-extrabold text-[11px] uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                  🗺️ LEGENDA
-                </span>
-                <div className="flex items-center gap-2 text-[10px] font-black">
-                  <button
-                    type="button"
-                    onClick={handleLegendTudo}
-                    className="text-emerald-600 hover:underline cursor-pointer"
-                  >
-                    TUDO
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleLegendNada}
-                    className="text-rose-500 hover:underline cursor-pointer"
-                  >
-                    NADA
-                  </button>
-                </div>
+            {/* LEGENDA FLUTUANTE NO CANTO INFERIOR ESQUERDO (COLAPSÁVEL EM CELULARES) */}
+            <div className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-20 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/90 p-2.5 sm:p-3 shadow-xl max-w-[min(240px,calc(100%-1.5rem))] text-xs font-semibold text-slate-700 select-none">
+              <div className={`flex items-center justify-between gap-2 ${isLegendOpen ? 'pb-2 mb-2 border-b border-slate-100' : ''}`}>
+                <button
+                  type="button"
+                  onClick={() => setIsLegendOpen(prev => !prev)}
+                  className="font-extrabold text-[11px] uppercase tracking-wider text-slate-800 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>🗺️ LEGENDA</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform ${isLegendOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isLegendOpen && (
+                  <div className="flex items-center gap-2 text-[10px] font-black">
+                    <button
+                      type="button"
+                      onClick={handleLegendTudo}
+                      className="text-emerald-600 hover:underline cursor-pointer"
+                    >
+                      TUDO
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLegendNada}
+                      className="text-rose-500 hover:underline cursor-pointer"
+                    >
+                      NADA
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* Lista de Checkboxes da Legenda */}
-              <div className="space-y-1.5">
+              {isLegendOpen && (
+              <div className="space-y-1.5 max-h-[38dvh] overflow-y-auto pr-0.5">
                 <label className="flex items-center gap-2 cursor-pointer hover:text-slate-950">
                   <input
                     type="checkbox"
@@ -1621,6 +1651,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   <span className="text-[11px] truncate">CADASTRADAS NA ANEEL</span>
                 </label>
               </div>
+              )}
             </div>
           </div>
         </div>

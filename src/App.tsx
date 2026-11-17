@@ -60,7 +60,8 @@ import {
   loadAllInspectionsWithFallback,
   isInspectionEmpty,
   isSampleInspection,
-  purgeAllMockData
+  purgeAllMockData,
+  getNextVistoriaNumber
 } from './services/storage';
 import { formatGmsString } from './utils/geoCoordinates';
 import { 
@@ -676,6 +677,43 @@ function AppContent() {
     setActiveStep(1); // Leva para a Ficha de Inspeção
   };
 
+  const handleLoadSavedInspection = (
+    target: InspectionData,
+    options?: { convertToAtual?: boolean }
+  ) => {
+    if (currentInspection && currentInspection.id !== target.id) {
+      if (isInspectionEmpty(currentInspection)) {
+        deleteInspection(currentInspection.id);
+      } else if (canUserEditInspection(session, currentInspection).allowed) {
+        saveInspection(currentInspection);
+      }
+    }
+
+    let prepared = target;
+    if (options?.convertToAtual) {
+      const today = new Date().toISOString().split('T')[0];
+      const nowTime = new Date().toTimeString().slice(0, 5);
+      const nextNum = target.generalInfo?.numeroVistoria?.trim() || getNextVistoriaNumber();
+      prepared = {
+        ...target,
+        tipoPlanejamento: 'atual',
+        isDraft: true,
+        generalInfo: {
+          ...target.generalInfo,
+          tipoPlanejamento: 'atual',
+          numeroVistoria: nextNum,
+          inspectionDate: target.generalInfo?.inspectionDate || today,
+          startTime: target.generalInfo?.startTime || nowTime
+        }
+      };
+      saveInspection(prepared);
+    }
+
+    setActiveInspectionId(prepared.id);
+    setCurrentInspection(prepared);
+    setInspections(getAllInspections());
+  };
+
   const handleDeleteInspection = (id: string) => {
     const target = inspections.find(i => i.id === id);
     if (target) {
@@ -804,7 +842,7 @@ function AppContent() {
 
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 selection:bg-emerald-500 selection:text-white">
+      <div className="min-h-[100dvh] bg-slate-950 flex flex-col items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] selection:bg-emerald-500 selection:text-white">
         <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl flex flex-col items-center gap-4 text-center max-w-xs w-full backdrop-blur-md">
           <div className="p-2 rounded-2xl bg-white/5 border border-slate-700/60 shadow-inner">
             <FiscalizaLogo size="lg" />
@@ -835,11 +873,11 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+    <div className="min-h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Alerta de Modo Offline */}
       {!isOnline && (
-        <div className="bg-amber-600 text-amber-50 px-3 py-1.5 text-xs font-semibold flex items-center justify-between shadow-xs print:hidden z-50">
-          <div className="flex items-center gap-2 max-w-7xl mx-auto w-full">
+        <div className="bg-amber-600 text-amber-50 px-3 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] py-1.5 text-[11px] sm:text-xs font-semibold flex items-center justify-between shadow-xs print:hidden z-50">
+          <div className="flex items-center gap-2 max-w-7xl 2xl:max-w-[1440px] mx-auto w-full">
             <WifiOff className="w-4 h-4 shrink-0 text-amber-200" />
             <span>
               <strong>Dispositivo Offline / Sem Conexão:</strong> Operação de campo em modo local seguro ativada. Seus dados, medições e fotos estão salvos com criptografia no aparelho.
@@ -850,14 +888,14 @@ function AppContent() {
 
       {/* Banner de Feedback de Sincronização */}
       {syncFeedback && (
-        <div className={`px-3 py-2 text-xs font-semibold flex items-center justify-between shadow-xs print:hidden z-50 transition-all ${
+        <div className={`px-3 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] py-2 text-[11px] sm:text-xs font-semibold flex items-center justify-between shadow-xs print:hidden z-50 transition-all ${
           syncFeedback.type === 'success'
             ? 'bg-emerald-600 text-white'
             : syncFeedback.type === 'error'
             ? 'bg-rose-600 text-white'
             : 'bg-slate-800 text-slate-100'
         }`}>
-          <div className="flex items-center justify-between max-w-7xl mx-auto w-full gap-2">
+          <div className="flex items-center justify-between max-w-7xl 2xl:max-w-[1440px] mx-auto w-full gap-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-current animate-ping shrink-0" />
               <span>{syncFeedback.message}</span>
@@ -924,13 +962,13 @@ function AppContent() {
 
       {/* Banner de Proteção contra Alterações Acidentais (Modo Somente Leitura) */}
       {activeStep >= 1 && activeStep <= 5 && !canUserEditInspection(session, currentInspection).allowed && (
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-3">
-          <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3.5 text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 shadow-xs">
-            <div className="flex items-center gap-2.5">
+        <div className="max-w-7xl 2xl:max-w-[1440px] w-full mx-auto px-2.5 xs:px-3 sm:px-5 lg:px-8 pt-3">
+          <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3 sm:p-3.5 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 shadow-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
               <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-bold shrink-0 flex items-center justify-center">
                 <Lock className="w-4 h-4" />
               </span>
-              <div>
+              <div className="min-w-0">
                 <p className="font-bold text-xs sm:text-sm">
                   Ficha em Modo Somente Leitura
                 </p>
@@ -942,7 +980,7 @@ function AppContent() {
             <button
               type="button"
               onClick={() => setActiveStep(0)}
-              className="px-3 py-1.5 rounded-xl bg-amber-200 dark:bg-amber-800 hover:bg-amber-300 dark:hover:bg-amber-700 text-amber-950 dark:text-amber-100 font-bold text-xs shrink-0 cursor-pointer transition"
+              className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-200 dark:bg-amber-800 hover:bg-amber-300 dark:hover:bg-amber-700 text-amber-950 dark:text-amber-100 font-bold text-xs shrink-0 self-start sm:self-auto cursor-pointer transition"
             >
               Voltar ao Painel
             </button>
@@ -950,7 +988,7 @@ function AppContent() {
         </div>
       )}
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-28 lg:pb-8 overflow-x-hidden">
+      <main className="flex-1 max-w-7xl 2xl:max-w-[1440px] w-full mx-auto px-2.5 xs:px-3 sm:px-5 lg:px-8 pl-[max(0.625rem,env(safe-area-inset-left))] pr-[max(0.625rem,env(safe-area-inset-right))] py-3.5 sm:py-5 lg:py-6 pb-[calc(7.25rem+env(safe-area-inset-bottom,0px))] lg:pb-8 overflow-x-clip">
         <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
           <motion.div
             key={activeStep}
@@ -1005,8 +1043,21 @@ function AppContent() {
                 onNext={() => setActiveStep(2)}
                 onPrev={() => setActiveStep(0)}
                 onSave={handleSaveInspection}
+                onPersistInspection={(updated) => {
+                  const target = updated || currentInspection;
+                  if (!isInspectionEmpty(target)) {
+                    saveInspection(target);
+                    setInspections(getAllInspections());
+                    const now = new Date();
+                    setLastSavedAt(
+                      `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
+                    );
+                  }
+                }}
                 onSyncNow={handleSyncNow}
                 isSyncing={isSyncing}
+                savedInspections={inspections}
+                onLoadSavedInspection={handleLoadSavedInspection}
                 onOpenAuthModal={() => setShowAuthModal(true)}
                 onOpenEcosystemModal={(opts) => {
                   setEcosystemModalTab(opts?.tab || 'catalogo');
@@ -1045,6 +1096,14 @@ function AppContent() {
                 onChange={setCurrentInspection}
                 onNext={() => setActiveStep(5)}
                 onPrev={() => setActiveStep(3)}
+                onSaveDraft={(updated) => {
+                  const target = updated || currentInspection;
+                  if (!isInspectionEmpty(target)) {
+                    saveInspection(target);
+                    setInspections(getAllInspections());
+                  }
+                }}
+                onGoToSheet={() => setActiveStep(1)}
               />
             )}
 
@@ -1054,6 +1113,14 @@ function AppContent() {
                 data={currentInspection}
                 onChange={setCurrentInspection}
                 onPrev={() => setActiveStep(4)}
+                onSaveDraft={(updated) => {
+                  const target = updated || currentInspection;
+                  if (!isInspectionEmpty(target)) {
+                    saveInspection(target);
+                    setInspections(getAllInspections());
+                  }
+                }}
+                onGoToSheet={() => setActiveStep(1)}
               />
             )}
 
@@ -1155,10 +1222,10 @@ function AppContent() {
 
       {/* Modal de Senha para Importação de Arquivo Criptografado AES-GCM */}
       {importCryptoPrompt && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleConfirmEncryptedImport}
-            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-md p-5 space-y-4"
+            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-md max-h-[92dvh] overflow-y-auto p-4 sm:p-5 space-y-4 my-auto"
           >
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
@@ -1196,13 +1263,13 @@ function AppContent() {
                   setImportPassphrase('');
                   setImportCryptoError('');
                 }}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
+                className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
               >
                 Descriptografar e Importar
               </button>
@@ -1213,8 +1280,8 @@ function AppContent() {
 
       {/* Modal de Confirmação para Nova Vistoria em Branco */}
       {showNewInspectionConfirm && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-sm p-5 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-sm max-h-[92dvh] overflow-y-auto p-4 sm:p-5 space-y-4 my-auto">
             <h3 className="text-sm font-black text-slate-900 dark:text-white">
               Iniciar Nova Vistoria em Branco?
             </h3>

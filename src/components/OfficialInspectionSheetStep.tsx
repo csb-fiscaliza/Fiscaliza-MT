@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   ChevronDown, 
   ChevronUp, 
+  ChevronRight,
   ArrowLeft, 
   ArrowRight,
+  ArrowUp,
   CheckCircle2,
   Save,
   FileDown,
@@ -18,7 +20,21 @@ import {
   Link2,
   Send,
   FileSearch,
-  HardHat
+  HardHat,
+  Layers,
+  MapPin,
+  Ruler,
+  Droplets,
+  UserCheck,
+  Building2,
+  ClipboardList,
+  Camera,
+  FolderOpen,
+  Search,
+  Calendar,
+  Edit3,
+  X,
+  Play
 } from 'lucide-react';
 import { exportInspectionSheetPdf } from '../utils/exportInspectionSheetPdf';
 import { MUNICIPALITIES_MT } from '../data/damComponents';
@@ -31,16 +47,25 @@ import {
   SistemaOrigem,
   EntidadeMestreTipo
 } from '../types/inspection';
-import { getNextVistoriaNumber } from '../services/storage';
+import {
+  getNextVistoriaNumber,
+  getAllInspections,
+  loadAllInspectionsWithFallback,
+  isSampleInspection,
+  isInspectionEmpty
+} from '../services/storage';
 import {
   applyMasterSelectionToInspection,
   canFiscalizaEditMasterEntity,
   findProductsByDamOrOwner,
+  registerSingleEntityToAdministra,
   subscribeEcosystemUpdates
 } from '../services/administraEcosystemService';
 import { getSistemaLabel } from '../services/ecosystemConfig';
 import { EcosystemImportedField } from './EcosystemImportedField';
 import { EcosystemTopic2Lookup } from './EcosystemTopic2Lookup';
+import { AdministraCadastroBanner } from './AdministraCadastroBanner';
+import { VistoriaConclusaoBar } from './VistoriaConclusaoBar';
 import { EvaluationItemCard } from './EvaluationItemCard';
 import { LocationCaptureWidget } from './LocationCaptureWidget';
 import { ComponentPhotoUploader } from './ComponentPhotoUploader';
@@ -56,8 +81,11 @@ interface Props {
   onNext: () => void;
   onPrev: () => void;
   onSave?: () => void;
+  onPersistInspection?: (updated?: InspectionData) => void;
   onSyncNow?: () => void;
   isSyncing?: boolean;
+  savedInspections?: InspectionData[];
+  onLoadSavedInspection?: (inspection: InspectionData, options?: { convertToAtual?: boolean }) => void;
   onOpenAuthModal?: () => void;
   onOpenEcosystemModal?: (options?: {
     tab?: 'status' | 'catalogo' | 'solicitacoes' | 'notificacoes';
@@ -78,8 +106,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
   onNext,
   onPrev,
   onSave,
+  onPersistInspection,
   onSyncNow,
   isSyncing = false,
+  savedInspections,
+  onLoadSavedInspection,
   onOpenAuthModal,
   onOpenEcosystemModal
 }) => {
@@ -88,6 +119,117 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
   const unlockImportedField = (fieldKey: string) =>
     setUnlockedImportedFields(prev => ({ ...prev, [fieldKey]: true }));
   const importedOriginMap = data.importedFieldsOrigin || {};
+
+  const [registeringEntity, setRegisteringEntity] = useState<Record<EntidadeMestreTipo, boolean>>({
+    barragem: false,
+    empreendedor: false,
+    responsavel_tecnico: false
+  });
+  const [entityCadastroFeedback, setEntityCadastroFeedback] = useState<
+    Partial<Record<EntidadeMestreTipo, { type: 'success' | 'error'; message: string }>>
+  >({});
+
+  // Seletor de "Vistoria Pré-Cadastrada" (fichas pré-salvas no sistema)
+  const [showPreSavedPanel, setShowPreSavedPanel] = useState<boolean>(false);
+  const [preSavedSearch, setPreSavedSearch] = useState<string>('');
+  const [preSavedFilter, setPreSavedFilter] = useState<'futura' | 'draft' | 'all'>('all');
+  const [isRefreshingPreSaved, setIsRefreshingPreSaved] = useState<boolean>(false);
+  const [localSavedPool, setLocalSavedPool] = useState<InspectionData[]>(() => {
+    const base = savedInspections && savedInspections.length > 0 ? savedInspections : getAllInspections();
+    return base.filter(item => !isSampleInspection(item) && !isInspectionEmpty(item));
+  });
+
+  const refreshPreSavedSheets = useCallback(async () => {
+    setIsRefreshingPreSaved(true);
+    try {
+      const loaded = await loadAllInspectionsWithFallback();
+      const source = loaded.length > 0 ? loaded : (savedInspections || getAllInspections());
+      setLocalSavedPool(source.filter(item => !isSampleInspection(item) && !isInspectionEmpty(item)));
+    } catch {
+      const fallback = (savedInspections || getAllInspections()).filter(
+        item => !isSampleInspection(item) && !isInspectionEmpty(item)
+      );
+      setLocalSavedPool(fallback);
+    } finally {
+      setIsRefreshingPreSaved(false);
+    }
+  }, [savedInspections]);
+
+  useEffect(() => {
+    const source = savedInspections && savedInspections.length > 0 ? savedInspections : getAllInspections();
+    setLocalSavedPool(source.filter(item => !isSampleInspection(item) && !isInspectionEmpty(item)));
+  }, [savedInspections]);
+
+  useEffect(() => {
+    const handleStorageUpdate = () => {
+      const updated = getAllInspections().filter(
+        item => !isSampleInspection(item) && !isInspectionEmpty(item)
+      );
+      setLocalSavedPool(updated);
+    };
+    window.addEventListener('csb:notificacao_changed', handleStorageUpdate);
+    return () => window.removeEventListener('csb:notificacao_changed', handleStorageUpdate);
+  }, []);
+
+  const preSavedFutureList = localSavedPool.filter(
+    item => item.tipoPlanejamento === 'futura' || item.generalInfo?.tipoPlanejamento === 'futura'
+  );
+  const preSavedDraftList = localSavedPool.filter(item => item.isDraft);
+
+  const filteredPreSavedSheets = localSavedPool
+    .filter(item => {
+      const isFuturaItem =
+        item.tipoPlanejamento === 'futura' || item.generalInfo?.tipoPlanejamento === 'futura';
+      if (preSavedFilter === 'futura' && !isFuturaItem) return false;
+      if (preSavedFilter === 'draft' && !item.isDraft) return false;
+
+      if (!preSavedSearch.trim()) return true;
+      const q = preSavedSearch.trim().toLowerCase();
+      const d = item.damIdentification;
+      const g = item.generalInfo;
+      return (
+        (d.damName && d.damName.toLowerCase().includes(q)) ||
+        (d.propertyOrBusinessName && d.propertyOrBusinessName.toLowerCase().includes(q)) ||
+        (d.ownerCpfCnpj && d.ownerCpfCnpj.toLowerCase().includes(q)) ||
+        (d.municipality && d.municipality.toLowerCase().includes(q)) ||
+        (g.recordNumber && g.recordNumber.toLowerCase().includes(q)) ||
+        (g.numeroVistoria && g.numeroVistoria.toLowerCase().includes(q))
+      );
+    })
+    .sort((a, b) => {
+      const aFut = a.tipoPlanejamento === 'futura' || a.generalInfo?.tipoPlanejamento === 'futura' ? 1 : 0;
+      const bFut = b.tipoPlanejamento === 'futura' || b.generalInfo?.tipoPlanejamento === 'futura' ? 1 : 0;
+      if (aFut !== bFut) return bFut - aFut;
+      return (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '');
+    });
+
+  const handleSelectPreSavedSheet = (target: InspectionData, convertToAtual: boolean) => {
+    if (onLoadSavedInspection) {
+      onLoadSavedInspection(target, { convertToAtual });
+    } else {
+      let prepared = target;
+      if (convertToAtual) {
+        const today = new Date().toISOString().split('T')[0];
+        const nowTime = new Date().toTimeString().slice(0, 5);
+        const nextNum = target.generalInfo?.numeroVistoria?.trim() || getNextVistoriaNumber();
+        prepared = {
+          ...target,
+          tipoPlanejamento: 'atual',
+          isDraft: true,
+          generalInfo: {
+            ...target.generalInfo,
+            tipoPlanejamento: 'atual',
+            numeroVistoria: nextNum,
+            inspectionDate: target.generalInfo?.inspectionDate || today,
+            startTime: target.generalInfo?.startTime || nowTime
+          }
+        };
+      }
+      onChange(() => prepared);
+    }
+    setUnlockedImportedFields({});
+    setShowPreSavedPanel(false);
+  };
 
   React.useEffect(() => {
     let active = true;
@@ -154,10 +296,97 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     }));
   };
 
-  const timersRef = React.useRef<number[]>([]);
-  const toastTimerRef = React.useRef<number | null>(null);
+  const handleRegisterEntityToAdministra = async (tipo: EntidadeMestreTipo) => {
+    setRegisteringEntity(prev => ({ ...prev, [tipo]: true }));
+    setEntityCadastroFeedback(prev => ({ ...prev, [tipo]: undefined }));
+    try {
+      const res = await registerSingleEntityToAdministra({
+        tipo,
+        inspection: data,
+        actorEmail: data.createdByEmail
+      });
+      if (!res.success || !res.updatedInspection) {
+        setEntityCadastroFeedback(prev => ({
+          ...prev,
+          [tipo]: {
+            type: 'error',
+            message: res.error || 'Não foi possível concluir o cadastro na base do Administra.'
+          }
+        }));
+        return;
+      }
 
-  React.useEffect(() => {
+      onChange(() => res.updatedInspection!);
+      onPersistInspection?.(res.updatedInspection!);
+      const label =
+        tipo === 'barragem' ? 'Barragem' : tipo === 'empreendedor' ? 'Empreendedor' : 'Responsável Técnico';
+      const successMsg = res.savedRemote
+        ? `${label} cadastrado(a) e gravado(a) na base central do Administra com sucesso.`
+        : `${label} registrado(a) na base local do Administra (aguardando sincronização remota).`;
+      setEntityCadastroFeedback(prev => ({
+        ...prev,
+        [tipo]: {
+          type: 'success',
+          message: successMsg
+        }
+      }));
+      showFieldToast(successMsg);
+    } catch (err: any) {
+      setEntityCadastroFeedback(prev => ({
+        ...prev,
+        [tipo]: {
+          type: 'error',
+          message: err?.message || 'Falha inesperada ao cadastrar na base do Administra.'
+        }
+      }));
+    } finally {
+      setRegisteringEntity(prev => ({ ...prev, [tipo]: false }));
+    }
+  };
+
+  // Controle de altura do cabeçalho global e bloco/sub-bloco/componente congelado na tela
+  const [stickyTopOffset, setStickyTopOffset] = useState<number>(108);
+  const [isFrozenBarVisible, setIsFrozenBarVisible] = useState<boolean>(false);
+  const [frozenContext, setFrozenContext] = useState<{
+    blockId: string;
+    blockSecKey: string;
+    blockLabel: string;
+    componentId?: string;
+    componentSecKey?: string;
+    componentParentKey?: string;
+    componentLabel?: string;
+    subblockLabel?: string;
+    focusedItemLabel?: string;
+  }>({
+    blockId: 'sec-topico-1',
+    blockSecKey: 'sec1',
+    blockLabel: '1. Dados Gerais da Barragem',
+    subblockLabel: '1A · Dados da Vistoria e Identificação'
+  });
+
+  const formRootRef = useRef<HTMLDivElement | null>(null);
+  const frozenSentinelRef = useRef<HTMLDivElement | null>(null);
+  const timersRef = useRef<number[]>([]);
+  const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const headerEl = document.querySelector('header');
+    if (!headerEl) return;
+    const updateOffset = () => {
+      const rect = headerEl.getBoundingClientRect();
+      setStickyTopOffset(Math.max(0, Math.round(rect.height)));
+    };
+    updateOffset();
+    const ro = new ResizeObserver(updateOffset);
+    ro.observe(headerEl);
+    window.addEventListener('resize', updateOffset);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', updateOffset);
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       timersRef.current.forEach(id => window.clearTimeout(id));
       timersRef.current = [];
@@ -173,7 +402,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
   };
 
   // Navegação direta com abertura automática de tópicos e subtópicos
-  const handleNavigateToSection = (sectionKey: string, elementId: string, parentKey?: string) => {
+  const handleNavigateToSection = useCallback((sectionKey: string, elementId: string, parentKey?: string) => {
     setOpenSections(prev => {
       const next = { ...prev, [sectionKey]: true };
       if (parentKey) {
@@ -185,7 +414,8 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     const scrollTimer = window.setTimeout(() => {
       const el = document.getElementById(elementId);
       if (el) {
-        const headerOffset = window.innerWidth < 640 ? 110 : 130;
+        const barAllowance = 56;
+        const headerOffset = stickyTopOffset + barAllowance;
         const elementPosition = el.getBoundingClientRect().top;
         const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
         window.scrollTo({
@@ -195,12 +425,97 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         el.classList.add('ring-2', 'ring-emerald-500', 'transition-all');
         const highlightTimer = window.setTimeout(() => {
           el.classList.remove('ring-2', 'ring-emerald-500');
-        }, 2200);
+        }, 2000);
         timersRef.current.push(highlightTimer);
       }
     }, 80);
     timersRef.current.push(scrollTimer);
-  };
+  }, [stickyTopOffset]);
+
+  // Monitora rolagem para manter atualizado e congelado o nome do bloco, sub-bloco e componente visível
+  useEffect(() => {
+    const syncFrozenContextFromScroll = () => {
+      if (frozenSentinelRef.current) {
+        const sentinelTop = frozenSentinelRef.current.getBoundingClientRect().top;
+        setIsFrozenBarVisible(sentinelTop <= stickyTopOffset + 6);
+      }
+
+      const root = formRootRef.current;
+      if (!root) return;
+
+      const probeY = stickyTopOffset + 92;
+
+      const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-form-block]'));
+      let activeBlock = blocks[0];
+      for (const b of blocks) {
+        const r = b.getBoundingClientRect();
+        if (r.top <= probeY && r.bottom > stickyTopOffset + 32) {
+          activeBlock = b;
+        }
+      }
+      if (!activeBlock) return;
+
+      const components = Array.from(activeBlock.querySelectorAll<HTMLElement>('[data-form-component]'));
+      let activeComponent: HTMLElement | undefined;
+      for (const c of components) {
+        const r = c.getBoundingClientRect();
+        if (r.top <= probeY && r.bottom > stickyTopOffset + 32) {
+          activeComponent = c;
+        }
+      }
+
+      const subScope = activeComponent || activeBlock;
+      const subblocks = Array.from(subScope.querySelectorAll<HTMLElement>('[data-form-subblock]'));
+      let activeSubblock: HTMLElement | undefined;
+      for (const s of subblocks) {
+        const r = s.getBoundingClientRect();
+        if (r.top <= probeY + 24 && r.bottom > stickyTopOffset + 32) {
+          activeSubblock = s;
+        }
+      }
+
+      setFrozenContext(prev => ({
+        blockId: activeBlock.dataset.formBlockId || prev.blockId,
+        blockSecKey: activeBlock.dataset.formBlockSeckey || prev.blockSecKey,
+        blockLabel: activeBlock.dataset.formBlock || prev.blockLabel,
+        componentId: activeComponent?.dataset.formComponentId,
+        componentSecKey: activeComponent?.dataset.formComponentSeckey,
+        componentParentKey: activeComponent?.dataset.formComponentParentkey,
+        componentLabel: activeComponent?.dataset.formComponent,
+        subblockLabel: activeSubblock?.dataset.formSubblock,
+        focusedItemLabel: prev.focusedItemLabel
+      }));
+    };
+
+    syncFrozenContextFromScroll();
+    window.addEventListener('scroll', syncFrozenContextFromScroll, { passive: true });
+    return () => window.removeEventListener('scroll', syncFrozenContextFromScroll);
+  }, [stickyTopOffset, openSections]);
+
+  // Atualiza imediatamente o contexto congelado ao tocar ou focar em qualquer campo/card
+  const handleFormFocusOrPointer = useCallback((e: React.SyntheticEvent<HTMLElement>) => {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+
+    const blockEl = target.closest<HTMLElement>('[data-form-block]');
+    if (!blockEl) return;
+
+    const compEl = target.closest<HTMLElement>('[data-form-component]');
+    const subEl = target.closest<HTMLElement>('[data-form-subblock]');
+    const evalCard = target.closest<HTMLElement>('[data-eval-label]');
+
+    setFrozenContext({
+      blockId: blockEl.dataset.formBlockId || 'sec-topico-1',
+      blockSecKey: blockEl.dataset.formBlockSeckey || 'sec1',
+      blockLabel: blockEl.dataset.formBlock || '',
+      componentId: compEl?.dataset.formComponentId,
+      componentSecKey: compEl?.dataset.formComponentSeckey,
+      componentParentKey: compEl?.dataset.formComponentParentkey,
+      componentLabel: compEl?.dataset.formComponent,
+      subblockLabel: subEl?.dataset.formSubblock,
+      focusedItemLabel: evalCard?.dataset.evalLabel
+    });
+  }, []);
 
   const handleExpandAllSections = () => {
     setOpenSections({
@@ -457,11 +772,232 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     </div>
   );
 
+  // Ordem linear dos blocos/componentes para avanço rápido direto pela barra congelada
+  const linearNavSteps: { id: string; secKey: string; parentKey?: string; label: string }[] = [
+    { id: 'sec-topico-1', secKey: 'sec1', label: '1. Dados Gerais' },
+    { id: 'sec-topico-2', secKey: 'sec2', label: '2. Empreendedor' },
+    { id: 'sec-topico-3', secKey: 'sec3', label: '3. Usos' },
+    { id: 'sec-topico-4', secKey: 'sec4', label: '4. Medidas Técnicas' },
+    { id: 'sec-subtopico-5-1', secKey: 'sec5', parentKey: 'secComponentes', label: '5.1 Montante' },
+    { id: 'sec-subtopico-5-2', secKey: 'sec6', parentKey: 'secComponentes', label: '5.2 Coroamento' },
+    { id: 'sec-subtopico-5-3', secKey: 'sec7', parentKey: 'secComponentes', label: '5.3 Jusante' },
+    { id: 'sec-subtopico-5-4', secKey: 'sec8', parentKey: 'secComponentes', label: '5.4 Região Jusante' },
+    { id: 'sec-subtopico-5-5', secKey: 'sec9', parentKey: 'secComponentes', label: '5.5 Instrumentação' },
+    { id: 'sec-subtopico-5-6', secKey: 'sec10', parentKey: 'secComponentes', label: '5.6 Vertedouro' },
+    { id: 'sec-subtopico-5-7', secKey: 'sec11', parentKey: 'secComponentes', label: '5.7 Reservatório' },
+    { id: 'sec-topico-6', secKey: 'sec12', label: '6. Outros Problemas' },
+    { id: 'sec-topico-fotos', secKey: 'secFotos', label: '7. Fotos de Campo' }
+  ];
+
+  const activeNavStepId = frozenContext.componentId || frozenContext.blockId;
+  const activeLinearIndex = Math.max(0, linearNavSteps.findIndex(s => s.id === activeNavStepId));
+  const prevLinearStep = activeLinearIndex > 0 ? linearNavSteps[activeLinearIndex - 1] : null;
+  const nextLinearStep = activeLinearIndex < linearNavSteps.length - 1 ? linearNavSteps[activeLinearIndex + 1] : null;
+
+  // Sub-bloco visual coeso com título e borda estrutural bem definidos
+  const SubBlockCard = ({
+    code,
+    title,
+    icon: Icon,
+    badge,
+    action,
+    children
+  }: {
+    code: string;
+    title: string;
+    icon?: React.ElementType;
+    badge?: React.ReactNode;
+    action?: React.ReactNode;
+    children: React.ReactNode;
+  }) => (
+    <div
+      data-form-subblock={`${code} · ${title}`}
+      className="rounded-xl border border-slate-200/95 dark:border-slate-700/90 bg-slate-50/75 dark:bg-slate-950/60 p-3.5 sm:p-4 space-y-3"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="px-2 py-0.5 rounded-md bg-emerald-700 dark:bg-emerald-600 text-white text-[10px] font-black font-mono tracking-wider shrink-0">
+            {code}
+          </span>
+          {Icon && <Icon className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />}
+          <h4 className="text-xs sm:text-sm font-extrabold text-slate-800 dark:text-slate-100 tracking-tight truncate">
+            {title}
+          </h4>
+          {badge}
+        </div>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+
+  // Rodapé explícito de encerramento de Bloco ou Componente com atalho direto ao próximo
+  const BoundaryFooter = ({
+    endLabel,
+    nextLabel,
+    onJumpNext,
+    prevLabel,
+    onJumpPrev
+  }: {
+    endLabel: string;
+    nextLabel?: string;
+    onJumpNext?: () => void;
+    prevLabel?: string;
+    onJumpPrev?: () => void;
+  }) => (
+    <div className="px-4 py-2.5 bg-slate-100/90 dark:bg-slate-950/85 border-t border-slate-200 dark:border-slate-800 rounded-b-[14px] flex flex-wrap items-center justify-between gap-2 text-[11px]">
+      <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 font-semibold">
+        <span className="w-2 h-2 rounded-xs bg-slate-400 dark:bg-slate-600 shrink-0" />
+        <span>Fim de {endLabel}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        {onJumpPrev && prevLabel && (
+          <button
+            type="button"
+            onClick={onJumpPrev}
+            className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold transition cursor-pointer flex items-center gap-1"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            <span>{prevLabel}</span>
+          </button>
+        )}
+        {onJumpNext && nextLabel && (
+          <button
+            type="button"
+            onClick={onJumpNext}
+            className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold transition cursor-pointer flex items-center gap-1 shadow-2xs"
+          >
+            <span>Próximo: {nextLabel}</span>
+            <ArrowRight className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="space-y-4 pb-20 sm:pb-12">
+    <div
+      ref={formRootRef}
+      onFocusCapture={handleFormFocusOrPointer}
+      onPointerDownCapture={handleFormFocusOrPointer}
+      className="space-y-6 sm:space-y-7 pb-4 sm:pb-6"
+    >
+      {/* BARRA CONGELADA DE CONTEXTO ATIVO (SEMPRE VISÍVEL DURANTE O PREENCHIMENTO) */}
+      {isFrozenBarVisible && (
+        <div
+          style={{ top: `${stickyTopOffset}px` }}
+          className="fixed left-0 right-0 z-30 bg-slate-900/95 dark:bg-slate-950/95 text-white border-b-2 border-emerald-500/80 shadow-lg backdrop-blur-md transition-all"
+        >
+          <div className="max-w-7xl 2xl:max-w-[1440px] mx-auto px-2.5 xs:px-3 sm:px-5 lg:px-6 pl-[max(0.625rem,env(safe-area-inset-left))] pr-[max(0.625rem,env(safe-area-inset-right))] py-1.5 flex items-center justify-between gap-2">
+            {/* Trilha congelada: Bloco > Componente > Sub-bloco / Item */}
+            <div className="flex items-center gap-1.5 min-w-0 flex-1 text-[11px] sm:text-xs">
+              <span className="px-2 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-black uppercase tracking-wider text-[10px] shrink-0">
+                Em preenchimento
+              </span>
+
+              <div className="flex items-center gap-1.5 min-w-0 flex-wrap sm:flex-nowrap">
+                <button
+                  type="button"
+                  onClick={() => handleNavigateToSection(frozenContext.blockSecKey, frozenContext.blockId)}
+                  className="font-extrabold text-emerald-300 hover:text-emerald-200 truncate max-w-[145px] xs:max-w-[190px] sm:max-w-none cursor-pointer text-left"
+                  title="Voltar ao início deste bloco"
+                >
+                  {frozenContext.blockLabel}
+                </button>
+
+                {frozenContext.componentLabel && (
+                  <>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        frozenContext.componentSecKey &&
+                        frozenContext.componentId &&
+                        handleNavigateToSection(
+                          frozenContext.componentSecKey,
+                          frozenContext.componentId,
+                          frozenContext.componentParentKey
+                        )
+                      }
+                      className="font-black text-white bg-emerald-700/80 hover:bg-emerald-600 px-2 py-0.5 rounded-md truncate max-w-[155px] xs:max-w-[210px] sm:max-w-none cursor-pointer"
+                      title="Voltar ao topo deste componente"
+                    >
+                      {frozenContext.componentLabel}
+                    </button>
+                  </>
+                )}
+
+                {frozenContext.subblockLabel && (
+                  <>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0 hidden md:block" />
+                    <span className="hidden md:inline font-semibold text-amber-300 truncate max-w-[230px]">
+                      {frozenContext.subblockLabel}
+                    </span>
+                  </>
+                )}
+
+                {frozenContext.focusedItemLabel && (
+                  <>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0 hidden xl:block" />
+                    <span className="hidden xl:inline text-slate-300 truncate max-w-[200px] font-medium">
+                      {frozenContext.focusedItemLabel}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Navegação Rápida Anterior / Próximo / Topo do Bloco */}
+            <div className="flex items-center gap-1 shrink-0">
+              {prevLinearStep && (
+                <button
+                  type="button"
+                  onClick={() => handleNavigateToSection(prevLinearStep.secKey, prevLinearStep.id, prevLinearStep.parentKey)}
+                  className="h-7 px-2 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition whitespace-nowrap"
+                  title={`Ir para: ${prevLinearStep.label}`}
+                >
+                  <ArrowLeft className="w-3 h-3" />
+                  <span className="hidden lg:inline">{prevLinearStep.label}</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() =>
+                  frozenContext.componentId && frozenContext.componentSecKey
+                    ? handleNavigateToSection(
+                        frozenContext.componentSecKey,
+                        frozenContext.componentId,
+                        frozenContext.componentParentKey
+                      )
+                    : handleNavigateToSection(frozenContext.blockSecKey, frozenContext.blockId)
+                }
+                className="h-7 px-2 rounded-md bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
+                title="Rolar para o título do bloco/componente atual"
+              >
+                <ArrowUp className="w-3 h-3" />
+                <span className="hidden sm:inline">Topo</span>
+              </button>
+
+              {nextLinearStep && (
+                <button
+                  type="button"
+                  onClick={() => handleNavigateToSection(nextLinearStep.secKey, nextLinearStep.id, nextLinearStep.parentKey)}
+                  className="h-7 px-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition whitespace-nowrap"
+                  title={`Avançar para: ${nextLinearStep.label}`}
+                >
+                  <span className="hidden lg:inline">{nextLinearStep.label}</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Flutuante de Ação Rápida em Campo (Mobile e Tablet) */}
       {fieldQuickToast && (
-        <div className="fixed top-16 sm:top-20 right-3 sm:right-6 z-50 max-w-sm bg-emerald-950/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-emerald-400/80 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3 duration-200 backdrop-blur-md">
+        <div className="fixed top-[calc(7rem+env(safe-area-inset-top,0px))] sm:top-32 right-3 sm:right-6 z-50 max-w-[calc(100vw-1.5rem)] sm:max-w-sm bg-emerald-950/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-emerald-400/80 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3 duration-200 backdrop-blur-md">
           <div className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
             <Check className="w-3.5 h-3.5" />
           </div>
@@ -585,53 +1121,74 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* SELETOR DESTACADO: VISTORIA ATUAL VS VISTORIA FUTURA                      */}
+      {/* SELETOR DESTACADO: VISTORIA ATUAL VS FUTURA VS PRÉ-CADASTRADA             */}
       {/* ========================================================================= */}
       <div className={`p-4 sm:p-5 rounded-2xl border transition-all duration-200 shadow-sm ${
-        data.tipoPlanejamento === 'futura'
-          ? 'bg-gradient-to-r from-indigo-50/90 via-purple-50/80 to-blue-50/90 border-indigo-300 ring-2 ring-indigo-500/20'
-          : 'bg-gradient-to-r from-emerald-50/90 via-teal-50/80 to-slate-50 border-emerald-300 ring-2 ring-emerald-500/20'
+        showPreSavedPanel
+          ? 'bg-gradient-to-r from-sky-50/95 via-cyan-50/80 to-slate-50 dark:from-sky-950/60 dark:via-slate-900 dark:to-slate-900 border-sky-300 dark:border-sky-800 ring-2 ring-sky-500/20'
+          : data.tipoPlanejamento === 'futura'
+          ? 'bg-gradient-to-r from-indigo-50/90 via-purple-50/80 to-blue-50/90 dark:from-indigo-950/60 dark:via-slate-900 dark:to-slate-900 border-indigo-300 dark:border-indigo-800 ring-2 ring-indigo-500/20'
+          : 'bg-gradient-to-r from-emerald-50/90 via-teal-50/80 to-slate-50 dark:from-emerald-950/50 dark:via-slate-900 dark:to-slate-900 border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-500/20'
       }`}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 pb-3 border-b border-slate-200/60">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 pb-3 border-b border-slate-200/70 dark:border-slate-700/70">
           <div className="flex items-center gap-2.5">
-            <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-white shadow-xs ${
-              data.tipoPlanejamento === 'futura' ? 'bg-indigo-600' : 'bg-emerald-600'
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-white shadow-xs shrink-0 ${
+              showPreSavedPanel
+                ? 'bg-sky-600'
+                : data.tipoPlanejamento === 'futura'
+                ? 'bg-indigo-600'
+                : 'bg-emerald-600'
             }`}>
-              {data.tipoPlanejamento === 'futura' ? <CalendarClock className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
+              {showPreSavedPanel ? (
+                <FolderOpen className="w-4 h-4" />
+              ) : data.tipoPlanejamento === 'futura' ? (
+                <CalendarClock className="w-4 h-4" />
+              ) : (
+                <PlayCircle className="w-4 h-4" />
+              )}
             </div>
             <div>
-              <span className="text-[11px] uppercase tracking-wider font-extrabold text-slate-700 block">
+              <span className="text-[11px] uppercase tracking-wider font-extrabold text-slate-700 dark:text-slate-300 block">
                 Classificação da Ficha de Campo
               </span>
-              <h2 className="text-sm sm:text-base font-black text-slate-900 leading-tight">
-                {data.tipoPlanejamento === 'futura' 
-                  ? 'Vistoria Futura (Pré-cadastro de Local para Planejamento)' 
+              <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-tight">
+                {showPreSavedPanel
+                  ? 'Vistoria Pré-Cadastrada (Selecionar Ficha Pré-salva no Sistema)'
+                  : data.tipoPlanejamento === 'futura'
+                  ? 'Vistoria Futura (Pré-cadastro de Local para Planejamento)'
                   : 'Vistoria Atual (Inspeção em Andamento / Realizada)'}
               </h2>
             </div>
           </div>
           
           <span className={`text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-wider self-start sm:self-auto border ${
-            data.tipoPlanejamento === 'futura'
-              ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
-              : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+            showPreSavedPanel
+              ? 'bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-200 border-sky-300 dark:border-sky-700'
+              : data.tipoPlanejamento === 'futura'
+              ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-200 border-indigo-300 dark:border-indigo-700'
+              : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700'
           }`}>
-            {data.tipoPlanejamento === 'futura' ? 'Sem Numeração Oficial' : `Oficial: ${data.generalInfo.numeroVistoria || 'A Definir'}`}
+            {showPreSavedPanel
+              ? `${localSavedPool.length} Ficha(s) Pré-salva(s)`
+              : data.tipoPlanejamento === 'futura'
+              ? 'Sem Numeração Oficial'
+              : `Oficial: ${data.generalInfo.numeroVistoria || 'A Definir'}`}
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {/* Opção Vistoria Atual */}
           <button
             type="button"
             onClick={() => {
+              setShowPreSavedPanel(false);
               if (data.tipoPlanejamento === 'atual') return;
               const nextNum = getNextVistoriaNumber();
               const today = new Date().toISOString().split('T')[0];
               onChange(p => ({
                 ...p,
                 tipoPlanejamento: 'atual',
-                isDraft: false, // Entende que está sendo ou já foi realizada
+                isDraft: true,
                 generalInfo: {
                   ...p.generalInfo,
                   tipoPlanejamento: 'atual',
@@ -641,24 +1198,24 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               }));
             }}
             className={`p-3.5 rounded-xl border-2 text-left transition-all cursor-pointer flex items-start gap-3 relative ${
-              data.tipoPlanejamento !== 'futura'
-                ? 'bg-white border-emerald-600 shadow-sm ring-1 ring-emerald-500'
-                : 'bg-white/70 border-slate-200 hover:border-emerald-300 opacity-80 hover:opacity-100'
+              !showPreSavedPanel && data.tipoPlanejamento !== 'futura'
+                ? 'bg-white dark:bg-slate-900 border-emerald-600 shadow-sm ring-1 ring-emerald-500'
+                : 'bg-white/75 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700 opacity-85 hover:opacity-100'
             }`}
           >
             <div className={`w-5 h-5 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${
-              data.tipoPlanejamento !== 'futura'
+              !showPreSavedPanel && data.tipoPlanejamento !== 'futura'
                 ? 'border-emerald-600 bg-emerald-600 text-white'
-                : 'border-slate-300 bg-white'
+                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
             }`}>
-              {data.tipoPlanejamento !== 'futura' && <div className="w-2 h-2 rounded-full bg-white" />}
+              {!showPreSavedPanel && data.tipoPlanejamento !== 'futura' && <div className="w-2 h-2 rounded-full bg-white" />}
             </div>
             <div>
-              <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-slate-900">
+              <div className="flex items-center flex-wrap gap-1.5 font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
                 <span>Vistoria Atual</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold">Oficial</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-semibold">Oficial</span>
               </div>
-              <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-snug">
                 Vistoria sendo executada ou já realizada. Atribui <strong>numeração sequencial oficial</strong> e atualiza o status de campo.
               </p>
             </div>
@@ -668,6 +1225,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => {
+              setShowPreSavedPanel(false);
               if (data.tipoPlanejamento === 'futura') return;
               onChange(p => ({
                 ...p,
@@ -681,35 +1239,341 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               }));
             }}
             className={`p-3.5 rounded-xl border-2 text-left transition-all cursor-pointer flex items-start gap-3 relative ${
-              data.tipoPlanejamento === 'futura'
-                ? 'bg-white border-indigo-600 shadow-sm ring-1 ring-indigo-500'
-                : 'bg-white/70 border-slate-200 hover:border-indigo-300 opacity-80 hover:opacity-100'
+              !showPreSavedPanel && data.tipoPlanejamento === 'futura'
+                ? 'bg-white dark:bg-slate-900 border-indigo-600 shadow-sm ring-1 ring-indigo-500'
+                : 'bg-white/75 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 opacity-85 hover:opacity-100'
             }`}
           >
             <div className={`w-5 h-5 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${
-              data.tipoPlanejamento === 'futura'
+              !showPreSavedPanel && data.tipoPlanejamento === 'futura'
                 ? 'border-indigo-600 bg-indigo-600 text-white'
-                : 'border-slate-300 bg-white'
+                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
             }`}>
-              {data.tipoPlanejamento === 'futura' && <div className="w-2 h-2 rounded-full bg-white" />}
+              {!showPreSavedPanel && data.tipoPlanejamento === 'futura' && <div className="w-2 h-2 rounded-full bg-white" />}
             </div>
             <div>
-              <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-slate-900">
+              <div className="flex items-center flex-wrap gap-1.5 font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
                 <span>Vistoria Futura</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800 font-semibold">Pré-salva</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 font-semibold">Pré-salva</span>
               </div>
-              <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-snug">
                 Pré-salva dados do local e da barragem para planejar a ida a campo. <strong>Não consome número</strong> até ser iniciada.
+              </p>
+            </div>
+          </button>
+
+          {/* Opção Vistoria Pré-Cadastrada */}
+          <button
+            type="button"
+            onClick={() => {
+              const nextOpen = !showPreSavedPanel;
+              setShowPreSavedPanel(nextOpen);
+              if (nextOpen) {
+                setPreSavedFilter(preSavedFutureList.length > 0 ? 'futura' : 'all');
+                refreshPreSavedSheets();
+              }
+            }}
+            className={`sm:col-span-2 lg:col-span-1 p-3.5 rounded-xl border-2 text-left transition-all cursor-pointer flex items-start gap-3 relative ${
+              showPreSavedPanel
+                ? 'bg-white dark:bg-slate-900 border-sky-600 shadow-sm ring-1 ring-sky-500'
+                : 'bg-white/75 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700 hover:border-sky-300 dark:hover:border-sky-700 opacity-90 hover:opacity-100'
+            }`}
+          >
+            <div className={`w-5 h-5 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${
+              showPreSavedPanel
+                ? 'border-sky-600 bg-sky-600 text-white'
+                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+            }`}>
+              {showPreSavedPanel && <div className="w-2 h-2 rounded-full bg-white" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center flex-wrap gap-1.5 font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                <span>Vistoria Pré-Cadastrada</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 font-semibold">
+                  {preSavedFutureList.length > 0
+                    ? `${preSavedFutureList.length} pré-salva(s)`
+                    : `${localSavedPool.length} salva(s)`}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-snug">
+                Abre as opções de <strong>fichas pré-salvas no sistema</strong> para iniciar a vistoria em campo ou continuar o preenchimento.
               </p>
             </div>
           </button>
         </div>
 
         {/* ========================================================================= */}
+        {/* PAINEL EXPANSÍVEL: FICHAS PRÉ-CADASTRADAS / PRÉ-SALVAS NO SISTEMA         */}
+        {/* ========================================================================= */}
+        {showPreSavedPanel && (
+          <div className="mt-4 p-3.5 sm:p-4 rounded-xl bg-white dark:bg-slate-900 border border-sky-200 dark:border-sky-800 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                    Opções para Preencher Vistoria de Fichas Pré-Salvas no Sistema
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Selecione uma ficha pré-cadastrada abaixo para iniciar a vistoria oficial em campo ou continuar preenchendo seus dados.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={refreshPreSavedSheets}
+                  disabled={isRefreshingPreSaved}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
+                  title="Recarregar fichas pré-salvas do dispositivo"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingPreSaved ? 'animate-spin' : ''}`} />
+                  <span>Atualizar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPreSavedPanel(false)}
+                  className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer transition"
+                  title="Fechar lista de fichas pré-cadastradas"
+                  aria-label="Fechar lista de fichas pré-cadastradas"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Busca e Filtros de Fichas Pré-Salvas */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2.5">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={preSavedSearch}
+                  onChange={e => setPreSavedSearch(e.target.value)}
+                  placeholder="Buscar por nome da barragem, empreendedor, CPF/CNPJ, município ou processo..."
+                  className="w-full pl-8 pr-8 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+                {preSavedSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setPreSavedSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    aria-label="Limpar busca"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setPreSavedFilter('futura')}
+                  className={`px-2.5 py-1.5 rounded-lg border transition cursor-pointer ${
+                    preSavedFilter === 'futura'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300'
+                  }`}
+                >
+                  Vistorias Futuras ({preSavedFutureList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreSavedFilter('draft')}
+                  className={`px-2.5 py-1.5 rounded-lg border transition cursor-pointer ${
+                    preSavedFilter === 'draft'
+                      ? 'bg-sky-600 text-white border-sky-600'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-sky-300'
+                  }`}
+                >
+                  Rascunhos ({preSavedDraftList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreSavedFilter('all')}
+                  className={`px-2.5 py-1.5 rounded-lg border transition cursor-pointer ${
+                    preSavedFilter === 'all'
+                      ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-400'
+                  }`}
+                >
+                  Todas as Fichas ({localSavedPool.length})
+                </button>
+              </div>
+            </div>
+
+            {/* Lista de Fichas Pré-Salvas */}
+            {filteredPreSavedSheets.length > 0 ? (
+              <div className="max-h-[360px] overflow-y-auto space-y-2.5 pr-1">
+                {filteredPreSavedSheets.map(item => {
+                  const d = item.damIdentification;
+                  const g = item.generalInfo;
+                  const isFuturaItem =
+                    item.tipoPlanejamento === 'futura' || g?.tipoPlanejamento === 'futura';
+                  const isCurrentActive = item.id === data.id;
+                  const obsCount = item.itensObservacaoFutura?.length || 0;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-3 rounded-xl border transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${
+                        isCurrentActive
+                          ? 'bg-sky-50/80 dark:bg-sky-950/40 border-sky-400 dark:border-sky-600 ring-1 ring-sky-400/40'
+                          : isFuturaItem
+                          ? 'bg-indigo-50/40 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-800/70 hover:border-indigo-400'
+                          : 'bg-slate-50/70 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 hover:border-sky-300'
+                      }`}
+                    >
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
+                            {d.damName || d.propertyOrBusinessName || 'Ficha sem denominação'}
+                          </span>
+
+                          {isFuturaItem ? (
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 inline-flex items-center gap-1">
+                              <CalendarClock className="w-3 h-3" />
+                              <span>Vistoria Futura (Pré-salva)</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                              Vistoria Atual{g.numeroVistoria ? ` · Nº ${g.numeroVistoria}` : ''}
+                            </span>
+                          )}
+
+                          {isCurrentActive && (
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-600 text-white">
+                              Ficha Aberta
+                            </span>
+                          )}
+
+                          {obsCount > 0 && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                              {obsCount} item(ns) a observar
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-slate-400" />
+                            <span>{d.municipality || 'Mato Grosso'}/MT</span>
+                          </span>
+                          {d.propertyOrBusinessName && (
+                            <span className="truncate max-w-[240px]">
+                              Empreendedor: <strong className="text-slate-800 dark:text-slate-200">{d.propertyOrBusinessName}</strong>
+                            </span>
+                          )}
+                          {g.recordNumber && (
+                            <span>Processo: <strong>{g.recordNumber}</strong></span>
+                          )}
+                          <span className="inline-flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-slate-400" />
+                            <span>
+                              {g.inspectionDate
+                                ? new Date(g.inspectionDate + 'T00:00:00').toLocaleDateString('pt-BR')
+                                : 'Data a definir'}
+                            </span>
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Camera className="w-3 h-3 text-slate-400" />
+                            <span>{item.photos?.length || 0} foto(s)</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {isFuturaItem ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectPreSavedSheet(item, true)}
+                              className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                              title="Carrega esta ficha pré-salva e inicia como Vistoria Atual com numeração oficial"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                              <span>Iniciar e Preencher Vistoria</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectPreSavedSheet(item, false)}
+                              className="px-3 py-2 rounded-lg bg-indigo-100 dark:bg-indigo-950/70 hover:bg-indigo-200 dark:hover:bg-indigo-900 text-indigo-800 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition"
+                              title="Abrir mantendo como pré-cadastro (Vistoria Futura) sem gerar numeração"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Editar Pré-cadastro</span>
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleSelectPreSavedSheet(item, false)}
+                            className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                          >
+                            <FolderOpen className="w-3.5 h-3.5" />
+                            <span>Abrir para Preencher</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-dashed border-slate-300 dark:border-slate-700 text-center space-y-2.5">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {localSavedPool.length === 0
+                    ? 'Nenhuma ficha pré-salva encontrada no sistema até o momento.'
+                    : 'Nenhuma ficha pré-salva corresponde aos filtros selecionados.'}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-lg mx-auto">
+                  Você pode pré-cadastrar uma nova barragem utilizando a opção <strong>Vistoria Futura</strong> para salvá-la no sistema e abri-la depois em campo.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  {(preSavedSearch || preSavedFilter !== 'all') && localSavedPool.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreSavedSearch('');
+                        setPreSavedFilter('all');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-slate-200 text-xs font-bold cursor-pointer"
+                    >
+                      Mostrar Todas ({localSavedPool.length})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPreSavedPanel(false);
+                      onChange(p => ({
+                        ...p,
+                        tipoPlanejamento: 'futura',
+                        isDraft: true,
+                        generalInfo: {
+                          ...p.generalInfo,
+                          tipoPlanejamento: 'futura',
+                          numeroVistoria: ''
+                        }
+                      }));
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CalendarClock className="w-3.5 h-3.5" />
+                    <span>Criar Vistoria Futura (Pré-salva)</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
         {/* BLOCO: ITENS A SEREM OBSERVADOS (FUTURA: LISTA / ATUAL: CHECKLIST)        */}
         {/* ========================================================================= */}
         {(data.tipoPlanejamento === 'futura' || (data.itensObservacaoFutura && data.itensObservacaoFutura.length > 0)) && (
-          <div className="mt-4 pt-3 border-t border-slate-200/80">
+          <div className="mt-4 pt-3 border-t border-slate-200/80 dark:border-slate-700/80">
             <FutureObservationChecklist
               tipoPlanejamento={data.tipoPlanejamento}
               items={data.itensObservacaoFutura || []}
@@ -774,328 +1638,408 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         )}
       </div>
 
+      {/* Sentinela para ativação da barra congelada ao entrar nos blocos do formulário */}
+      <div ref={frozenSentinelRef} className="h-0.5 w-full" aria-hidden="true" />
+
       {/* ========================================================================= */}
-      {/* SEÇÃO 1: DADOS GERAIS DA BARRAGEM */}
+      {/* BLOCO 1: DADOS GERAIS DA BARRAGEM                                         */}
       {/* ========================================================================= */}
-      <div id="sec-topico-1" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
+      <section
+        id="sec-topico-1"
+        data-form-block="1. Dados Gerais da Barragem"
+        data-form-block-id="sec-topico-1"
+        data-form-block-seckey="sec1"
+        className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+          frozenContext.blockId === 'sec-topico-1'
+            ? 'border-emerald-500/70 ring-2 ring-emerald-500/20'
+            : 'border-slate-300/90 dark:border-slate-700'
+        }`}
+      >
         <button
           type="button"
           onClick={() => toggleSection('sec1')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className={`w-full px-4 py-3 sm:px-5 sm:py-3.5 bg-slate-900 dark:bg-slate-950 text-white ${
+            openSections.sec1 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+          } flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-slate-800/95 transition-colors`}
         >
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">1</span>
-            <span>1. Dados Gerais da Barragem</span>
+          <div className="flex items-center gap-3 min-w-0 flex-wrap text-left">
+            <span className="w-7 h-7 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+              1
+            </span>
+            <div className="min-w-0">
+              <span className="block text-xs sm:text-sm font-black uppercase tracking-wide text-white">
+                1. Dados Gerais da Barragem
+              </span>
+              <span className="block text-[11px] font-medium text-slate-300">
+                Sub-blocos: 1A Registro e Identificação · 1B Coordenadas Geográficas e CAR/MT
+              </span>
+            </div>
             {data.barragemOrigemSistema && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 normal-case">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-emerald-300">
                 Titularidade: {getSistemaLabel(data.barragemOrigemSistema)}
               </span>
             )}
           </div>
-          {openSections.sec1 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+          <div className="flex items-center gap-2 shrink-0 text-emerald-400 text-xs font-bold">
+            <span className="hidden sm:inline">{openSections.sec1 ? 'Recolher' : 'Expandir'}</span>
+            {openSections.sec1 ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </div>
         </button>
 
         {openSections.sec1 && (
-          <div className="p-4 sm:p-5 space-y-4">
-            {!damPerm.allowed && (
-              <div className="p-3 rounded-xl bg-orange-50 border border-orange-300 text-orange-950 text-xs flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
-                  <span>
-                    Dados da barragem importados de <strong>{getSistemaLabel(damPerm.sistemaDetentor)}</strong> (campos em laranja com <strong>*</strong>). Passe o mouse ou clique em um campo para abrir e alterar — a vistoria tem superioridade, atualiza os demais sistemas e notifica o analista autor.
-                  </span>
-                </div>
-                {onOpenEcosystemModal && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenEcosystemModal({
-                        tab: 'catalogo',
-                        requestTarget: {
-                          entidadeTipo: 'barragem',
-                          entidadeId: data.barragemId || data.id,
-                          entidadeNome: data.damIdentification.damName || 'Barragem vinculada',
-                          sistemaDetentor: damPerm.sistemaDetentor,
-                          campoSugerido: 'nome',
-                          valorAtualSugerido: data.damIdentification.damName
-                        }
-                      })
-                    }
-                    className="px-3 py-1 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-                  >
-                    <Send className="w-3 h-3" />
-                    <span>Registrar Solicitação Formal</span>
-                  </button>
-                )}
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Data da Vistoria <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={data.generalInfo.inspectionDate}
-                  onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, inspectionDate: e.target.value } }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Hora de Início
-                </label>
-                <input
-                  type="time"
-                  value={data.generalInfo.startTime}
-                  onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, startTime: e.target.value } }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Número do Processo <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Informe o nº do processo SEMA"
-                  value={data.generalInfo.recordNumber}
-                  onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, recordNumber: e.target.value } }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Número de Vistoria{' '}
-                  {data.tipoPlanejamento === 'futura' ? (
-                    <span className="text-indigo-600 text-[11px] font-medium">(Sem numeração - Vistoria Futura)</span>
-                  ) : (
-                    <span className="text-emerald-700 text-[11px] font-medium">(Editável - ex: 0001/2026)</span>
-                  )}
-                </label>
-                {data.tipoPlanejamento === 'futura' ? (
-                  <div className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-indigo-200 rounded-lg bg-indigo-50/60 text-indigo-700 font-medium flex items-center justify-between">
-                    <span>(Sem numeração)</span>
-                    <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-bold">
-                      Gerada ao iniciar
+          <>
+            <div className="p-4 sm:p-5 space-y-4">
+              {!damPerm.allowed && (
+                <div className="p-3 rounded-xl bg-orange-50 dark:bg-orange-950/40 border border-orange-300 dark:border-orange-800 text-orange-950 dark:text-orange-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
+                    <span>
+                      Dados da barragem importados de <strong>{getSistemaLabel(damPerm.sistemaDetentor)}</strong> (campos em laranja com <strong>*</strong>). Passe o mouse ou clique em um campo para abrir e alterar — a vistoria tem superioridade, atualiza os demais sistemas e notifica o analista autor.
                     </span>
                   </div>
-                ) : (
-                  <input
-                    type="text"
-                    placeholder="ex: 0001/2026"
-                    value={data.generalInfo.numeroVistoria ?? ''}
-                    onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, numeroVistoria: e.target.value } }))}
-                    className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50 font-medium text-slate-900"
-                  />
-                )}
-              </div>
-
-              <EcosystemImportedField
-                label="Nome da Barragem"
-                required
-                meta={importedOriginMap.damName}
-                currentValue={data.damIdentification.damName}
-                isUnlocked={!!unlockedImportedFields.damName}
-                onUnlock={() => unlockImportedField('damName')}
-              >
-                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
-                  <input
-                    type="text"
-                    readOnly={readOnlyByImport}
-                    title={titleTooltip}
-                    onClick={onFocusOrClick}
-                    placeholder="Informe o nome da barragem ou barramento"
-                    value={data.damIdentification.damName}
-                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, damName: e.target.value } }))}
-                    className={className}
-                  />
-                )}
-              </EcosystemImportedField>
-
-              <EcosystemImportedField
-                label="Município (Mato Grosso)"
-                required
-                meta={importedOriginMap.municipality}
-                currentValue={data.damIdentification.municipality}
-                isUnlocked={!!unlockedImportedFields.municipality}
-                onUnlock={() => unlockImportedField('municipality')}
-              >
-                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
-                  <select
-                    disabled={readOnlyByImport}
-                    title={titleTooltip}
-                    onClick={onFocusOrClick}
-                    value={data.damIdentification.municipality}
-                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, municipality: e.target.value } }))}
-                    className={className}
-                  >
-                    <option value="">Selecione...</option>
-                    {MUNICIPALITIES_MT.map(m => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                )}
-              </EcosystemImportedField>
-
-              <EcosystemImportedField
-                label="Nome do Curso D'Água Barrado"
-                meta={importedOriginMap.waterCourse}
-                currentValue={data.damIdentification.waterCourse}
-                isUnlocked={!!unlockedImportedFields.waterCourse}
-                onUnlock={() => unlockImportedField('waterCourse')}
-              >
-                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
-                  <input
-                    type="text"
-                    readOnly={readOnlyByImport}
-                    title={titleTooltip}
-                    onClick={onFocusOrClick}
-                    placeholder="Informe o curso d'água barrado"
-                    value={data.damIdentification.waterCourse}
-                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, waterCourse: e.target.value } }))}
-                    className={className}
-                  />
-                )}
-              </EcosystemImportedField>
-
-              <EcosystemImportedField
-                label="Ano Início da Obra"
-                meta={importedOriginMap.workStartYear}
-                currentValue={data.damIdentification.workStartYear || ''}
-                isUnlocked={!!unlockedImportedFields.workStartYear}
-                onUnlock={() => unlockImportedField('workStartYear')}
-              >
-                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
-                  <input
-                    type="number"
-                    readOnly={readOnlyByImport}
-                    title={titleTooltip}
-                    onClick={onFocusOrClick}
-                    placeholder="ex: 2012"
-                    value={data.damIdentification.workStartYear || ''}
-                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, workStartYear: e.target.value } }))}
-                    className={className}
-                  />
-                )}
-              </EcosystemImportedField>
-
-              <EcosystemImportedField
-                label="Ano Final da Obra"
-                meta={importedOriginMap.workEndYear}
-                currentValue={data.damIdentification.workEndYear || ''}
-                isUnlocked={!!unlockedImportedFields.workEndYear}
-                onUnlock={() => unlockImportedField('workEndYear')}
-              >
-                {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
-                  <input
-                    type="number"
-                    readOnly={readOnlyByImport}
-                    title={titleTooltip}
-                    onClick={onFocusOrClick}
-                    placeholder="ex: 2014"
-                    value={data.damIdentification.workEndYear || ''}
-                    onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, workEndYear: e.target.value } }))}
-                    className={className}
-                  />
-                )}
-              </EcosystemImportedField>
-            </div>
-
-            {/* Coordenadas e GPS com Widget Rigoroso + Busca SEMA/MT (CAR/MT) */}
-            <div className="pt-2">
-              <LocationCaptureWidget
-                latitude={data.damIdentification.coordinates.latitude}
-                longitude={data.damIdentification.coordinates.longitude}
-                accuracyMeters={data.damIdentification.coordinates.accuracyMeters}
-                altitudeMeters={data.damIdentification.coordinates.altitudeMeters}
-                captureTimestamp={data.damIdentification.coordinates.captureTimestamp}
-                isManualEdit={data.damIdentification.coordinates.isManualEdit}
-                datum={data.damIdentification.coordinates.datum || 'SIRGAS 2000'}
-                onChange={coords => {
-                  onChange(p => ({
-                    ...p,
-                    damIdentification: {
-                      ...p.damIdentification,
-                      coordinates: {
-                        ...p.damIdentification.coordinates,
-                        ...coords
-                      }
-                    }
-                  }));
-                }}
-                onApplyLookupData={payload => {
-                  onChange(prev => {
-                    let next = prev;
-                    if (payload.empreendedor || payload.barragem || payload.responsavelTecnico) {
-                      next = applyMasterSelectionToInspection(next, {
-                        empreendedor: payload.empreendedor,
-                        barragem: payload.barragem,
-                        responsavelTecnico: payload.responsavelTecnico
-                      });
-                    }
-                    if (payload.carImovel) {
-                      const car = payload.carImovel;
-                      const matchedMun = MUNICIPALITIES_MT.find(
-                        m =>
-                          m.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() ===
-                          (car.municipio || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-                      );
-                      next = {
-                        ...next,
-                        damIdentification: {
-                          ...next.damIdentification,
-                          municipality: matchedMun || car.municipio || next.damIdentification.municipality,
-                          regulatoryStatus: {
-                            ...next.damIdentification.regulatoryStatus,
-                            hasCar: 'sim',
-                            carNumber: car.codImovel
+                  {onOpenEcosystemModal && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenEcosystemModal({
+                          tab: 'catalogo',
+                          requestTarget: {
+                            entidadeTipo: 'barragem',
+                            entidadeId: data.barragemId || data.id,
+                            entidadeNome: data.damIdentification.damName || 'Barragem vinculada',
+                            sistemaDetentor: damPerm.sistemaDetentor,
+                            campoSugerido: 'nome',
+                            valorAtualSugerido: data.damIdentification.damName
                           }
+                        })
+                      }
+                      className="px-3 py-1 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                    >
+                      <Send className="w-3 h-3" />
+                      <span>Registrar Solicitação Formal</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Sub-bloco 1A: Registro da Vistoria & Identificação da Barragem */}
+              <SubBlockCard
+                code="1A"
+                title="Registro da Vistoria e Identificação da Barragem"
+                icon={ClipboardList}
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Data da Vistoria <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={data.generalInfo.inspectionDate}
+                      onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, inspectionDate: e.target.value } }))}
+                      className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Hora de Início
+                    </label>
+                    <input
+                      type="time"
+                      value={data.generalInfo.startTime}
+                      onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, startTime: e.target.value } }))}
+                      className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Número do Processo <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Informe o nº do processo SEMA"
+                      value={data.generalInfo.recordNumber}
+                      onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, recordNumber: e.target.value } }))}
+                      className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Número de Vistoria{' '}
+                      {data.tipoPlanejamento === 'futura' ? (
+                        <span className="text-indigo-600 dark:text-indigo-400 text-[11px] font-medium">(Sem numeração - Vistoria Futura)</span>
+                      ) : (
+                        <span className="text-emerald-700 dark:text-emerald-400 text-[11px] font-medium">(Editável - ex: 0001/2026)</span>
+                      )}
+                    </label>
+                    {data.tipoPlanejamento === 'futura' ? (
+                      <div className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-indigo-200 dark:border-indigo-800 rounded-lg bg-indigo-50/60 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium flex items-center justify-between">
+                        <span>(Sem numeração)</span>
+                        <span className="text-[10px] bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 px-2 py-0.5 rounded font-bold">
+                          Gerada ao iniciar
+                        </span>
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder="ex: 0001/2026"
+                        value={data.generalInfo.numeroVistoria ?? ''}
+                        onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, numeroVistoria: e.target.value } }))}
+                        className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 font-medium text-slate-900 dark:text-slate-100"
+                      />
+                    )}
+                  </div>
+
+                  <EcosystemImportedField
+                    label="Nome da Barragem"
+                    required
+                    meta={importedOriginMap.damName}
+                    currentValue={data.damIdentification.damName}
+                    isUnlocked={!!unlockedImportedFields.damName}
+                    onUnlock={() => unlockImportedField('damName')}
+                  >
+                    {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                      <input
+                        type="text"
+                        readOnly={readOnlyByImport}
+                        title={titleTooltip}
+                        onClick={onFocusOrClick}
+                        placeholder="Informe o nome da barragem ou barramento"
+                        value={data.damIdentification.damName}
+                        onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, damName: e.target.value } }))}
+                        className={className}
+                      />
+                    )}
+                  </EcosystemImportedField>
+
+                  <EcosystemImportedField
+                    label="Município (Mato Grosso)"
+                    required
+                    meta={importedOriginMap.municipality}
+                    currentValue={data.damIdentification.municipality}
+                    isUnlocked={!!unlockedImportedFields.municipality}
+                    onUnlock={() => unlockImportedField('municipality')}
+                  >
+                    {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                      <select
+                        disabled={readOnlyByImport}
+                        title={titleTooltip}
+                        onClick={onFocusOrClick}
+                        value={data.damIdentification.municipality}
+                        onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, municipality: e.target.value } }))}
+                        className={className}
+                      >
+                        <option value="">Selecione...</option>
+                        {MUNICIPALITIES_MT.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    )}
+                  </EcosystemImportedField>
+
+                  <EcosystemImportedField
+                    label="Nome do Curso D'Água Barrado"
+                    meta={importedOriginMap.waterCourse}
+                    currentValue={data.damIdentification.waterCourse}
+                    isUnlocked={!!unlockedImportedFields.waterCourse}
+                    onUnlock={() => unlockImportedField('waterCourse')}
+                  >
+                    {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                      <input
+                        type="text"
+                        readOnly={readOnlyByImport}
+                        title={titleTooltip}
+                        onClick={onFocusOrClick}
+                        placeholder="Informe o curso d'água barrado"
+                        value={data.damIdentification.waterCourse}
+                        onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, waterCourse: e.target.value } }))}
+                        className={className}
+                      />
+                    )}
+                  </EcosystemImportedField>
+
+                  <EcosystemImportedField
+                    label="Ano Início da Obra"
+                    meta={importedOriginMap.workStartYear}
+                    currentValue={data.damIdentification.workStartYear || ''}
+                    isUnlocked={!!unlockedImportedFields.workStartYear}
+                    onUnlock={() => unlockImportedField('workStartYear')}
+                  >
+                    {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                      <input
+                        type="number"
+                        readOnly={readOnlyByImport}
+                        title={titleTooltip}
+                        onClick={onFocusOrClick}
+                        placeholder="ex: 2012"
+                        value={data.damIdentification.workStartYear || ''}
+                        onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, workStartYear: e.target.value } }))}
+                        className={className}
+                      />
+                    )}
+                  </EcosystemImportedField>
+
+                  <EcosystemImportedField
+                    label="Ano Final da Obra"
+                    meta={importedOriginMap.workEndYear}
+                    currentValue={data.damIdentification.workEndYear || ''}
+                    isUnlocked={!!unlockedImportedFields.workEndYear}
+                    onUnlock={() => unlockImportedField('workEndYear')}
+                  >
+                    {({ className, readOnlyByImport, onFocusOrClick, titleTooltip }) => (
+                      <input
+                        type="number"
+                        readOnly={readOnlyByImport}
+                        title={titleTooltip}
+                        onClick={onFocusOrClick}
+                        placeholder="ex: 2014"
+                        value={data.damIdentification.workEndYear || ''}
+                        onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, workEndYear: e.target.value } }))}
+                        className={className}
+                      />
+                    )}
+                  </EcosystemImportedField>
+                </div>
+              </SubBlockCard>
+
+              {/* Sub-bloco 1B: Coordenadas Geográficas e Busca CAR/MT */}
+              <SubBlockCard
+                code="1B"
+                title="Localização Geográfica, GPS e Busca Pública CAR/MT (SEMA-MT)"
+                icon={MapPin}
+              >
+                <LocationCaptureWidget
+                  latitude={data.damIdentification.coordinates.latitude}
+                  longitude={data.damIdentification.coordinates.longitude}
+                  accuracyMeters={data.damIdentification.coordinates.accuracyMeters}
+                  altitudeMeters={data.damIdentification.coordinates.altitudeMeters}
+                  captureTimestamp={data.damIdentification.coordinates.captureTimestamp}
+                  isManualEdit={data.damIdentification.coordinates.isManualEdit}
+                  datum={data.damIdentification.coordinates.datum || 'SIRGAS 2000'}
+                  onChange={coords => {
+                    onChange(p => ({
+                      ...p,
+                      damIdentification: {
+                        ...p.damIdentification,
+                        coordinates: {
+                          ...p.damIdentification.coordinates,
+                          ...coords
                         }
-                      };
-                    }
-                    return next;
-                  });
-                  showFieldToast(
-                    payload.carImovel
-                      ? `CAR/MT ${payload.carImovel.codImovel} aplicado. Todos os campos seguem editáveis.`
-                      : 'Dados cadastrados aplicados ao formulário (editáveis).'
-                  );
-                }}
+                      }
+                    }));
+                  }}
+                  onApplyLookupData={payload => {
+                    onChange(prev => {
+                      let next = prev;
+                      if (payload.empreendedor || payload.barragem || payload.responsavelTecnico) {
+                        next = applyMasterSelectionToInspection(next, {
+                          empreendedor: payload.empreendedor,
+                          barragem: payload.barragem,
+                          responsavelTecnico: payload.responsavelTecnico
+                        });
+                      }
+                      if (payload.carImovel) {
+                        const car = payload.carImovel;
+                        const matchedMun = MUNICIPALITIES_MT.find(
+                          m =>
+                            m.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() ===
+                            (car.municipio || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                        );
+                        next = {
+                          ...next,
+                          damIdentification: {
+                            ...next.damIdentification,
+                            municipality: matchedMun || car.municipio || next.damIdentification.municipality,
+                            regulatoryStatus: {
+                              ...next.damIdentification.regulatoryStatus,
+                              hasCar: 'sim',
+                              carNumber: car.codImovel
+                            }
+                          }
+                        };
+                      }
+                      return next;
+                    });
+                    showFieldToast(
+                      payload.carImovel
+                        ? `CAR/MT ${payload.carImovel.codImovel} aplicado. Todos os campos seguem editáveis.`
+                        : 'Dados cadastrados aplicados ao formulário (editáveis).'
+                    );
+                  }}
+                />
+              </SubBlockCard>
+
+              <AdministraCadastroBanner
+                tipo="barragem"
+                inspection={data}
+                isSubmitting={registeringEntity.barragem}
+                feedback={entityCadastroFeedback.barragem || null}
+                onRegister={() => handleRegisterEntityToAdministra('barragem')}
+                onOpenLookup={() => handleNavigateToSection('sec2', 'sec-topico-2')}
               />
             </div>
-          </div>
+            <BoundaryFooter
+              endLabel="Bloco 1 · Dados Gerais da Barragem"
+              nextLabel="2. Empreendedor e Propriedade"
+              onJumpNext={() => handleNavigateToSection('sec2', 'sec-topico-2')}
+            />
+          </>
         )}
-      </div>
+      </section>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 2: IDENTIFICAÇÃO DO EMPREENDEDOR E PROPRIEDADE */}
+      {/* BLOCO 2: IDENTIFICAÇÃO DO EMPREENDEDOR E PROPRIEDADE                      */}
       {/* ========================================================================= */}
-      <div id="sec-topico-2" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
+      <section
+        id="sec-topico-2"
+        data-form-block="2. Identificação do Empreendedor e Propriedade"
+        data-form-block-id="sec-topico-2"
+        data-form-block-seckey="sec2"
+        className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+          frozenContext.blockId === 'sec-topico-2'
+            ? 'border-emerald-500/70 ring-2 ring-emerald-500/20'
+            : 'border-slate-300/90 dark:border-slate-700'
+        }`}
+      >
         <button
           type="button"
           onClick={() => toggleSection('sec2')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className={`w-full px-4 py-3 sm:px-5 sm:py-3.5 bg-slate-900 dark:bg-slate-950 text-white ${
+            openSections.sec2 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+          } flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-slate-800/95 transition-colors`}
         >
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">2</span>
-            <span>2. Identificação do Empreendedor e Propriedade</span>
+          <div className="flex items-center gap-3 min-w-0 flex-wrap text-left">
+            <span className="w-7 h-7 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+              2
+            </span>
+            <div className="min-w-0">
+              <span className="block text-xs sm:text-sm font-black uppercase tracking-wide text-white">
+                2. Identificação do Empreendedor e Propriedade
+              </span>
+              <span className="block text-[11px] font-medium text-slate-300">
+                Sub-blocos: 2A Proprietário e Imóvel · 2B Consulta Ecossistema · 2C Responsável Técnico
+              </span>
+            </div>
             {data.empreendedorOrigemSistema && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 normal-case">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-emerald-300">
                 Titularidade: {getSistemaLabel(data.empreendedorOrigemSistema)}
               </span>
             )}
           </div>
-          {openSections.sec2 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+          <div className="flex items-center gap-2 shrink-0 text-emerald-400 text-xs font-bold">
+            <span className="hidden sm:inline">{openSections.sec2 ? 'Recolher' : 'Expandir'}</span>
+            {openSections.sec2 ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </div>
         </button>
 
         {openSections.sec2 && (
+          <>
           <div className="p-4 sm:p-5 space-y-4">
             {!ownerPerm.allowed && (
-              <div className="p-3 rounded-xl bg-orange-50 border border-orange-300 text-orange-950 text-xs flex flex-wrap items-center justify-between gap-2">
+              <div className="p-3 rounded-xl bg-orange-50 dark:bg-orange-950/40 border border-orange-300 dark:border-orange-800 text-orange-950 dark:text-orange-200 text-xs flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
                   <span>
@@ -1127,6 +2071,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               </div>
             )}
 
+            <SubBlockCard
+              code="2A"
+              title="Dados do Empreendedor / Propriedade e Documentação"
+              icon={Building2}
+            >
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
               <EcosystemImportedField
                 className="sm:col-span-2"
@@ -1386,77 +2335,91 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               </EcosystemImportedField>
             </div>
 
-            {/* LUPINHA DE CONSULTA AO ECOSSISTEMA E EXPORTAÇÃO DE EMPREENDEDOR / BARRAGENS */}
-            <EcosystemTopic2Lookup
-              initialQuery={data.damIdentification.propertyOrBusinessName || data.damIdentification.ownerCpfCnpj || ''}
-              onExportSelection={payload => {
-                onChange(prev => applyMasterSelectionToInspection(prev, payload));
-                setUnlockedImportedFields({});
-                showFieldToast(
-                  payload.barragem
-                    ? `Dados de "${payload.empreendedor.nomeRazaoSocial}" e da barragem "${payload.barragem.nome}" aplicados (editáveis e marcados em laranja*).`
-                    : `Dados de "${payload.empreendedor.nomeRazaoSocial}" aplicados (editáveis e marcados em laranja*).`
-                );
-              }}
-              onApplyCarOnly={car => {
-                const matchedMun = MUNICIPALITIES_MT.find(
-                  m =>
-                    m.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() ===
-                    (car.municipio || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-                );
-                onChange(prev => ({
-                  ...prev,
-                  damIdentification: {
-                    ...prev.damIdentification,
-                    municipality: matchedMun || car.municipio || prev.damIdentification.municipality,
-                    regulatoryStatus: {
-                      ...prev.damIdentification.regulatoryStatus,
-                      hasCar: 'sim',
-                      carNumber: car.codImovel
-                    }
-                  }
-                }));
-                showFieldToast(`CAR/MT ${car.codImovel} inserido no formulário (editável).`);
-              }}
+            <AdministraCadastroBanner
+              tipo="empreendedor"
+              inspection={data}
+              isSubmitting={registeringEntity.empreendedor}
+              feedback={entityCadastroFeedback.empreendedor || null}
+              onRegister={() => handleRegisterEntityToAdministra('empreendedor')}
+              onOpenLookup={() => handleNavigateToSection('sec2', 'subbloco-2b-lookup')}
             />
+            </SubBlockCard>
 
-            {/* Sub-bloco 2B: Responsável Técnico pela Segurança da Barragem */}
-            <div className="pt-3 border-t border-slate-200 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <HardHat className="w-4 h-4 text-emerald-700" />
-                  <h4 className="text-xs font-extrabold uppercase tracking-wide text-slate-800">
-                    2B. Responsável Técnico (Sincronizado no Administra)
-                  </h4>
-                  {(data.responsavelTecnicoOrigemSistema || data.responsavelTecnico?.sistemaOrigem) && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                      Titularidade: {getSistemaLabel(data.responsavelTecnicoOrigemSistema || data.responsavelTecnico?.sistemaOrigem)}
-                    </span>
-                  )}
-                </div>
-                {!rtPerm.allowed && onOpenEcosystemModal && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenEcosystemModal({
-                        tab: 'catalogo',
-                        requestTarget: {
-                          entidadeTipo: 'responsavel_tecnico',
-                          entidadeId: data.responsavelTecnicoId || data.responsavelTecnico?.id || data.id,
-                          entidadeNome: data.responsavelTecnico?.nome || 'Responsável Técnico vinculado',
-                          sistemaDetentor: rtPerm.sistemaDetentor,
-                          campoSugerido: 'registroProfissional',
-                          valorAtualSugerido: data.responsavelTecnico?.registroProfissional || ''
-                        }
-                      })
+            {/* Sub-bloco 2B: Lupinha de Consulta ao Ecossistema */}
+            <div id="subbloco-2b-lookup" className="scroll-mt-36">
+            <SubBlockCard
+              code="2B"
+              title="Consulta na Base do Ecossistema (Administra / SEMA-MT)"
+              icon={FileSearch}
+            >
+              <EcosystemTopic2Lookup
+                initialQuery={data.damIdentification.propertyOrBusinessName || data.damIdentification.ownerCpfCnpj || ''}
+                onExportSelection={payload => {
+                  onChange(prev => applyMasterSelectionToInspection(prev, payload));
+                  setUnlockedImportedFields({});
+                  showFieldToast(
+                    payload.barragem
+                      ? `Dados de "${payload.empreendedor.nomeRazaoSocial}" e da barragem "${payload.barragem.nome}" aplicados (editáveis e marcados em laranja*).`
+                      : `Dados de "${payload.empreendedor.nomeRazaoSocial}" aplicados (editáveis e marcados em laranja*).`
+                  );
+                }}
+                onApplyCarOnly={car => {
+                  const matchedMun = MUNICIPALITIES_MT.find(
+                    m =>
+                      m.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() ===
+                      (car.municipio || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                  );
+                  onChange(prev => ({
+                    ...prev,
+                    damIdentification: {
+                      ...prev.damIdentification,
+                      municipality: matchedMun || car.municipio || prev.damIdentification.municipality,
+                      regulatoryStatus: {
+                        ...prev.damIdentification.regulatoryStatus,
+                        hasCar: 'sim',
+                        carNumber: car.codImovel
+                      }
                     }
-                    className="px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-                  >
-                    <Send className="w-3 h-3" />
-                    <span>Registrar Solicitação Formal</span>
-                  </button>
-                )}
-              </div>
+                  }));
+                  showFieldToast(`CAR/MT ${car.codImovel} inserido no formulário (editável).`);
+                }}
+              />
+            </SubBlockCard>
+            </div>
+
+            {/* Sub-bloco 2C: Responsável Técnico pela Segurança da Barragem */}
+            <SubBlockCard
+              code="2C"
+              title="Responsável Técnico pela Segurança da Barragem"
+              icon={HardHat}
+              badge={(data.responsavelTecnicoOrigemSistema || data.responsavelTecnico?.sistemaOrigem) ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  Titularidade: {getSistemaLabel(data.responsavelTecnicoOrigemSistema || data.responsavelTecnico?.sistemaOrigem)}
+                </span>
+              ) : undefined}
+              action={!rtPerm.allowed && onOpenEcosystemModal ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onOpenEcosystemModal({
+                      tab: 'catalogo',
+                      requestTarget: {
+                        entidadeTipo: 'responsavel_tecnico',
+                        entidadeId: data.responsavelTecnicoId || data.responsavelTecnico?.id || data.id,
+                        entidadeNome: data.responsavelTecnico?.nome || 'Responsável Técnico vinculado',
+                        sistemaDetentor: rtPerm.sistemaDetentor,
+                        campoSugerido: 'registroProfissional',
+                        valorAtualSugerido: data.responsavelTecnico?.registroProfissional || ''
+                      }
+                    })
+                  }
+                  className="px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>Registrar Solicitação Formal</span>
+                </button>
+              ) : undefined}
+            >
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <EcosystemImportedField
@@ -1618,9 +2581,18 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                   )}
                 </EcosystemImportedField>
               </div>
-            </div>
 
-            <div>
+              <AdministraCadastroBanner
+                tipo="responsavel_tecnico"
+                inspection={data}
+                isSubmitting={registeringEntity.responsavel_tecnico}
+                feedback={entityCadastroFeedback.responsavel_tecnico || null}
+                onRegister={() => handleRegisterEntityToAdministra('responsavel_tecnico')}
+                onOpenLookup={() => handleNavigateToSection('sec2', 'subbloco-2b-lookup')}
+              />
+            </SubBlockCard>
+
+            <SubBlockCard code="2D" title="Comentários Complementares do Bloco 2">
               <SpeechTextarea
                 label="Comentários da Seção 2:"
                 rows={2}
@@ -1628,32 +2600,66 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 onValueChange={val => updateSectionComment('sec2', val)}
                 placeholder="Anotações sobre documentação, posse, arrendamento..."
               />
-            </div>
+            </SubBlockCard>
           </div>
+          <BoundaryFooter
+            endLabel="Bloco 2 · Empreendedor e Propriedade"
+            prevLabel="1. Dados Gerais"
+            onJumpPrev={() => handleNavigateToSection('sec1', 'sec-topico-1')}
+            nextLabel="3. Usos da Barragem"
+            onJumpNext={() => handleNavigateToSection('sec3', 'sec-topico-3')}
+          />
+          </>
         )}
-      </div>
+      </section>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 3: USOS DA BARRAGEM */}
+      {/* BLOCO 3: USOS DA BARRAGEM                                                 */}
       {/* ========================================================================= */}
-      <div id="sec-topico-3" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
+      <section
+        id="sec-topico-3"
+        data-form-block="3. Usos da Barragem"
+        data-form-block-id="sec-topico-3"
+        data-form-block-seckey="sec3"
+        className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+          frozenContext.blockId === 'sec-topico-3'
+            ? 'border-emerald-500/70 ring-2 ring-emerald-500/20'
+            : 'border-slate-300/90 dark:border-slate-700'
+        }`}
+      >
         <button
           type="button"
           onClick={() => toggleSection('sec3')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className={`w-full px-4 py-3 sm:px-5 sm:py-3.5 bg-slate-900 dark:bg-slate-950 text-white ${
+            openSections.sec3 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+          } flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-slate-800/95 transition-colors`}
         >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">3</span>
-            <span>3. Usos da Barragem</span>
+          <div className="flex items-center gap-3 min-w-0 flex-wrap text-left">
+            <span className="w-7 h-7 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+              3
+            </span>
+            <div>
+              <span className="block text-xs sm:text-sm font-black uppercase tracking-wide text-white">
+                3. Usos da Barragem
+              </span>
+              <span className="block text-[11px] font-medium text-slate-300">
+                Sub-bloco: 3A Finalidade de Uso Principal e Usos Secundários
+              </span>
+            </div>
           </div>
-          {openSections.sec3 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+          <div className="flex items-center gap-2 shrink-0 text-emerald-400 text-xs font-bold">
+            <span className="hidden sm:inline">{openSections.sec3 ? 'Recolher' : 'Expandir'}</span>
+            {openSections.sec3 ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </div>
         </button>
 
         {openSections.sec3 && (
+          <>
           <div className="p-4 sm:p-5 space-y-4">
+            <SubBlockCard code="3A" title="Finalidade Principal e Usos Secundários" icon={Droplets}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Finalidade de Uso Principal <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -1664,16 +2670,16 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                     ...p,
                     damIdentification: { ...p.damIdentification, mainWaterUse: e.target.value }
                   }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
+                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Outros Usos Secundários?
                 </label>
                 <div className="flex items-center gap-4 min-h-[44px]">
-                  <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
                     <input
                       type="radio"
                       name="outrosUsos"
@@ -1689,7 +2695,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                     />
                     <span>Sim</span>
                   </label>
-                  <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
                     <input
                       type="radio"
                       name="outrosUsos"
@@ -1711,7 +2717,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
 
             {data.damIdentification.secondaryWaterUses.length > 0 && (
               <div className="pt-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Quais usos secundários?
                 </label>
                 <input
@@ -1725,35 +2731,70 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                       damIdentification: { ...p.damIdentification, secondaryWaterUses: list }
                     }));
                   }}
-                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
+                  className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
                 />
               </div>
             )}
+            </SubBlockCard>
           </div>
+          <BoundaryFooter
+            endLabel="Bloco 3 · Usos da Barragem"
+            prevLabel="2. Empreendedor"
+            onJumpPrev={() => handleNavigateToSection('sec2', 'sec-topico-2')}
+            nextLabel="4. Características Técnicas"
+            onJumpNext={() => handleNavigateToSection('sec4', 'sec-topico-4')}
+          />
+          </>
         )}
-      </div>
+      </section>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 4: CARACTERÍSTICAS TÉCNICAS (AFERIÇÃO DE MEDIDAS) */}
+      {/* BLOCO 4: CARACTERÍSTICAS TÉCNICAS (AFERIÇÃO DE MEDIDAS)                   */}
       {/* ========================================================================= */}
-      <div id="sec-topico-4" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
+      <section
+        id="sec-topico-4"
+        data-form-block="4. Características Técnicas (Aferição)"
+        data-form-block-id="sec-topico-4"
+        data-form-block-seckey="sec4"
+        className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+          frozenContext.blockId === 'sec-topico-4'
+            ? 'border-emerald-500/70 ring-2 ring-emerald-500/20'
+            : 'border-slate-300/90 dark:border-slate-700'
+        }`}
+      >
         <button
           type="button"
           onClick={() => toggleSection('sec4')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className={`w-full px-4 py-3 sm:px-5 sm:py-3.5 bg-slate-900 dark:bg-slate-950 text-white ${
+            openSections.sec4 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+          } flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-slate-800/95 transition-colors`}
         >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">4</span>
-            <span>4. Características Técnicas (Aferição de Medidas)</span>
+          <div className="flex items-center gap-3 min-w-0 flex-wrap text-left">
+            <span className="w-7 h-7 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+              4
+            </span>
+            <div>
+              <span className="block text-xs sm:text-sm font-black uppercase tracking-wide text-white">
+                4. Características Técnicas (Aferição de Medidas)
+              </span>
+              <span className="block text-[11px] font-medium text-slate-300">
+                Sub-blocos: 4A Dimensões Aferidas · 4B Material Construtivo e Comentários
+              </span>
+            </div>
           </div>
-          {openSections.sec4 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+          <div className="flex items-center gap-2 shrink-0 text-emerald-400 text-xs font-bold">
+            <span className="hidden sm:inline">{openSections.sec4 ? 'Recolher' : 'Expandir'}</span>
+            {openSections.sec4 ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </div>
         </button>
 
         {openSections.sec4 && (
+          <>
           <div className="p-4 sm:p-5 space-y-4">
+            <SubBlockCard code="4A" title="Dimensões Aferidas em Campo" icon={Ruler}>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Altura da Barragem (m)
                 </label>
                 <input
@@ -1767,12 +2808,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                       estimatedDimensions: { ...p.damIdentification.estimatedDimensions, heightMeters: e.target.value }
                     }
                   }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg bg-slate-50"
+                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Distância (Crista – Pé) (m)
                 </label>
                 <input
@@ -1786,12 +2827,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                       estimatedDimensions: { ...p.damIdentification.estimatedDimensions, cristaPeDistanceMeters: e.target.value }
                     }
                   }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg bg-slate-50"
+                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Declividade Talude Jusante (°)
                 </label>
                 <input
@@ -1805,12 +2846,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                       estimatedDimensions: { ...p.damIdentification.estimatedDimensions, downstreamSlopeDegrees: e.target.value }
                     }
                   }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg bg-slate-50"
+                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Largura do Coroamento (m)
                 </label>
                 <input
@@ -1824,12 +2865,12 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                       estimatedDimensions: { ...p.damIdentification.estimatedDimensions, crestWidthMeters: e.target.value }
                     }
                   }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg bg-slate-50"
+                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Extensão do Coroamento (m)
                 </label>
                 <input
@@ -1843,49 +2884,50 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                       estimatedDimensions: { ...p.damIdentification.estimatedDimensions, crestLengthMeters: e.target.value }
                     }
                   }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg bg-slate-50"
+                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
                 />
               </div>
             </div>
+            </SubBlockCard>
 
-            {/* Tipo de Material */}
-            <div className="pt-2">
-              <label className="block text-xs font-bold text-slate-800 mb-2">
-                Tipo de Barragem Quanto ao Material – Definição:
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {[
-                  { id: 'terra_homogenea', label: 'Barragem de Terra Homogênea' },
-                  { id: 'terra_zoneada', label: 'Barragem de Terra Zoneada' },
-                  { id: 'enrocamento', label: 'Barragem de Enrocamento' },
-                  { id: 'terra_enrocamento', label: 'Barragem de Terra / Enrocamento' },
-                  { id: 'aterro_barragem', label: 'Aterro Barragem' }
-                ].map(mat => (
-                  <label
-                    key={mat.id}
-                    className={`min-h-[44px] flex items-center gap-2 p-2.5 rounded-lg border text-xs font-medium cursor-pointer transition ${
-                      data.damIdentification.damType === mat.id
-                        ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-bold ring-1 ring-emerald-400'
-                        : 'bg-slate-50/60 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="damMaterial"
-                      checked={data.damIdentification.damType === mat.id}
-                      onChange={() => onChange(p => ({
-                        ...p,
-                        damIdentification: { ...p.damIdentification, damType: mat.id as DamType }
-                      }))}
-                      className="w-4 h-4 text-emerald-600"
-                    />
-                    <span>{mat.label}</span>
-                  </label>
-                ))}
+            {/* Sub-bloco 4B: Tipo de Material e Comentários */}
+            <SubBlockCard code="4B" title="Tipo de Material Construtivo e Particularidades">
+              <div>
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">
+                  Tipo de Barragem Quanto ao Material – Definição:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    { id: 'terra_homogenea', label: 'Barragem de Terra Homogênea' },
+                    { id: 'terra_zoneada', label: 'Barragem de Terra Zoneada' },
+                    { id: 'enrocamento', label: 'Barragem de Enrocamento' },
+                    { id: 'terra_enrocamento', label: 'Barragem de Terra / Enrocamento' },
+                    { id: 'aterro_barragem', label: 'Aterro Barragem' }
+                  ].map(mat => (
+                    <label
+                      key={mat.id}
+                      className={`min-h-[44px] flex items-center gap-2 p-2.5 rounded-lg border text-xs font-medium cursor-pointer transition ${
+                        data.damIdentification.damType === mat.id
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-950 dark:text-emerald-200 font-bold ring-1 ring-emerald-400'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="damMaterial"
+                        checked={data.damIdentification.damType === mat.id}
+                        onChange={() => onChange(p => ({
+                          ...p,
+                          damIdentification: { ...p.damIdentification, damType: mat.id as DamType }
+                        }))}
+                        className="w-4 h-4 text-emerald-600"
+                      />
+                      <span>{mat.label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <div>
               <SpeechTextarea
                 label="Comentários da Seção 4:"
                 rows={2}
@@ -1893,1102 +2935,1451 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 onValueChange={val => updateSectionComment('sec4', val)}
                 placeholder="Particularidades das medições em campo..."
               />
-            </div>
+            </SubBlockCard>
           </div>
+          <BoundaryFooter
+            endLabel="Bloco 4 · Características Técnicas"
+            prevLabel="3. Usos da Barragem"
+            onJumpPrev={() => handleNavigateToSection('sec3', 'sec-topico-3')}
+            nextLabel="5. Componentes da Barragem"
+            onJumpNext={() => handleNavigateToSection('secComponentes', 'sec-topico-5')}
+          />
+          </>
         )}
-      </div>
+      </section>
 
       {/* ========================================================================= */}
-      {/* TÓPICO: COMPONENTES DA BARRAGEM */}
+      {/* BLOCO 5: COMPONENTES DA BARRAGEM                                          */}
       {/* ========================================================================= */}
-      <div id="sec-topico-5" className="bg-white rounded-xl border-2 border-emerald-600/30 shadow-xs overflow-hidden scroll-mt-24 transition-all">
+      <section
+        id="sec-topico-5"
+        data-form-block="5. Componentes da Barragem"
+        data-form-block-id="sec-topico-5"
+        data-form-block-seckey="secComponentes"
+        className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+          frozenContext.blockId === 'sec-topico-5'
+            ? 'border-emerald-500/70 ring-2 ring-emerald-500/20'
+            : 'border-slate-300/90 dark:border-slate-700'
+        }`}
+      >
         <button
           type="button"
           onClick={() => toggleSection('secComponentes')}
-          className="w-full p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border-b border-emerald-100 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none transition-colors hover:from-emerald-100/70 hover:to-slate-100"
+          className={`w-full px-4 py-3 sm:px-5 sm:py-3.5 bg-slate-900 dark:bg-slate-950 text-white ${
+            openSections.secComponentes ? 'rounded-t-[14px]' : 'rounded-[14px]'
+          } flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-slate-800/95 transition-colors`}
         >
-          <div className="flex items-center gap-2.5">
-            <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shadow-xs">
+          <div className="flex items-center gap-3 min-w-0 flex-wrap text-left">
+            <span className="w-7 h-7 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
               5
             </span>
-            <div className="text-left">
-              <span className="font-extrabold text-slate-900 block text-xs sm:text-sm">
-                5. COMPONENTES DA BARRAGEM
+            <div className="min-w-0">
+              <span className="flex items-center gap-1.5 text-xs sm:text-sm font-black uppercase tracking-wide text-white">
+                <Layers className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>5. Componentes da Barragem</span>
               </span>
-              <span className="text-[11px] font-normal text-slate-600 normal-case hidden sm:inline">
-                Subtópicos de inspeção: Talude de Montante, Coroamento, Talude de Jusante, Região a Jusante, Instrumentação, Estruturas Vertedoras e Reservatório
+              <span className="block text-[11px] font-medium text-slate-300">
+                7 componentes independentes: 5.1 Montante · 5.2 Coroamento · 5.3 Jusante · 5.4 Região a Jusante · 5.5 Instrumentação · 5.6 Vertedoras · 5.7 Reservatório
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-emerald-700">
-            <span className="text-xs font-semibold hidden md:inline">
-              {openSections.secComponentes ? 'Recolher' : 'Expandir'}
-            </span>
-            {openSections.secComponentes ? <ChevronUp className="w-5 h-5 text-emerald-700" /> : <ChevronDown className="w-5 h-5 text-emerald-700" />}
+          <div className="flex items-center gap-2 shrink-0 text-emerald-400 text-xs font-bold">
+            <span className="hidden sm:inline">{openSections.secComponentes ? 'Recolher' : 'Expandir'}</span>
+            {openSections.secComponentes ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
           </div>
         </button>
 
         {openSections.secComponentes && (
-          <div className="p-3 sm:p-5 space-y-4 bg-slate-50/40">
+          <>
+          <div className="p-3 sm:p-5 space-y-6 bg-slate-100/80 dark:bg-slate-950/75">
             {/* ========================================================================= */}
-            {/* SUBTÓPICO 5.1: TALUDE DE MONTANTE */}
+            {/* COMPONENTE 5.1: TALUDE DE MONTANTE                                        */}
             {/* ========================================================================= */}
-            <div id="sec-subtopico-5-1" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
-              <button
-                type="button"
-                onClick={() => toggleSection('sec5')}
-                className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.1</span>
-                  <span>5.1. Talude de Montante</span>
-                </div>
-                {openSections.sec5 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
-              </button>
-
-        {openSections.sec5 && (
-          <div className="p-4 sm:p-5 space-y-4">
-            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
             {(() => {
               const stats = getComponentEvaluationStats('montante', MONTANTE_ITEMS);
+              const isFocused = frozenContext.componentId === 'sec-subtopico-5-1';
               return (
-                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
-                      stats.isComplete
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                    }`}>
-                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
-                      <span>{stats.evaluated}/{stats.total} avaliados</span>
-                    </span>
-                    {stats.withAnomalies > 0 && (
-                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
-                        {stats.withAnomalies} anomalia(s)
+                <div
+                  id="sec-subtopico-5-1"
+                  data-form-component="5.1. Talude de Montante"
+                  data-form-component-id="sec-subtopico-5-1"
+                  data-form-component-seckey="sec5"
+                  data-form-component-parentkey="secComponentes"
+                  className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+                    isFocused
+                      ? 'border-emerald-600 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                      : 'border-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('sec5')}
+                    className={`w-full px-4 py-3 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 text-white ${
+                      openSections.sec5 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+                    } flex flex-wrap items-center justify-between gap-2.5 cursor-pointer select-none hover:brightness-105 transition`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 text-left">
+                      <span className="px-2 py-0.5 rounded-md bg-white text-emerald-900 text-xs font-black shrink-0">
+                        5.1
                       </span>
-                    )}
-                  </div>
+                      <span className="text-xs sm:text-sm font-black uppercase tracking-wide truncate">
+                        Talude de Montante
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/35 border border-white/20 text-emerald-100">
+                        {stats.evaluated}/{stats.total} avaliados
+                      </span>
+                      {stats.withAnomalies > 0 && (
+                        <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-rose-600 text-white border border-rose-300">
+                          {stats.withAnomalies} anomalia(s)
+                        </span>
+                      )}
+                      {openSections.sec5 ? <ChevronUp className="w-5 h-5 text-white" /> : <ChevronDown className="w-5 h-5 text-white" />}
+                    </div>
+                  </button>
 
-                  {stats.pending > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleBulkMarkComponentPendingAsNo('montante', 'Talude de Montante', MONTANTE_ITEMS)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
-                      title="Preenche todos os itens não respondidos do Talude de Montante como 'Não' (Sem anomalias)"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
-                    </button>
+                  {openSections.sec5 && (
+                    <>
+                      <div className="p-4 sm:p-5 space-y-4">
+                        <SubBlockCard
+                          code="5.1.A"
+                          title="Checklist de Inspeção Visual — Talude de Montante"
+                          icon={ClipboardList}
+                          action={
+                            stats.pending > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleBulkMarkComponentPendingAsNo('montante', 'Talude de Montante', MONTANTE_ITEMS)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                                title="Preenche todos os itens não respondidos do Talude de Montante como 'Não' (Sem anomalias)"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Preencher {stats.pending} pendente(s) como &quot;Não&quot;</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Checklist concluído</span>
+                              </span>
+                            )
+                          }
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <EvaluationItemCard
+                              componentCode="montante"
+                              componentName="Talude de Montante"
+                              itemCode="erosoes"
+                              itemLabel="Erosões"
+                              value={getItem('montante', 'erosoes', 'Erosões')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="montante"
+                              componentName="Talude de Montante"
+                              itemCode="escorregamento"
+                              itemLabel="Escorregamento"
+                              value={getItem('montante', 'escorregamento', 'Escorregamento')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="montante"
+                              componentName="Talude de Montante"
+                              itemCode="afundamento"
+                              itemLabel="Afundamento e/ou Buracos"
+                              value={getItem('montante', 'afundamento', 'Afundamento e/ou Buracos')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="montante"
+                              componentName="Talude de Montante"
+                              itemCode="arvores_arbustos"
+                              itemLabel="Árvores e Arbustos"
+                              value={getItem('montante', 'arvores_arbustos', 'Árvores e Arbustos')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="montante"
+                              componentName="Talude de Montante"
+                              itemCode="drenos_canaletas"
+                              itemLabel="Drenos / Canaletas"
+                              value={getItem('montante', 'drenos_canaletas', 'Drenos / Canaletas')}
+                              onChange={updateItemAvaliado}
+                              showConservationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="montante"
+                              componentName="Talude de Montante"
+                              itemCode="biologicos"
+                              itemLabel="Formigueiros / Cupinzeiros / Tocas de Animais"
+                              value={getItem('montante', 'biologicos', 'Formigueiros / Cupinzeiros / Tocas')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="montante"
+                              componentName="Talude de Montante"
+                              itemCode="sinais_movimentacao"
+                              itemLabel="Sinais de Movimentação"
+                              value={getItem('montante', 'sinais_movimentacao', 'Sinais de Movimentação')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                          </div>
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.1.B" title="Proteção Superficial e Comentários — Talude de Montante">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">
+                              Proteção do Talude:
+                            </label>
+                            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                              {['RIP RAP', 'Grama', 'Concreto', 'Cascalho', 'Ausente', 'Outros'].map(prot => {
+                                const selectedList = data.taludeMontanteProtecao || [];
+                                const isChecked = selectedList.includes(prot);
+                                return (
+                                  <label
+                                    key={prot}
+                                    className={`min-h-[40px] flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition ${
+                                      isChecked
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-950 dark:text-emerald-200 font-bold'
+                                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {
+                                        onChange(p => {
+                                          const current = p.taludeMontanteProtecao || [];
+                                          let next: string[];
+                                          if (current.includes(prot)) {
+                                            next = current.filter(item => item !== prot);
+                                          } else if (prot === 'Ausente') {
+                                            next = ['Ausente'];
+                                          } else {
+                                            next = [...current.filter(item => item !== 'Ausente'), prot];
+                                          }
+                                          return { ...p, taludeMontanteProtecao: next };
+                                        });
+                                      }}
+                                      className="w-4 h-4 text-emerald-600 rounded"
+                                    />
+                                    <span>{prot}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div>
+                            <SpeechTextarea
+                              label="Comentários - Talude de Montante:"
+                              rows={2}
+                              value={sectionComments.talude_montante || ''}
+                              onValueChange={val => updateSectionComment('talude_montante', val)}
+                              placeholder="Observações complementares deste talude..."
+                            />
+                            <FieldCommentChips
+                              suggestions={['Sem anomalias visíveis', 'Talude estável sem trincas', 'Vegetação roçada e conservada', 'Drenos desobstruídos']}
+                              currentValue={sectionComments.talude_montante || ''}
+                              onAppend={val => updateSectionComment('talude_montante', val)}
+                            />
+                          </div>
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.1.C" title="Registro Fotográfico — Talude de Montante" icon={Camera}>
+                          <ComponentPhotoUploader
+                            componentId="talude_montante"
+                            componentName="Talude de Montante"
+                            allPhotos={data.photos || []}
+                            onUpdatePhotos={handleUpdatePhotos}
+                            inspectionId={data.id}
+                          />
+                        </SubBlockCard>
+                      </div>
+                      <BoundaryFooter
+                        endLabel="Componente 5.1 · Talude de Montante"
+                        prevLabel="4. Medidas Técnicas"
+                        onJumpPrev={() => handleNavigateToSection('sec4', 'sec-topico-4')}
+                        nextLabel="5.2 Coroamento"
+                        onJumpNext={() => handleNavigateToSection('sec6', 'sec-subtopico-5-2', 'secComponentes')}
+                      />
+                    </>
                   )}
                 </div>
               );
             })()}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <EvaluationItemCard
-                componentCode="montante"
-                componentName="Talude de Montante"
-                itemCode="erosoes"
-                itemLabel="Erosões"
-                value={getItem('montante', 'erosoes', 'Erosões')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="montante"
-                componentName="Talude de Montante"
-                itemCode="escorregamento"
-                itemLabel="Escorregamento"
-                value={getItem('montante', 'escorregamento', 'Escorregamento')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="montante"
-                componentName="Talude de Montante"
-                itemCode="afundamento"
-                itemLabel="Afundamento e/ou Buracos"
-                value={getItem('montante', 'afundamento', 'Afundamento e/ou Buracos')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="montante"
-                componentName="Talude de Montante"
-                itemCode="arvores_arbustos"
-                itemLabel="Árvores e Arbustos"
-                value={getItem('montante', 'arvores_arbustos', 'Árvores e Arbustos')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="montante"
-                componentName="Talude de Montante"
-                itemCode="drenos_canaletas"
-                itemLabel="Drenos / Canaletas"
-                value={getItem('montante', 'drenos_canaletas', 'Drenos / Canaletas')}
-                onChange={updateItemAvaliado}
-                showConservationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="montante"
-                componentName="Talude de Montante"
-                itemCode="biologicos"
-                itemLabel="Formigueiros / Cupinzeiros / Tocas de Animais"
-                value={getItem('montante', 'biologicos', 'Formigueiros / Cupinzeiros / Tocas')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="montante"
-                componentName="Talude de Montante"
-                itemCode="sinais_movimentacao"
-                itemLabel="Sinais de Movimentação"
-                value={getItem('montante', 'sinais_movimentacao', 'Sinais de Movimentação')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-            </div>
-
-            {/* Proteção do Talude de Montante */}
-            <div className="pt-2">
-              <label className="block text-xs font-bold text-slate-800 mb-2">
-                Proteção do Talude:
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-                {['RIP RAP', 'Grama', 'Concreto', 'Cascalho', 'Ausente', 'Outros'].map(prot => {
-                  const selectedList = data.taludeMontanteProtecao || [];
-                  const isChecked = selectedList.includes(prot);
-                  return (
-                    <label key={prot} className="min-h-[40px] flex items-center gap-2 p-2 rounded-lg border border-slate-200 text-xs cursor-pointer hover:bg-slate-50">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {
-                          onChange(p => {
-                            const current = p.taludeMontanteProtecao || [];
-                            let next: string[];
-                            if (current.includes(prot)) {
-                              next = current.filter(item => item !== prot);
-                            } else if (prot === 'Ausente') {
-                              next = ['Ausente'];
-                            } else {
-                              next = [...current.filter(item => item !== 'Ausente'), prot];
-                            }
-                            return { ...p, taludeMontanteProtecao: next };
-                          });
-                        }}
-                        className="w-4 h-4 text-emerald-600 rounded"
-                      />
-                      <span>{prot}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <SpeechTextarea
-                label="Comentários - Talude de Montante:"
-                rows={2}
-                value={sectionComments.talude_montante || ''}
-                onValueChange={val => updateSectionComment('talude_montante', val)}
-                placeholder="Observações complementares deste talude..."
-              />
-              <FieldCommentChips
-                suggestions={['Sem anomalias visíveis', 'Talude estável sem trincas', 'Vegetação roçada e conservada', 'Drenos desobstruídos']}
-                currentValue={sectionComments.talude_montante || ''}
-                onAppend={val => updateSectionComment('talude_montante', val)}
-              />
-            </div>
-
-            {/* Campo para fotos inseridas no componente Talude de Montante */}
-            <ComponentPhotoUploader
-              componentId="talude_montante"
-              componentName="Talude de Montante"
-              allPhotos={data.photos || []}
-              onUpdatePhotos={handleUpdatePhotos}
-              inspectionId={data.id}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SUBTÓPICO 5.2: COROAMENTO (CRISTA) */}
-      {/* ========================================================================= */}
-      <div id="sec-subtopico-5-2" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
-        <button
-          type="button"
-          onClick={() => toggleSection('sec6')}
-          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.2</span>
-            <span>5.2. Coroamento (Crista)</span>
-          </div>
-          {openSections.sec6 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
-        </button>
-
-        {openSections.sec6 && (
-          <div className="p-4 sm:p-5 space-y-4">
-            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
+            {/* ========================================================================= */}
+            {/* COMPONENTE 5.2: COROAMENTO (CRISTA)                                       */}
+            {/* ========================================================================= */}
             {(() => {
               const stats = getComponentEvaluationStats('coroamento', COROAMENTO_ITEMS);
+              const isFocused = frozenContext.componentId === 'sec-subtopico-5-2';
               return (
-                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
-                      stats.isComplete
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                    }`}>
-                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
-                      <span>{stats.evaluated}/{stats.total} avaliados</span>
-                    </span>
-                    {stats.withAnomalies > 0 && (
-                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
-                        {stats.withAnomalies} anomalia(s)
+                <div
+                  id="sec-subtopico-5-2"
+                  data-form-component="5.2. Coroamento (Crista)"
+                  data-form-component-id="sec-subtopico-5-2"
+                  data-form-component-seckey="sec6"
+                  data-form-component-parentkey="secComponentes"
+                  className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+                    isFocused
+                      ? 'border-emerald-600 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                      : 'border-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('sec6')}
+                    className={`w-full px-4 py-3 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 text-white ${
+                      openSections.sec6 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+                    } flex flex-wrap items-center justify-between gap-2.5 cursor-pointer select-none hover:brightness-105 transition`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 text-left">
+                      <span className="px-2 py-0.5 rounded-md bg-white text-emerald-900 text-xs font-black shrink-0">
+                        5.2
                       </span>
-                    )}
-                  </div>
+                      <span className="text-xs sm:text-sm font-black uppercase tracking-wide truncate">
+                        Coroamento (Crista)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/35 border border-white/20 text-emerald-100">
+                        {stats.evaluated}/{stats.total} avaliados
+                      </span>
+                      {stats.withAnomalies > 0 && (
+                        <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-rose-600 text-white border border-rose-300">
+                          {stats.withAnomalies} anomalia(s)
+                        </span>
+                      )}
+                      {openSections.sec6 ? <ChevronUp className="w-5 h-5 text-white" /> : <ChevronDown className="w-5 h-5 text-white" />}
+                    </div>
+                  </button>
 
-                  {stats.pending > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleBulkMarkComponentPendingAsNo('coroamento', 'Coroamento (Crista)', COROAMENTO_ITEMS)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
-                      title="Preenche todos os itens não respondidos do Coroamento como 'Não' (Sem anomalias)"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
-                    </button>
+                  {openSections.sec6 && (
+                    <>
+                      <div className="p-4 sm:p-5 space-y-4">
+                        <SubBlockCard
+                          code="5.2.A"
+                          title="Checklist de Inspeção Visual — Coroamento (Crista)"
+                          icon={ClipboardList}
+                          action={
+                            stats.pending > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleBulkMarkComponentPendingAsNo('coroamento', 'Coroamento (Crista)', COROAMENTO_ITEMS)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                                title="Preenche todos os itens não respondidos do Coroamento como 'Não' (Sem anomalias)"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Preencher {stats.pending} pendente(s) como &quot;Não&quot;</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Checklist concluído</span>
+                              </span>
+                            )
+                          }
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <EvaluationItemCard
+                              componentCode="coroamento"
+                              componentName="Coroamento (Crista)"
+                              itemCode="erosoes"
+                              itemLabel="Erosões"
+                              value={getItem('coroamento', 'erosoes', 'Erosões')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="coroamento"
+                              componentName="Coroamento (Crista)"
+                              itemCode="rachaduras"
+                              itemLabel="Rachaduras / Trincas"
+                              value={getItem('coroamento', 'rachaduras', 'Rachaduras')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="coroamento"
+                              componentName="Coroamento (Crista)"
+                              itemCode="revestimento"
+                              itemLabel="Revestimento da Pista"
+                              value={getItem('coroamento', 'revestimento', 'Revestimento')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="coroamento"
+                              componentName="Coroamento (Crista)"
+                              itemCode="afundamento"
+                              itemLabel="Afundamento e/ou Buracos"
+                              value={getItem('coroamento', 'afundamento', 'Afundamento e/ou Buracos')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="coroamento"
+                              componentName="Coroamento (Crista)"
+                              itemCode="arvores_arbustos"
+                              itemLabel="Árvores e Arbustos"
+                              value={getItem('coroamento', 'arvores_arbustos', 'Árvores e Arbustos')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="coroamento"
+                              componentName="Coroamento (Crista)"
+                              itemCode="drenos_canaletas"
+                              itemLabel="Drenos / Canaletas"
+                              value={getItem('coroamento', 'drenos_canaletas', 'Drenos / Canaletas')}
+                              onChange={updateItemAvaliado}
+                              showConservationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="coroamento"
+                              componentName="Coroamento (Crista)"
+                              itemCode="meio_fio"
+                              itemLabel="Possui Meio-Fio"
+                              value={getItem('coroamento', 'meio_fio', 'Possui Meio Fio')}
+                              onChange={updateItemAvaliado}
+                              showConservationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="coroamento"
+                              componentName="Coroamento (Crista)"
+                              itemCode="ameaca_transbordamento"
+                              itemLabel="Ameaça de Transbordamento (Borda Livre < 0,5m)"
+                              value={getItem('coroamento', 'ameaca_transbordamento', 'Ameaça de Transbordamento')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                          </div>
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.2.B" title="Conservação das Ombreiras e Comentários — Coroamento">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">
+                              Estado de Conservação das Ombreiras:
+                            </label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                                  Ombreira Esquerda:
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="Condição visual, trincas, erosão no contato..."
+                                  value={data.ombreiras?.esquerda || ''}
+                                  onChange={e => onChange(p => ({
+                                    ...p,
+                                    ombreiras: { ...(p.ombreiras || {}), esquerda: e.target.value }
+                                  }))}
+                                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                                  Ombreira Direita:
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="Condição visual, trincas, erosão no contato..."
+                                  value={data.ombreiras?.direita || ''}
+                                  onChange={e => onChange(p => ({
+                                    ...p,
+                                    ombreiras: { ...(p.ombreiras || {}), direita: e.target.value }
+                                  }))}
+                                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <SpeechTextarea
+                              label="Comentários - Coroamento:"
+                              rows={2}
+                              value={sectionComments.crista || ''}
+                              onValueChange={val => updateSectionComment('crista', val)}
+                              placeholder="Observações complementares do coroamento..."
+                            />
+                            <FieldCommentChips
+                              suggestions={['Pista regular sem afundamento', 'Borda livre adequada (>1,0m)', 'Sem trincas transversais', 'Meio-fio e drenagem íntegros']}
+                              currentValue={sectionComments.crista || ''}
+                              onAppend={val => updateSectionComment('crista', val)}
+                            />
+                          </div>
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.2.C" title="Registro Fotográfico — Coroamento (Crista)" icon={Camera}>
+                          <ComponentPhotoUploader
+                            componentId="crista"
+                            componentName="Crista da Barragem (Coroamento)"
+                            allPhotos={data.photos || []}
+                            onUpdatePhotos={handleUpdatePhotos}
+                            inspectionId={data.id}
+                          />
+                        </SubBlockCard>
+                      </div>
+                      <BoundaryFooter
+                        endLabel="Componente 5.2 · Coroamento"
+                        prevLabel="5.1 Montante"
+                        onJumpPrev={() => handleNavigateToSection('sec5', 'sec-subtopico-5-1', 'secComponentes')}
+                        nextLabel="5.3 Talude de Jusante"
+                        onJumpNext={() => handleNavigateToSection('sec7', 'sec-subtopico-5-3', 'secComponentes')}
+                      />
+                    </>
                   )}
                 </div>
               );
             })()}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <EvaluationItemCard
-                componentCode="coroamento"
-                componentName="Coroamento (Crista)"
-                itemCode="erosoes"
-                itemLabel="Erosões"
-                value={getItem('coroamento', 'erosoes', 'Erosões')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="coroamento"
-                componentName="Coroamento (Crista)"
-                itemCode="rachaduras"
-                itemLabel="Rachaduras / Trincas"
-                value={getItem('coroamento', 'rachaduras', 'Rachaduras')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="coroamento"
-                componentName="Coroamento (Crista)"
-                itemCode="revestimento"
-                itemLabel="Revestimento da Pista"
-                value={getItem('coroamento', 'revestimento', 'Revestimento')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="coroamento"
-                componentName="Coroamento (Crista)"
-                itemCode="afundamento"
-                itemLabel="Afundamento e/ou Buracos"
-                value={getItem('coroamento', 'afundamento', 'Afundamento e/ou Buracos')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="coroamento"
-                componentName="Coroamento (Crista)"
-                itemCode="arvores_arbustos"
-                itemLabel="Árvores e Arbustos"
-                value={getItem('coroamento', 'arvores_arbustos', 'Árvores e Arbustos')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="coroamento"
-                componentName="Coroamento (Crista)"
-                itemCode="drenos_canaletas"
-                itemLabel="Drenos / Canaletas"
-                value={getItem('coroamento', 'drenos_canaletas', 'Drenos / Canaletas')}
-                onChange={updateItemAvaliado}
-                showConservationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="coroamento"
-                componentName="Coroamento (Crista)"
-                itemCode="meio_fio"
-                itemLabel="Possui Meio-Fio"
-                value={getItem('coroamento', 'meio_fio', 'Possui Meio Fio')}
-                onChange={updateItemAvaliado}
-                showConservationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="coroamento"
-                componentName="Coroamento (Crista)"
-                itemCode="ameaca_transbordamento"
-                itemLabel="Ameaça de Transbordamento (Borda Livre < 0,5m)"
-                value={getItem('coroamento', 'ameaca_transbordamento', 'Ameaça de Transbordamento')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-            </div>
-
-            {/* Conservação das Ombreiras */}
-            <div className="pt-2 border-t border-slate-100">
-              <label className="block text-xs font-bold text-slate-800 mb-2">
-                Estado de Conservação das Ombreiras:
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Ombreira Esquerda:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Condição visual, trincas, erosão no contato..."
-                    value={data.ombreiras?.esquerda || ''}
-                    onChange={e => onChange(p => ({
-                      ...p,
-                      ombreiras: { ...(p.ombreiras || {}), esquerda: e.target.value }
-                    }))}
-                    className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-slate-50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Ombreira Direita:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Condição visual, trincas, erosão no contato..."
-                    value={data.ombreiras?.direita || ''}
-                    onChange={e => onChange(p => ({
-                      ...p,
-                      ombreiras: { ...(p.ombreiras || {}), direita: e.target.value }
-                    }))}
-                    className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-slate-50"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <SpeechTextarea
-                label="Comentários - Coroamento:"
-                rows={2}
-                value={sectionComments.crista || ''}
-                onValueChange={val => updateSectionComment('crista', val)}
-                placeholder="Observações complementares do coroamento..."
-              />
-              <FieldCommentChips
-                suggestions={['Pista regular sem afundamento', 'Borda livre adequada (>1,0m)', 'Sem trincas transversais', 'Meio-fio e drenagem íntegros']}
-                currentValue={sectionComments.crista || ''}
-                onAppend={val => updateSectionComment('crista', val)}
-              />
-            </div>
-
-            {/* Campo para fotos inseridas no componente Crista (Coroamento) */}
-            <ComponentPhotoUploader
-              componentId="crista"
-              componentName="Crista da Barragem (Coroamento)"
-              allPhotos={data.photos || []}
-              onUpdatePhotos={handleUpdatePhotos}
-              inspectionId={data.id}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SUBTÓPICO 5.3: TALUDE DE JUSANTE */}
-      {/* ========================================================================= */}
-      <div id="sec-subtopico-5-3" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
-        <button
-          type="button"
-          onClick={() => toggleSection('sec7')}
-          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.3</span>
-            <span>5.3. Talude de Jusante</span>
-          </div>
-          {openSections.sec7 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
-        </button>
-
-        {openSections.sec7 && (
-          <div className="p-4 sm:p-5 space-y-4">
-            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
+            {/* ========================================================================= */}
+            {/* COMPONENTE 5.3: TALUDE DE JUSANTE                                         */}
+            {/* ========================================================================= */}
             {(() => {
               const stats = getComponentEvaluationStats('jusante', JUSANTE_ITEMS);
+              const isFocused = frozenContext.componentId === 'sec-subtopico-5-3';
               return (
-                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
-                      stats.isComplete
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                    }`}>
-                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
-                      <span>{stats.evaluated}/{stats.total} avaliados</span>
-                    </span>
-                    {stats.withAnomalies > 0 && (
-                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
-                        {stats.withAnomalies} anomalia(s)
+                <div
+                  id="sec-subtopico-5-3"
+                  data-form-component="5.3. Talude de Jusante"
+                  data-form-component-id="sec-subtopico-5-3"
+                  data-form-component-seckey="sec7"
+                  data-form-component-parentkey="secComponentes"
+                  className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+                    isFocused
+                      ? 'border-emerald-600 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                      : 'border-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('sec7')}
+                    className={`w-full px-4 py-3 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 text-white ${
+                      openSections.sec7 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+                    } flex flex-wrap items-center justify-between gap-2.5 cursor-pointer select-none hover:brightness-105 transition`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 text-left">
+                      <span className="px-2 py-0.5 rounded-md bg-white text-emerald-900 text-xs font-black shrink-0">
+                        5.3
                       </span>
-                    )}
-                  </div>
+                      <span className="text-xs sm:text-sm font-black uppercase tracking-wide truncate">
+                        Talude de Jusante
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/35 border border-white/20 text-emerald-100">
+                        {stats.evaluated}/{stats.total} avaliados
+                      </span>
+                      {stats.withAnomalies > 0 && (
+                        <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-rose-600 text-white border border-rose-300">
+                          {stats.withAnomalies} anomalia(s)
+                        </span>
+                      )}
+                      {openSections.sec7 ? <ChevronUp className="w-5 h-5 text-white" /> : <ChevronDown className="w-5 h-5 text-white" />}
+                    </div>
+                  </button>
 
-                  {stats.pending > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleBulkMarkComponentPendingAsNo('jusante', 'Talude de Jusante', JUSANTE_ITEMS)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
-                      title="Preenche todos os itens não respondidos do Talude de Jusante como 'Não' (Sem anomalias)"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
-                    </button>
+                  {openSections.sec7 && (
+                    <>
+                      <div className="p-4 sm:p-5 space-y-4">
+                        <SubBlockCard
+                          code="5.3.A"
+                          title="Checklist de Inspeção Visual — Talude de Jusante"
+                          icon={ClipboardList}
+                          action={
+                            stats.pending > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleBulkMarkComponentPendingAsNo('jusante', 'Talude de Jusante', JUSANTE_ITEMS)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                                title="Preenche todos os itens não respondidos do Talude de Jusante como 'Não' (Sem anomalias)"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Preencher {stats.pending} pendente(s) como &quot;Não&quot;</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Checklist concluído</span>
+                              </span>
+                            )
+                          }
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <EvaluationItemCard
+                              componentCode="jusante"
+                              componentName="Talude de Jusante"
+                              itemCode="erosoes"
+                              itemLabel="Erosões"
+                              value={getItem('jusante', 'erosoes', 'Erosões')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="jusante"
+                              componentName="Talude de Jusante"
+                              itemCode="escorregamento"
+                              itemLabel="Escorregamento"
+                              value={getItem('jusante', 'escorregamento', 'Escorregamento')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="jusante"
+                              componentName="Talude de Jusante"
+                              itemCode="afundamento"
+                              itemLabel="Afundamento e/ou Buracos"
+                              value={getItem('jusante', 'afundamento', 'Afundamento e/ou Buracos')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="jusante"
+                              componentName="Talude de Jusante"
+                              itemCode="arvores_arbustos"
+                              itemLabel="Árvores e Arbustos"
+                              value={getItem('jusante', 'arvores_arbustos', 'Árvores e Arbustos')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="jusante"
+                              componentName="Talude de Jusante"
+                              itemCode="drenos_canaletas"
+                              itemLabel="Drenos / Canaletas"
+                              value={getItem('jusante', 'drenos_canaletas', 'Drenos / Canaletas')}
+                              onChange={updateItemAvaliado}
+                              showConservationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="jusante"
+                              componentName="Talude de Jusante"
+                              itemCode="biologicos"
+                              itemLabel="Formigueiros / Cupinzeiros / Tocas de Animais"
+                              value={getItem('jusante', 'biologicos', 'Formigueiros / Cupinzeiros / Tocas')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="jusante"
+                              componentName="Talude de Jusante"
+                              itemCode="sinais_movimentacao"
+                              itemLabel="Sinais de Movimentação"
+                              value={getItem('jusante', 'sinais_movimentacao', 'Sinais de Movimentação')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="jusante"
+                              componentName="Talude de Jusante"
+                              itemCode="fuga_agua"
+                              itemLabel="Sinais de Fuga D'Água ou Áreas Úmidas"
+                              value={getItem('jusante', 'fuga_agua', "Sinais de Fuga D'Água ou Áreas Úmidas")}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="jusante"
+                              componentName="Talude de Jusante"
+                              itemCode="carregamento_material"
+                              itemLabel="Carregamento de Material na Água dos Drenos (Piping)"
+                              value={getItem('jusante', 'carregamento_material', 'Carregamento de Material na Água dos Drenos')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                          </div>
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.3.B" title="Comentários Técnicos — Talude de Jusante">
+                          <SpeechTextarea
+                            label="Comentários - Talude de Jusante:"
+                            rows={2}
+                            value={sectionComments.talude_jusante || ''}
+                            onValueChange={val => updateSectionComment('talude_jusante', val)}
+                            placeholder="Observações complementares de surgências, minadouros..."
+                          />
+                          <FieldCommentChips
+                            suggestions={['Sem surgências ou umidade', 'Água dos drenos límpida', 'Encosta com boa cobertura vegetal', 'Sem sinais de piping']}
+                            currentValue={sectionComments.talude_jusante || ''}
+                            onAppend={val => updateSectionComment('talude_jusante', val)}
+                          />
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.3.C" title="Registro Fotográfico — Talude de Jusante" icon={Camera}>
+                          <ComponentPhotoUploader
+                            componentId="talude_jusante"
+                            componentName="Talude de Jusante"
+                            allPhotos={data.photos || []}
+                            onUpdatePhotos={handleUpdatePhotos}
+                            inspectionId={data.id}
+                          />
+                        </SubBlockCard>
+                      </div>
+                      <BoundaryFooter
+                        endLabel="Componente 5.3 · Talude de Jusante"
+                        prevLabel="5.2 Coroamento"
+                        onJumpPrev={() => handleNavigateToSection('sec6', 'sec-subtopico-5-2', 'secComponentes')}
+                        nextLabel="5.4 Região a Jusante"
+                        onJumpNext={() => handleNavigateToSection('sec8', 'sec-subtopico-5-4', 'secComponentes')}
+                      />
+                    </>
                   )}
                 </div>
               );
             })()}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <EvaluationItemCard
-                componentCode="jusante"
-                componentName="Talude de Jusante"
-                itemCode="erosoes"
-                itemLabel="Erosões"
-                value={getItem('jusante', 'erosoes', 'Erosões')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="jusante"
-                componentName="Talude de Jusante"
-                itemCode="escorregamento"
-                itemLabel="Escorregamento"
-                value={getItem('jusante', 'escorregamento', 'Escorregamento')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="jusante"
-                componentName="Talude de Jusante"
-                itemCode="afundamento"
-                itemLabel="Afundamento e/ou Buracos"
-                value={getItem('jusante', 'afundamento', 'Afundamento e/ou Buracos')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="jusante"
-                componentName="Talude de Jusante"
-                itemCode="arvores_arbustos"
-                itemLabel="Árvores e Arbustos"
-                value={getItem('jusante', 'arvores_arbustos', 'Árvores e Arbustos')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="jusante"
-                componentName="Talude de Jusante"
-                itemCode="drenos_canaletas"
-                itemLabel="Drenos / Canaletas"
-                value={getItem('jusante', 'drenos_canaletas', 'Drenos / Canaletas')}
-                onChange={updateItemAvaliado}
-                showConservationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="jusante"
-                componentName="Talude de Jusante"
-                itemCode="biologicos"
-                itemLabel="Formigueiros / Cupinzeiros / Tocas de Animais"
-                value={getItem('jusante', 'biologicos', 'Formigueiros / Cupinzeiros / Tocas')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="jusante"
-                componentName="Talude de Jusante"
-                itemCode="sinais_movimentacao"
-                itemLabel="Sinais de Movimentação"
-                value={getItem('jusante', 'sinais_movimentacao', 'Sinais de Movimentação')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="jusante"
-                componentName="Talude de Jusante"
-                itemCode="fuga_agua"
-                itemLabel="Sinais de Fuga D'Água ou Áreas Úmidas"
-                value={getItem('jusante', 'fuga_agua', 'Sinais de Fuga D\'Água ou Áreas Úmidas')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="jusante"
-                componentName="Talude de Jusante"
-                itemCode="carregamento_material"
-                itemLabel="Carregamento de Material na Água dos Drenos (Piping)"
-                value={getItem('jusante', 'carregamento_material', 'Carregamento de Material na Água dos Drenos')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-            </div>
-
-            <div>
-              <SpeechTextarea
-                label="Comentários - Talude de Jusante:"
-                rows={2}
-                value={sectionComments.talude_jusante || ''}
-                onValueChange={val => updateSectionComment('talude_jusante', val)}
-                placeholder="Observações complementares de surgências, minadouros..."
-              />
-              <FieldCommentChips
-                suggestions={['Sem surgências ou umidade', 'Água dos drenos límpida', 'Encosta com boa cobertura vegetal', 'Sem sinais de piping']}
-                currentValue={sectionComments.talude_jusante || ''}
-                onAppend={val => updateSectionComment('talude_jusante', val)}
-              />
-            </div>
-
-            {/* Campo para fotos inseridas no componente Talude de Jusante */}
-            <ComponentPhotoUploader
-              componentId="talude_jusante"
-              componentName="Talude de Jusante"
-              allPhotos={data.photos || []}
-              onUpdatePhotos={handleUpdatePhotos}
-              inspectionId={data.id}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SUBTÓPICO 5.4: REGIÃO A JUSANTE DA BARRAGEM */}
-      {/* ========================================================================= */}
-      <div id="sec-subtopico-5-4" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
-        <button
-          type="button"
-          onClick={() => toggleSection('sec8')}
-          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.4</span>
-            <span>5.4. Região a Jusante da Barragem</span>
-          </div>
-          {openSections.sec8 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
-        </button>
-
-        {openSections.sec8 && (
-          <div className="p-4 sm:p-5 space-y-4">
-            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
+            {/* ========================================================================= */}
+            {/* COMPONENTE 5.4: REGIÃO A JUSANTE DA BARRAGEM                              */}
+            {/* ========================================================================= */}
             {(() => {
               const stats = getComponentEvaluationStats('regiao_jusante', REGIAO_JUSANTE_ITEMS);
+              const isFocused = frozenContext.componentId === 'sec-subtopico-5-4';
               return (
-                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
-                      stats.isComplete
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                    }`}>
-                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
-                      <span>{stats.evaluated}/{stats.total} avaliados</span>
-                    </span>
-                    {stats.withAnomalies > 0 && (
-                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
-                        {stats.withAnomalies} anomalia(s)
+                <div
+                  id="sec-subtopico-5-4"
+                  data-form-component="5.4. Região a Jusante"
+                  data-form-component-id="sec-subtopico-5-4"
+                  data-form-component-seckey="sec8"
+                  data-form-component-parentkey="secComponentes"
+                  className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+                    isFocused
+                      ? 'border-emerald-600 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                      : 'border-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('sec8')}
+                    className={`w-full px-4 py-3 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 text-white ${
+                      openSections.sec8 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+                    } flex flex-wrap items-center justify-between gap-2.5 cursor-pointer select-none hover:brightness-105 transition`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 text-left">
+                      <span className="px-2 py-0.5 rounded-md bg-white text-emerald-900 text-xs font-black shrink-0">
+                        5.4
                       </span>
-                    )}
-                  </div>
+                      <span className="text-xs sm:text-sm font-black uppercase tracking-wide truncate">
+                        Região a Jusante da Barragem
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/35 border border-white/20 text-emerald-100">
+                        {stats.evaluated}/{stats.total} avaliados
+                      </span>
+                      {stats.withAnomalies > 0 && (
+                        <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-rose-600 text-white border border-rose-300">
+                          {stats.withAnomalies} anomalia(s)
+                        </span>
+                      )}
+                      {openSections.sec8 ? <ChevronUp className="w-5 h-5 text-white" /> : <ChevronDown className="w-5 h-5 text-white" />}
+                    </div>
+                  </button>
 
-                  {stats.pending > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleBulkMarkComponentPendingAsNo('regiao_jusante', 'Região a Jusante', REGIAO_JUSANTE_ITEMS)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
-                      title="Preenche todos os itens não respondidos da Região a Jusante como 'Não' (Sem anomalias)"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
-                    </button>
+                  {openSections.sec8 && (
+                    <>
+                      <div className="p-4 sm:p-5 space-y-4">
+                        <SubBlockCard
+                          code="5.4.A"
+                          title="Checklist de Inspeção Visual — Região a Jusante"
+                          icon={ClipboardList}
+                          action={
+                            stats.pending > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleBulkMarkComponentPendingAsNo('regiao_jusante', 'Região a Jusante', REGIAO_JUSANTE_ITEMS)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                                title="Preenche todos os itens não respondidos da Região a Jusante como 'Não' (Sem anomalias)"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Preencher {stats.pending} pendente(s) como &quot;Não&quot;</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Checklist concluído</span>
+                              </span>
+                            )
+                          }
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <EvaluationItemCard
+                              componentCode="regiao_jusante"
+                              componentName="Região a Jusante da Barragem"
+                              itemCode="construcoes_leito"
+                              itemLabel="Construções Próximas ao Leito do Rio"
+                              value={getItem('regiao_jusante', 'construcoes_leito', 'Construções Próximas ao Leito do Rio')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="regiao_jusante"
+                              componentName="Região a Jusante da Barragem"
+                              itemCode="fuga_agua"
+                              itemLabel="Fuga D'Água / Percolação Anormal"
+                              value={getItem('regiao_jusante', 'fuga_agua', "Fuga D'Água / Percolação Anormal")}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="regiao_jusante"
+                              componentName="Região a Jusante da Barragem"
+                              itemCode="erosao_cavernas"
+                              itemLabel="Erosão / Cavernas / Buracos"
+                              value={getItem('regiao_jusante', 'erosao_cavernas', 'Erosão / Cavernas / Buracos')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="regiao_jusante"
+                              componentName="Região a Jusante da Barragem"
+                              itemCode="arvores_faixa_10m"
+                              itemLabel="Árvores e Arbustos na Faixa de 10 m – Pé da Barragem"
+                              value={getItem('regiao_jusante', 'arvores_faixa_10m', 'Árvores e Arbustos na Faixa de 10 m – Pé')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                          </div>
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.4.B" title="Comentários Técnicos — Região a Jusante">
+                          <SpeechTextarea
+                            label="Comentários - Região a Jusante:"
+                            rows={2}
+                            value={sectionComments.area_jusante || ''}
+                            onValueChange={val => updateSectionComment('area_jusante', val)}
+                            placeholder="Presença de pontes, casas, estradas vicinais..."
+                          />
+                          <FieldCommentChips
+                            suggestions={['Sem construções vulneráveis no vale', 'Leito desimpedido sem barramentos', 'Faixa de 10m preservada']}
+                            currentValue={sectionComments.area_jusante || ''}
+                            onAppend={val => updateSectionComment('area_jusante', val)}
+                          />
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.4.C" title="Registro Fotográfico — Região a Jusante" icon={Camera}>
+                          <ComponentPhotoUploader
+                            componentId="area_jusante"
+                            componentName="Região a Jusante da Barragem"
+                            allPhotos={data.photos || []}
+                            onUpdatePhotos={handleUpdatePhotos}
+                            inspectionId={data.id}
+                          />
+                        </SubBlockCard>
+                      </div>
+                      <BoundaryFooter
+                        endLabel="Componente 5.4 · Região a Jusante"
+                        prevLabel="5.3 Talude de Jusante"
+                        onJumpPrev={() => handleNavigateToSection('sec7', 'sec-subtopico-5-3', 'secComponentes')}
+                        nextLabel="5.5 Instrumentação"
+                        onJumpNext={() => handleNavigateToSection('sec9', 'sec-subtopico-5-5', 'secComponentes')}
+                      />
+                    </>
                   )}
                 </div>
               );
             })()}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <EvaluationItemCard
-                componentCode="regiao_jusante"
-                componentName="Região a Jusante da Barragem"
-                itemCode="construcoes_leito"
-                itemLabel="Construções Próximas ao Leito do Rio"
-                value={getItem('regiao_jusante', 'construcoes_leito', 'Construções Próximas ao Leito do Rio')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="regiao_jusante"
-                componentName="Região a Jusante da Barragem"
-                itemCode="fuga_agua"
-                itemLabel="Fuga D'Água / Percolação Anormal"
-                value={getItem('regiao_jusante', 'fuga_agua', 'Fuga D\'Água / Percolação Anormal')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="regiao_jusante"
-                componentName="Região a Jusante da Barragem"
-                itemCode="erosao_cavernas"
-                itemLabel="Erosão / Cavernas / Buracos"
-                value={getItem('regiao_jusante', 'erosao_cavernas', 'Erosão / Cavernas / Buracos')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="regiao_jusante"
-                componentName="Região a Jusante da Barragem"
-                itemCode="arvores_faixa_10m"
-                itemLabel="Árvores e Arbustos na Faixa de 10 m – Pé da Barragem"
-                value={getItem('regiao_jusante', 'arvores_faixa_10m', 'Árvores e Arbustos na Faixa de 10 m – Pé')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
+            {/* ========================================================================= */}
+            {/* COMPONENTE 5.5: INSTRUMENTAÇÃO DE MONITORAMENTO                           */}
+            {/* ========================================================================= */}
+            <div
+              id="sec-subtopico-5-5"
+              data-form-component="5.5. Instrumentação"
+              data-form-component-id="sec-subtopico-5-5"
+              data-form-component-seckey="sec9"
+              data-form-component-parentkey="secComponentes"
+              className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+                frozenContext.componentId === 'sec-subtopico-5-5'
+                  ? 'border-emerald-600 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                  : 'border-slate-300 dark:border-slate-700'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => toggleSection('sec9')}
+                className={`w-full px-4 py-3 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 text-white ${
+                  openSections.sec9 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+                } flex flex-wrap items-center justify-between gap-2.5 cursor-pointer select-none hover:brightness-105 transition`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0 text-left">
+                  <span className="px-2 py-0.5 rounded-md bg-white text-emerald-900 text-xs font-black shrink-0">
+                    5.5
+                  </span>
+                  <span className="text-xs sm:text-sm font-black uppercase tracking-wide truncate">
+                    Instrumentação de Monitoramento
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/35 border border-white/20 text-emerald-100">
+                    {(data.instrumentacaoTipos || []).length > 0
+                      ? `${data.instrumentacaoTipos!.length} selecionado(s)`
+                      : 'Sem seleção'}
+                  </span>
+                  {openSections.sec9 ? <ChevronUp className="w-5 h-5 text-white" /> : <ChevronDown className="w-5 h-5 text-white" />}
+                </div>
+              </button>
+
+              {openSections.sec9 && (
+                <>
+                  <div className="p-4 sm:p-5 space-y-4">
+                    <SubBlockCard code="5.5.A" title="Instrumentos de Monitoramento Existentes">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {[
+                          'Piezômetro',
+                          'Marcos de Recalque',
+                          'Medidores de Vazão de Percolação',
+                          'Poços de Alívio',
+                          'Réguas Limnimétricas',
+                          'NÃO POSSUI'
+                        ].map(inst => {
+                          const selectedInsts = data.instrumentacaoTipos || [];
+                          const isChecked = selectedInsts.includes(inst);
+                          return (
+                            <label
+                              key={inst}
+                              className={`min-h-[44px] flex items-center gap-2 p-2.5 rounded-lg border text-xs cursor-pointer font-medium transition ${
+                                isChecked
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-950 dark:text-emerald-200 font-bold'
+                                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  onChange(p => {
+                                    const current = p.instrumentacaoTipos || [];
+                                    let next: string[];
+                                    if (current.includes(inst)) {
+                                      next = current.filter(item => item !== inst);
+                                    } else if (inst === 'NÃO POSSUI') {
+                                      next = ['NÃO POSSUI'];
+                                    } else {
+                                      next = [...current.filter(item => item !== 'NÃO POSSUI'), inst];
+                                    }
+                                    return { ...p, instrumentacaoTipos: next };
+                                  });
+                                }}
+                                className="w-4 h-4 text-emerald-600 rounded"
+                              />
+                              <span>{inst}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </SubBlockCard>
+
+                    <SubBlockCard code="5.5.B" title="Comentários e Fotos — Instrumentação" icon={Camera}>
+                      <SpeechTextarea
+                        label="Comentários - Instrumentação:"
+                        rows={2}
+                        value={sectionComments.instrumentacao || ''}
+                        onValueChange={val => updateSectionComment('instrumentacao', val)}
+                        placeholder="Leituras realizadas, conservação dos instrumentos..."
+                      />
+                      <ComponentPhotoUploader
+                        componentId="instrumentacao"
+                        componentName="Instrumentação de Monitoramento"
+                        allPhotos={data.photos || []}
+                        onUpdatePhotos={handleUpdatePhotos}
+                        inspectionId={data.id}
+                      />
+                    </SubBlockCard>
+                  </div>
+                  <BoundaryFooter
+                    endLabel="Componente 5.5 · Instrumentação"
+                    prevLabel="5.4 Região a Jusante"
+                    onJumpPrev={() => handleNavigateToSection('sec8', 'sec-subtopico-5-4', 'secComponentes')}
+                    nextLabel="5.6 Estruturas Vertedoras"
+                    onJumpNext={() => handleNavigateToSection('sec10', 'sec-subtopico-5-6', 'secComponentes')}
+                  />
+                </>
+              )}
             </div>
 
-            <div>
-              <SpeechTextarea
-                label="Comentários - Região a Jusante:"
-                rows={2}
-                value={sectionComments.area_jusante || ''}
-                onValueChange={val => updateSectionComment('area_jusante', val)}
-                placeholder="Presença de pontes, casas, estradas vicinais..."
-              />
-              <FieldCommentChips
-                suggestions={['Sem construções vulneráveis no vale', 'Leito desimpedido sem barramentos', 'Faixa de 10m preservada']}
-                currentValue={sectionComments.area_jusante || ''}
-                onAppend={val => updateSectionComment('area_jusante', val)}
-              />
+            {/* ========================================================================= */}
+            {/* COMPONENTE 5.6: ESTRUTURAS VERTEDORAS                                     */}
+            {/* ========================================================================= */}
+            <div
+              id="sec-subtopico-5-6"
+              data-form-component="5.6. Estruturas Vertedoras"
+              data-form-component-id="sec-subtopico-5-6"
+              data-form-component-seckey="sec10"
+              data-form-component-parentkey="secComponentes"
+              className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+                frozenContext.componentId === 'sec-subtopico-5-6'
+                  ? 'border-emerald-600 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                  : 'border-slate-300 dark:border-slate-700'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => toggleSection('sec10')}
+                className={`w-full px-4 py-3 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 text-white ${
+                  openSections.sec10 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+                } flex flex-wrap items-center justify-between gap-2.5 cursor-pointer select-none hover:brightness-105 transition`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0 text-left">
+                  <span className="px-2 py-0.5 rounded-md bg-white text-emerald-900 text-xs font-black shrink-0">
+                    5.6
+                  </span>
+                  <span className="text-xs sm:text-sm font-black uppercase tracking-wide truncate">
+                    Estruturas Vertedoras (Vertedor, Monge, Ladrão, etc.)
+                  </span>
+                </div>
+                {openSections.sec10 ? <ChevronUp className="w-5 h-5 text-white shrink-0" /> : <ChevronDown className="w-5 h-5 text-white shrink-0" />}
+              </button>
+
+              {openSections.sec10 && (
+                <>
+                  <div className="p-4 sm:p-5 space-y-4">
+                    <SubBlockCard code="5.6.A" title="Descrição Técnica e Condição Operacional do Vertedouro">
+                      <SpeechTextarea
+                        label="Descrição (Quantidade, Dimensões e Localização):"
+                        rows={4}
+                        value={sectionComments.vertedouro || ''}
+                        onValueChange={val => updateSectionComment('vertedouro', val)}
+                        placeholder="ex: Vertedouro lateral escavado em rocha/solo na ombreira direita, largura de soleira 6,0m, canal de restituição com 40m de extensão. Desobstruído e funcional..."
+                      />
+                      <FieldCommentChips
+                        suggestions={['Vertedouro desobstruído e funcional', 'Estrutura de concreto íntegra', 'Canal de dissipação operante', 'Soleira livre sem entulhos']}
+                        currentValue={sectionComments.vertedouro || ''}
+                        onAppend={val => updateSectionComment('vertedouro', val)}
+                      />
+                    </SubBlockCard>
+
+                    <SubBlockCard code="5.6.B" title="Registro Fotográfico — Estruturas Vertedoras" icon={Camera}>
+                      <ComponentPhotoUploader
+                        componentId="vertedouro"
+                        componentName="Estruturas Vertedoras (Vertedouro, Extravasor)"
+                        allPhotos={data.photos || []}
+                        onUpdatePhotos={handleUpdatePhotos}
+                        inspectionId={data.id}
+                      />
+                    </SubBlockCard>
+                  </div>
+                  <BoundaryFooter
+                    endLabel="Componente 5.6 · Estruturas Vertedoras"
+                    prevLabel="5.5 Instrumentação"
+                    onJumpPrev={() => handleNavigateToSection('sec9', 'sec-subtopico-5-5', 'secComponentes')}
+                    nextLabel="5.7 Reservatório"
+                    onJumpNext={() => handleNavigateToSection('sec11', 'sec-subtopico-5-7', 'secComponentes')}
+                  />
+                </>
+              )}
             </div>
 
-            {/* Campo para fotos inseridas no componente Região a Jusante */}
-            <ComponentPhotoUploader
-              componentId="area_jusante"
-              componentName="Região a Jusante da Barragem"
-              allPhotos={data.photos || []}
-              onUpdatePhotos={handleUpdatePhotos}
-              inspectionId={data.id}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SUBTÓPICO 5.5: INSTRUMENTAÇÃO DE MONITORAMENTO */}
-      {/* ========================================================================= */}
-      <div id="sec-subtopico-5-5" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
-        <button
-          type="button"
-          onClick={() => toggleSection('sec9')}
-          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.5</span>
-            <span>5.5. Instrumentação de Monitoramento</span>
-          </div>
-          {openSections.sec9 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
-        </button>
-
-        {openSections.sec9 && (
-          <div className="p-4 sm:p-5 space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {[
-                'Piezômetro',
-                'Marcos de Recalque',
-                'Medidores de Vazão de Percolação',
-                'Poços de Alívio',
-                'Réguas Limnimétricas',
-                'NÃO POSSUI'
-              ].map(inst => {
-                const selectedInsts = data.instrumentacaoTipos || [];
-                const isChecked = selectedInsts.includes(inst);
-                return (
-                  <label key={inst} className="min-h-[44px] flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 text-xs cursor-pointer hover:bg-slate-50 font-medium">
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => {
-                        onChange(p => {
-                          const current = p.instrumentacaoTipos || [];
-                          let next: string[];
-                          if (current.includes(inst)) {
-                            next = current.filter(item => item !== inst);
-                          } else if (inst === 'NÃO POSSUI') {
-                            next = ['NÃO POSSUI'];
-                          } else {
-                            next = [...current.filter(item => item !== 'NÃO POSSUI'), inst];
-                          }
-                          return { ...p, instrumentacaoTipos: next };
-                        });
-                      }}
-                      className="w-4 h-4 text-emerald-600 rounded"
-                    />
-                    <span>{inst}</span>
-                  </label>
-                );
-              })}
-            </div>
-
-            <div>
-              <SpeechTextarea
-                label="Comentários - Instrumentação:"
-                rows={2}
-                value={sectionComments.instrumentacao || ''}
-                onValueChange={val => updateSectionComment('instrumentacao', val)}
-                placeholder="Leituras realizadas, conservação dos instrumentos..."
-              />
-            </div>
-
-            {/* Campo para fotos inseridas no componente Instrumentação */}
-            <ComponentPhotoUploader
-              componentId="instrumentacao"
-              componentName="Instrumentação de Monitoramento"
-              allPhotos={data.photos || []}
-              onUpdatePhotos={handleUpdatePhotos}
-              inspectionId={data.id}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SUBTÓPICO 5.6: ESTRUTURAS VERTEDORAS */}
-      {/* ========================================================================= */}
-      <div id="sec-subtopico-5-6" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
-        <button
-          type="button"
-          onClick={() => toggleSection('sec10')}
-          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.6</span>
-            <span>5.6. Estruturas Vertedoras (Vertedor, Monge, Ladrão, etc.)</span>
-          </div>
-          {openSections.sec10 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
-        </button>
-
-        {openSections.sec10 && (
-          <div className="p-4 sm:p-5 space-y-4">
-            <div>
-              <SpeechTextarea
-                label="Descrição (Quantidade, Dimensões e Localização):"
-                rows={4}
-                value={sectionComments.vertedouro || ''}
-                onValueChange={val => updateSectionComment('vertedouro', val)}
-                placeholder="ex: Vertedouro lateral escavado em rocha/solo na ombreira direita, largura de soleira 6,0m, canal de restituição com 40m de extensão. Desobstruído e funcional..."
-              />
-              <FieldCommentChips
-                suggestions={['Vertedouro desobstruído e funcional', 'Estrutura de concreto íntegra', 'Canal de dissipação operante', 'Soleira livre sem entulhos']}
-                currentValue={sectionComments.vertedouro || ''}
-                onAppend={val => updateSectionComment('vertedouro', val)}
-              />
-            </div>
-
-            {/* Campo para fotos inseridas no componente Estruturas Vertedoras */}
-            <ComponentPhotoUploader
-              componentId="vertedouro"
-              componentName="Estruturas Vertedoras (Vertedouro, Extravasor)"
-              allPhotos={data.photos || []}
-              onUpdatePhotos={handleUpdatePhotos}
-              inspectionId={data.id}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SUBTÓPICO 5.7: RESERVATÓRIO */}
-      {/* ========================================================================= */}
-      <div id="sec-subtopico-5-7" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
-        <button
-          type="button"
-          onClick={() => toggleSection('sec11')}
-          className="w-full p-3.5 sm:p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">5.7</span>
-            <span>5.7. Reservatório</span>
-          </div>
-          {openSections.sec11 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
-        </button>
-
-        {openSections.sec11 && (
-          <div className="p-4 sm:p-5 space-y-4">
-            {/* Barra de Ações Rápidas de Campo (Mobile & Tablet) */}
+            {/* ========================================================================= */}
+            {/* COMPONENTE 5.7: RESERVATÓRIO                                              */}
+            {/* ========================================================================= */}
             {(() => {
               const stats = getComponentEvaluationStats('reservatorio', RESERVATORIO_ITEMS);
+              const isFocused = frozenContext.componentId === 'sec-subtopico-5-7';
               return (
-                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-2xs">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 ${
-                      stats.isComplete
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                    }`}>
-                      {stats.isComplete ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-600" />}
-                      <span>{stats.evaluated}/{stats.total} avaliados</span>
-                    </span>
-                    {stats.withAnomalies > 0 && (
-                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
-                        {stats.withAnomalies} anomalia(s)
+                <div
+                  id="sec-subtopico-5-7"
+                  data-form-component="5.7. Reservatório"
+                  data-form-component-id="sec-subtopico-5-7"
+                  data-form-component-seckey="sec11"
+                  data-form-component-parentkey="secComponentes"
+                  className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+                    isFocused
+                      ? 'border-emerald-600 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                      : 'border-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('sec11')}
+                    className={`w-full px-4 py-3 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 text-white ${
+                      openSections.sec11 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+                    } flex flex-wrap items-center justify-between gap-2.5 cursor-pointer select-none hover:brightness-105 transition`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 text-left">
+                      <span className="px-2 py-0.5 rounded-md bg-white text-emerald-900 text-xs font-black shrink-0">
+                        5.7
                       </span>
-                    )}
-                  </div>
+                      <span className="text-xs sm:text-sm font-black uppercase tracking-wide truncate">
+                        Reservatório
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/35 border border-white/20 text-emerald-100">
+                        {stats.evaluated}/{stats.total} avaliados
+                      </span>
+                      {stats.withAnomalies > 0 && (
+                        <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-rose-600 text-white border border-rose-300">
+                          {stats.withAnomalies} anomalia(s)
+                        </span>
+                      )}
+                      {openSections.sec11 ? <ChevronUp className="w-5 h-5 text-white" /> : <ChevronDown className="w-5 h-5 text-white" />}
+                    </div>
+                  </button>
 
-                  {stats.pending > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleBulkMarkComponentPendingAsNo('reservatorio', 'Reservatório', RESERVATORIO_ITEMS)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
-                      title="Preenche todos os itens não respondidos do Reservatório como 'Não' (Sem anomalias)"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Preencher {stats.pending} pendente(s) como "Não"</span>
-                    </button>
+                  {openSections.sec11 && (
+                    <>
+                      <div className="p-4 sm:p-5 space-y-4">
+                        <SubBlockCard
+                          code="5.7.A"
+                          title="Checklist de Inspeção Visual — Reservatório"
+                          icon={ClipboardList}
+                          action={
+                            stats.pending > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleBulkMarkComponentPendingAsNo('reservatorio', 'Reservatório', RESERVATORIO_ITEMS)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer select-none"
+                                title="Preenche todos os itens não respondidos do Reservatório como 'Não' (Sem anomalias)"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Preencher {stats.pending} pendente(s) como &quot;Não&quot;</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Checklist concluído</span>
+                              </span>
+                            )
+                          }
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <EvaluationItemCard
+                              componentCode="reservatorio"
+                              componentName="Reservatório"
+                              itemCode="erosoes_entorno"
+                              itemLabel="Erosões Próximas do Entorno"
+                              value={getItem('reservatorio', 'erosoes_entorno', 'Erosões Próximas do Entorno')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="reservatorio"
+                              componentName="Reservatório"
+                              itemCode="assoreamento"
+                              itemLabel="Assoreamento"
+                              value={getItem('reservatorio', 'assoreamento', 'Assoreamento')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="reservatorio"
+                              componentName="Reservatório"
+                              itemCode="desmoronamento_margens"
+                              itemLabel="Desmoronamento das Margens"
+                              value={getItem('reservatorio', 'desmoronamento_margens', 'Desmoronamento das Margens')}
+                              onChange={updateItemAvaliado}
+                              showLocationOnYes
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="reservatorio"
+                              componentName="Reservatório"
+                              itemCode="vegetacao_aquatica"
+                              itemLabel="Vegetação Aquática Excessiva"
+                              value={getItem('reservatorio', 'vegetacao_aquatica', 'Vegetação Aquática Excessiva')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                            <EvaluationItemCard
+                              componentCode="reservatorio"
+                              componentName="Reservatório"
+                              itemCode="gado_pastando"
+                              itemLabel="Gado Pastando no Entorno"
+                              value={getItem('reservatorio', 'gado_pastando', 'Gado Pastando no Entorno')}
+                              onChange={updateItemAvaliado}
+                              photos={data.photos || []}
+                              onAddPhoto={handleAddDirectPhoto}
+                            />
+                          </div>
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.7.B" title="Comentários Técnicos — Reservatório">
+                          <SpeechTextarea
+                            label="Comentários - Reservatório:"
+                            rows={2}
+                            value={sectionComments.reservatorio || ''}
+                            onValueChange={val => updateSectionComment('reservatorio', val)}
+                            placeholder="Qualidade da água, espelho d'água, encostas marginais..."
+                          />
+                          <FieldCommentChips
+                            suggestions={['Nível normal de operação', 'Margens estáveis sem erosão', 'Sem proliferação excessiva de macrófitas', 'Espelho d’água límpido']}
+                            currentValue={sectionComments.reservatorio || ''}
+                            onAppend={val => updateSectionComment('reservatorio', val)}
+                          />
+                        </SubBlockCard>
+
+                        <SubBlockCard code="5.7.C" title="Registro Fotográfico — Reservatório e Margens" icon={Camera}>
+                          <ComponentPhotoUploader
+                            componentId="reservatorio_borda"
+                            componentName="Reservatório, Borda Livre e Margens"
+                            allPhotos={data.photos || []}
+                            onUpdatePhotos={handleUpdatePhotos}
+                            inspectionId={data.id}
+                          />
+                        </SubBlockCard>
+                      </div>
+                      <BoundaryFooter
+                        endLabel="Componente 5.7 · Reservatório"
+                        prevLabel="5.6 Vertedoras"
+                        onJumpPrev={() => handleNavigateToSection('sec10', 'sec-subtopico-5-6', 'secComponentes')}
+                        nextLabel="6. Outros Problemas"
+                        onJumpNext={() => handleNavigateToSection('sec12', 'sec-topico-6')}
+                      />
+                    </>
                   )}
                 </div>
               );
             })()}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <EvaluationItemCard
-                componentCode="reservatorio"
-                componentName="Reservatório"
-                itemCode="erosoes_entorno"
-                itemLabel="Erosões Próximas do Entorno"
-                value={getItem('reservatorio', 'erosoes_entorno', 'Erosões Próximas do Entorno')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="reservatorio"
-                componentName="Reservatório"
-                itemCode="assoreamento"
-                itemLabel="Assoreamento"
-                value={getItem('reservatorio', 'assoreamento', 'Assoreamento')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="reservatorio"
-                componentName="Reservatório"
-                itemCode="desmoronamento_margens"
-                itemLabel="Desmoronamento das Margens"
-                value={getItem('reservatorio', 'desmoronamento_margens', 'Desmoronamento das Margens')}
-                onChange={updateItemAvaliado}
-                showLocationOnYes
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="reservatorio"
-                componentName="Reservatório"
-                itemCode="vegetacao_aquatica"
-                itemLabel="Vegetação Aquática Excessiva"
-                value={getItem('reservatorio', 'vegetacao_aquatica', 'Vegetação Aquática Excessiva')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-              <EvaluationItemCard
-                componentCode="reservatorio"
-                componentName="Reservatório"
-                itemCode="gado_pastando"
-                itemLabel="Gado Pastando no Entorno"
-                value={getItem('reservatorio', 'gado_pastando', 'Gado Pastando no Entorno')}
-                onChange={updateItemAvaliado}
-                photos={data.photos || []}
-                onAddPhoto={handleAddDirectPhoto}
-              />
-            </div>
-
-            <div>
-              <SpeechTextarea
-                label="Comentários - Reservatório:"
-                rows={2}
-                value={sectionComments.reservatorio || ''}
-                onValueChange={val => updateSectionComment('reservatorio', val)}
-                placeholder="Qualidade da água, espelho d'água, encostas marginais..."
-              />
-              <FieldCommentChips
-                suggestions={['Nível normal de operação', 'Margens estáveis sem erosão', 'Sem proliferação excessiva de macrófitas', 'Espelho d’água límpido']}
-                currentValue={sectionComments.reservatorio || ''}
-                onAppend={val => updateSectionComment('reservatorio', val)}
-              />
-            </div>
-
-            {/* Campo para fotos inseridas no componente Reservatório */}
-            <ComponentPhotoUploader
-              componentId="reservatorio_borda"
-              componentName="Reservatório, Borda Livre e Margens"
-              allPhotos={data.photos || []}
-              onUpdatePhotos={handleUpdatePhotos}
-              inspectionId={data.id}
-            />
           </div>
+          <BoundaryFooter
+            endLabel="Bloco 5 · Componentes da Barragem"
+            prevLabel="4. Características Técnicas"
+            onJumpPrev={() => handleNavigateToSection('sec4', 'sec-topico-4')}
+            nextLabel="6. Outros Problemas e Acompanhantes"
+            onJumpNext={() => handleNavigateToSection('sec12', 'sec-topico-6')}
+          />
+          </>
         )}
-      </div>
-
-          </div>
-        )}
-      </div>
+      </section>
 
       {/* ========================================================================= */}
-      {/* SEÇÃO 6: OUTROS PROBLEMAS E PESSOAS QUE ACOMPANHARAM */}
+      {/* BLOCO 6: OUTROS PROBLEMAS E PESSOAS QUE ACOMPANHARAM                      */}
       {/* ========================================================================= */}
-      <div id="sec-topico-6" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24 transition-all">
+      <section
+        id="sec-topico-6"
+        data-form-block="6. Outros Problemas e Acompanhantes"
+        data-form-block-id="sec-topico-6"
+        data-form-block-seckey="sec12"
+        className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+          frozenContext.blockId === 'sec-topico-6'
+            ? 'border-emerald-500/70 ring-2 ring-emerald-500/20'
+            : 'border-slate-300/90 dark:border-slate-700'
+        }`}
+      >
         <button
           type="button"
           onClick={() => toggleSection('sec12')}
-          className="w-full p-4 bg-slate-50 flex items-center justify-between font-bold text-slate-800 text-xs sm:text-sm uppercase tracking-wide cursor-pointer select-none"
+          className={`w-full px-4 py-3 sm:px-5 sm:py-3.5 bg-slate-900 dark:bg-slate-950 text-white ${
+            openSections.sec12 ? 'rounded-t-[14px]' : 'rounded-[14px]'
+          } flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-slate-800/95 transition-colors`}
         >
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs">6</span>
-            <span>6. Outros Problemas e Pessoas que Acompanharam</span>
+          <div className="flex items-center gap-3 min-w-0 flex-wrap text-left">
+            <span className="w-7 h-7 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+              6
+            </span>
+            <div className="min-w-0">
+              <span className="block text-xs sm:text-sm font-black uppercase tracking-wide text-white">
+                6. Outros Problemas e Pessoas que Acompanharam
+              </span>
+              <span className="block text-[11px] font-medium text-slate-300">
+                Sub-blocos: 6A Ocorrências Gerais · 6B Acompanhantes em Campo · 6C Fotos Complementares
+              </span>
+            </div>
           </div>
-          {openSections.sec12 ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+          <div className="flex items-center gap-2 shrink-0 text-emerald-400 text-xs font-bold">
+            <span className="hidden sm:inline">{openSections.sec12 ? 'Recolher' : 'Expandir'}</span>
+            {openSections.sec12 ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </div>
         </button>
 
         {openSections.sec12 && (
-          <div className="p-4 sm:p-5 space-y-4">
-            <div>
-              <SpeechTextarea
-                label="Outros Problemas Existentes:"
-                rows={3}
-                value={sectionComments.outros_problemas || ''}
-                onValueChange={val => updateSectionComment('outros_problemas', val)}
-                placeholder="Anomalias ou questões não abordadas nos itens anteriores..."
-              />
-              <FieldCommentChips
-                suggestions={['Propriedade com acesso livre e liberado', 'Acompanhado pelo responsável legal', 'Apresentou documentação no ato da vistoria', 'Sem outras anomalias observadas']}
-                currentValue={sectionComments.outros_problemas || ''}
-                onAppend={val => updateSectionComment('outros_problemas', val)}
-              />
-            </div>
-
-            <div className="pt-2 border-t border-slate-100">
-              <label className="block text-xs font-bold text-slate-800 mb-2">
-                Relação de Pessoas que Acompanharam a Vistoria (Nome e CPF):
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  placeholder="Nome Completo do Acompanhante"
-                  value={data.generalInfo.accompaniedBy.name}
-                  onChange={e => onChange(p => ({
-                    ...p,
-                    generalInfo: {
-                      ...p.generalInfo,
-                      accompaniedBy: { ...p.generalInfo.accompaniedBy, name: e.target.value }
-                    }
-                  }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg bg-slate-50"
+          <>
+            <div className="p-4 sm:p-5 space-y-4">
+              <SubBlockCard code="6A" title="Outros Problemas Existentes e Observações Gerais">
+                <SpeechTextarea
+                  label="Outros Problemas Existentes:"
+                  rows={3}
+                  value={sectionComments.outros_problemas || ''}
+                  onValueChange={val => updateSectionComment('outros_problemas', val)}
+                  placeholder="Anomalias ou questões não abordadas nos itens anteriores..."
                 />
-                <input
-                  type="text"
-                  placeholder="CPF (000.000.000-00)"
-                  value={data.generalInfo.accompaniedBy.document}
-                  onChange={e => onChange(p => ({
-                    ...p,
-                    generalInfo: {
-                      ...p.generalInfo,
-                      accompaniedBy: { ...p.generalInfo.accompaniedBy, document: e.target.value }
-                    }
-                  }))}
-                  className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg bg-slate-50"
+                <FieldCommentChips
+                  suggestions={['Propriedade com acesso livre e liberado', 'Acompanhado pelo responsável legal', 'Apresentou documentação no ato da vistoria', 'Sem outras anomalias observadas']}
+                  currentValue={sectionComments.outros_problemas || ''}
+                  onAppend={val => updateSectionComment('outros_problemas', val)}
                 />
-              </div>
-            </div>
+              </SubBlockCard>
 
-            {/* Campo para fotos de outros problemas / estruturas */}
-            <ComponentPhotoUploader
-              componentId="outros"
-              componentName="Outros Problemas e Anomalias Gerais"
-              allPhotos={data.photos || []}
-              onUpdatePhotos={handleUpdatePhotos}
-              inspectionId={data.id}
+              <SubBlockCard code="6B" title="Relação de Pessoas que Acompanharam a Vistoria" icon={UserCheck}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Nome Completo do Acompanhante
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Nome Completo do Acompanhante"
+                      value={data.generalInfo.accompaniedBy.name}
+                      onChange={e => onChange(p => ({
+                        ...p,
+                        generalInfo: {
+                          ...p.generalInfo,
+                          accompaniedBy: { ...p.generalInfo.accompaniedBy, name: e.target.value }
+                        }
+                      }))}
+                      className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      CPF do Acompanhante
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="CPF (000.000.000-00)"
+                      value={data.generalInfo.accompaniedBy.document}
+                      onChange={e => onChange(p => ({
+                        ...p,
+                        generalInfo: {
+                          ...p.generalInfo,
+                          accompaniedBy: { ...p.generalInfo.accompaniedBy, document: e.target.value }
+                        }
+                      }))}
+                      className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+                </div>
+              </SubBlockCard>
+
+              <SubBlockCard code="6C" title="Registro Fotográfico — Outros Problemas" icon={Camera}>
+                <ComponentPhotoUploader
+                  componentId="outros"
+                  componentName="Outros Problemas e Anomalias Gerais"
+                  allPhotos={data.photos || []}
+                  onUpdatePhotos={handleUpdatePhotos}
+                  inspectionId={data.id}
+                />
+              </SubBlockCard>
+            </div>
+            <BoundaryFooter
+              endLabel="Bloco 6 · Outros Problemas e Acompanhantes"
+              prevLabel="5.7 Reservatório"
+              onJumpPrev={() => handleNavigateToSection('sec11', 'sec-subtopico-5-7', 'secComponentes')}
+              nextLabel="7. Fotos de Campo e Anexos"
+              onJumpNext={() => handleNavigateToSection('secFotos', 'sec-topico-fotos')}
             />
-          </div>
+          </>
         )}
-      </div>
+      </section>
 
       {/* ========================================================================= */}
-      {/* ESPAÇO PARA ANEXAR FOTOS APÓS O PREENCHIMENTO E VINCULAR AOS COMPONENTES */}
+      {/* BLOCO 7: ANEXAR FOTOS APÓS O PREENCHIMENTO E VINCULAR AOS COMPONENTES     */}
       {/* ========================================================================= */}
-      <div id="sec-topico-fotos" className="scroll-mt-24 transition-all">
-        <GeneralPhotoAttachmentSection
-          allPhotos={data.photos || []}
-          onUpdatePhotos={handleUpdatePhotos}
-          inspectionId={data.id}
-        />
-      </div>
+      <section
+        id="sec-topico-fotos"
+        data-form-block="7. Fotos de Campo e Anexos"
+        data-form-block-id="sec-topico-fotos"
+        data-form-block-seckey="secFotos"
+        className={`bg-white dark:bg-slate-900 rounded-2xl border-2 shadow-sm scroll-mt-36 transition-all ${
+          frozenContext.blockId === 'sec-topico-fotos'
+            ? 'border-emerald-500/70 ring-2 ring-emerald-500/20'
+            : 'border-slate-300/90 dark:border-slate-700'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSection('secFotos')}
+          className={`w-full px-4 py-3 sm:px-5 sm:py-3.5 bg-slate-900 dark:bg-slate-950 text-white ${
+            openSections.secFotos ? 'rounded-t-[14px]' : 'rounded-[14px]'
+          } flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-slate-800/95 transition-colors`}
+        >
+          <div className="flex items-center gap-3 min-w-0 flex-wrap text-left">
+            <span className="w-7 h-7 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+              7
+            </span>
+            <div className="min-w-0">
+              <span className="flex items-center gap-1.5 text-xs sm:text-sm font-black uppercase tracking-wide text-white">
+                <Camera className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>7. Fotos de Campo e Anexos</span>
+              </span>
+              <span className="block text-[11px] font-medium text-slate-300">
+                Sub-bloco: 7A Painel Central de Fotos ({(data.photos || []).length} foto(s) anexada(s))
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 text-emerald-400 text-xs font-bold">
+            <span className="hidden sm:inline">{openSections.secFotos ? 'Recolher' : 'Expandir'}</span>
+            {openSections.secFotos ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </div>
+        </button>
+
+        {openSections.secFotos && (
+          <>
+            <div className="p-4 sm:p-5">
+              <SubBlockCard code="7A" title="Painel Central de Fotos e Vinculação por Componente" icon={Camera}>
+                <GeneralPhotoAttachmentSection
+                  allPhotos={data.photos || []}
+                  onUpdatePhotos={handleUpdatePhotos}
+                  inspectionId={data.id}
+                />
+              </SubBlockCard>
+            </div>
+            <BoundaryFooter
+              endLabel="Bloco 7 · Fotos de Campo"
+              prevLabel="6. Outros Problemas"
+              onJumpPrev={() => handleNavigateToSection('sec12', 'sec-topico-6')}
+            />
+          </>
+        )}
+      </section>
 
       {/* Menu Flutuante de Tópicos e Subtópicos da Ficha */}
       <FloatingSheetNavMenu
@@ -2999,8 +4390,30 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         photosCount={data.photos?.length || 0}
       />
 
+      {/* Status de Rascunho Temporário vs Conclusão e Validação no Administra */}
+      <div className="mt-6">
+        <VistoriaConclusaoBar
+          data={data}
+          onChange={onChange}
+          onSaveDraft={(updated) => {
+            if (updated && onPersistInspection) {
+              onPersistInspection(updated);
+            } else if (onSave) {
+              onSave();
+            }
+          }}
+          onNavigateToEntityBlock={(tipo) => {
+            if (tipo === 'barragem') {
+              handleNavigateToSection('sec1', 'sec-topico-1');
+            } else {
+              handleNavigateToSection('sec2', 'sec-topico-2');
+            }
+          }}
+        />
+      </div>
+
       {/* Barra de Ações e Navegação Inferior (In-flow e Otimizada para Celular e Tablet) */}
-      <div className="mt-8 pt-4 pb-28 lg:pb-8 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-4 pt-4 pb-2 lg:pb-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
         <button
           type="button"
           onClick={onPrev}
@@ -3027,10 +4440,10 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               type="button"
               onClick={onSave}
               className="min-h-[46px] flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-800 text-xs sm:text-sm font-bold transition cursor-pointer shadow-xs active:scale-95"
-              title="Salvar dados da vistoria e registrar localização"
+              title="Salvar rascunho da vistoria e manter dados temporários localmente"
             >
               <Save className="w-4 h-4" />
-              <span>Salvar</span>
+              <span>Salvar Rascunho</span>
             </button>
           )}
 

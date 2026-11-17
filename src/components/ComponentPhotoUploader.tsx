@@ -654,8 +654,8 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
       {/* MODAL PARA CONFIRMAÇÃO DE FOTOS (ÚNICA OU MÚLTIPLAS) COM LEGENDA/GPS */}
       {/* ===================================================================== */}
       {pendingModalData && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
             {/* Header do Modal */}
             <div className="p-4 bg-emerald-600 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">

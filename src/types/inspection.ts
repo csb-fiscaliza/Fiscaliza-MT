@@ -520,6 +520,21 @@ export interface ItemObservacaoFutura {
   concluidoEm?: string;
 }
 
+export interface AdministraEntityCadastroState {
+  cadastrado: boolean;
+  modo?: 'vinculado_existente' | 'cadastrado_manual';
+  entidadeId?: string | null;
+  sistemaOrigem?: SistemaOrigem;
+  registradoEm?: string | null;
+  registradoPorEmail?: string | null;
+}
+
+export interface AdministraCadastroStatus {
+  empreendedor?: AdministraEntityCadastroState;
+  barragem?: AdministraEntityCadastroState;
+  responsavelTecnico?: AdministraEntityCadastroState;
+}
+
 export interface InspectionData {
   id: string;
   barragemId?: string;
@@ -529,6 +544,7 @@ export interface InspectionData {
   empreendedorOrigemSistema?: SistemaOrigem;
   barragemOrigemSistema?: SistemaOrigem;
   responsavelTecnicoOrigemSistema?: SistemaOrigem;
+  administraCadastroStatus?: AdministraCadastroStatus;
   importedFieldsOrigin?: Record<string, ImportedFieldOriginRecord>;
   createdByEmail?: string;
   createdByName?: string;

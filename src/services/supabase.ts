@@ -29,6 +29,8 @@ import {
 } from './ecosystemConfig';
 import {
   canFiscalizaEditMasterEntity,
+  getAdministraConclusionValidation,
+  isEntityRegisteredInAdministra,
   registerFiscalizaProductsFromInspection,
   upsertMasterEntitiesFromInspection
 } from './administraEcosystemService';
@@ -837,12 +839,35 @@ export async function getInspectorSession(): Promise<{
 export async function syncVistoriaToSupabase(
   input: VistoriaAggregate | InspectionData
 ): Promise<SyncVistoriaResponse> {
-  const vistoria: VistoriaAggregate =
-    'generalInfo' in input ? convertInspectionDataToAggregate(input as InspectionData) : (input as VistoriaAggregate);
+  const isInspection = 'generalInfo' in input;
 
-  // Etapa 1: Sincronização de Entidades Mestres no Administra (respeitando propriedade cruzada)
+  // Bloqueio estrito de conclusão se houver dados manuais ainda não cadastrados no Administra
+  if (isInspection) {
+    const insp = input as InspectionData;
+    const isFutura = insp.tipoPlanejamento === 'futura' || insp.generalInfo?.tipoPlanejamento === 'futura';
+    if (!insp.isDraft && !isFutura) {
+      const validation = getAdministraConclusionValidation(insp);
+      if (!validation.canConclude) {
+        return {
+          success: false,
+          code: 'ADMINISTRA_CADASTRO_PENDENTE',
+          error: validation.summaryMessage
+        };
+      }
+    }
+  }
+
+  const vistoria: VistoriaAggregate = isInspection
+    ? convertInspectionDataToAggregate(input as InspectionData)
+    : (input as VistoriaAggregate);
+
+  const empRegistered = isInspection ? isEntityRegisteredInAdministra(input as InspectionData, 'empreendedor') : true;
+  const barRegistered = isInspection ? isEntityRegisteredInAdministra(input as InspectionData, 'barragem') : true;
+  const rtRegistered = isInspection ? isEntityRegisteredInAdministra(input as InspectionData, 'responsavel_tecnico') : false;
+
+  // Etapa 1: Sincronização de Entidades Mestres no Administra (somente as já cadastradas/vinculadas)
   let skippedReadOnlyEntities: string[] = [];
-  if ('generalInfo' in input) {
+  if (isInspection) {
     const masterSync = await upsertMasterEntitiesFromInspection(input as InspectionData);
     skippedReadOnlyEntities = masterSync.skippedReadOnlyEntities;
     await registerFiscalizaProductsFromInspection(input as InspectionData);
@@ -885,60 +910,158 @@ export async function syncVistoriaToSupabase(
   };
 
   try {
-    // Caso o Administra ainda compartilhe schema de transição no mesmo projeto Fiscaliza,
-    // só grava em empreendedores/barragens locais SE o sistema_origem for 'fiscaliza'
+    const now = new Date().toISOString();
+    const inspObj = isInspection ? (input as InspectionData) : null;
+
+    // Caso o Administra compartilhe schema de transição no mesmo projeto Fiscaliza,
+    // grava em empreendedores/barragens/responsaveis_tecnicos APENAS entidades já cadastradas
+    // explicitamente (e cuja titularidade permita edição direta pelo Fiscaliza).
     if (!isAdministraSupabaseConfigured()) {
-      const empPerm = canFiscalizaEditMasterEntity(vistoria.empreendedor.sistemaOrigem);
-      if (empPerm.allowed) {
-        const { error: empError } = await fiscalizaSupabase.from('empreendedores').upsert({
-          id: vistoria.empreendedor.id,
-          sistema_origem: 'fiscaliza',
-          administra_id: vistoria.empreendedor.administraId || vistoria.empreendedor.id,
-          nome_razao_social: vistoria.empreendedor.nomeRazaoSocial,
-          cpf_cnpj: toNullableString(vistoria.empreendedor.cpfCnpj),
-          figura_juridica: vistoria.empreendedor.figuraJuridica,
-          endereco: toNullableString(vistoria.empreendedor.endereco),
-          telefone: toNullableString(vistoria.empreendedor.telefone),
-          email: toNullableString(vistoria.empreendedor.email),
-          documentos_pessoais: toNullableString(vistoria.empreendedor.documentosPessoais),
-          car_numero: toNullableString(vistoria.empreendedor.carNumero),
-          declaracao_uso: toNullableString(vistoria.empreendedor.declaracaoUsoOutorga),
-          quantidade_barragens_propriedade: toNullableNumber(vistoria.empreendedor.quantidadeBarragens),
-          updated_at: new Date().toISOString()
-        });
-        handleDbError(empError, 'empreendedores');
+      if (empRegistered) {
+        const empPerm = canFiscalizaEditMasterEntity(vistoria.empreendedor.sistemaOrigem);
+        if (empPerm.allowed) {
+          const { error: empError } = await fiscalizaSupabase.from('empreendedores').upsert({
+            id: vistoria.empreendedor.id,
+            sistema_origem: 'fiscaliza',
+            administra_id: vistoria.empreendedor.administraId || vistoria.empreendedor.id,
+            criado_por_email: vistoria.empreendedor.criadoPorEmail || inspObj?.createdByEmail || null,
+            nome_razao_social: vistoria.empreendedor.nomeRazaoSocial,
+            cpf_cnpj: toNullableString(vistoria.empreendedor.cpfCnpj),
+            figura_juridica: vistoria.empreendedor.figuraJuridica,
+            processo_numero: toNullableString(vistoria.empreendedor.processoNumero),
+            endereco: toNullableString(vistoria.empreendedor.endereco),
+            municipio: toNullableString(vistoria.empreendedor.municipio),
+            uf: vistoria.empreendedor.uf || 'MT',
+            telefone: toNullableString(vistoria.empreendedor.telefone),
+            email: toNullableString(vistoria.empreendedor.email),
+            documentos_pessoais: toNullableString(vistoria.empreendedor.documentosPessoais),
+            car_numero: toNullableString(vistoria.empreendedor.carNumero),
+            declaracao_uso: toNullableString(vistoria.empreendedor.declaracaoUsoOutorga),
+            quantidade_barragens_propriedade: toNullableNumber(vistoria.empreendedor.quantidadeBarragens),
+            comentarios: toNullableString(vistoria.empreendedor.comentarios),
+            sincronizado_administra_em: now,
+            updated_at: now
+          });
+          handleDbError(empError, 'empreendedores');
+        }
       }
 
-      const barPerm = canFiscalizaEditMasterEntity(vistoria.barragem.sistemaOrigem);
-      if (barPerm.allowed) {
-        const { error: barError } = await fiscalizaSupabase.from('barragens').upsert({
-          id: vistoria.barragem.id,
-          sistema_origem: 'fiscaliza',
-          administra_id: vistoria.barragem.administraId || vistoria.barragem.id,
-          empreendedor_id: vistoria.empreendedor.id,
-          nome: vistoria.barragem.nome,
-          municipio: vistoria.barragem.municipio,
-          bacia_hidrografica: toNullableString(vistoria.barragem.baciaHidrografica),
-          curso_dagua: toNullableString(vistoria.barragem.cursoDagua),
-          latitude_decimal: vistoria.barragem.coordenadas.latitude,
-          longitude_decimal: vistoria.barragem.coordenadas.longitude,
-          datum: vistoria.barragem.coordenadas.datum || 'SIRGAS 2000',
-          cota_coroamento_metros: toNullableNumber(vistoria.barragem.cotaCoroamentoMetros),
-          ano_inicio_obra: toNullableNumber(vistoria.barragem.anoInicioObra),
-          ano_final_obra: toNullableNumber(vistoria.barragem.anoFinalObra),
-          tipo_barragem_material: vistoria.barragem.tipoMaterial,
-          uso_principal: vistoria.barragem.usoPrincipal,
-          usos_secundarios: vistoria.barragem.usosSecundarios || [],
-          updated_at: new Date().toISOString()
-        });
-        handleDbError(barError, 'barragens');
+      if (barRegistered) {
+        const barPerm = canFiscalizaEditMasterEntity(vistoria.barragem.sistemaOrigem);
+        if (barPerm.allowed) {
+          const { error: barError } = await fiscalizaSupabase.from('barragens').upsert({
+            id: vistoria.barragem.id,
+            sistema_origem: 'fiscaliza',
+            administra_id: vistoria.barragem.administraId || vistoria.barragem.id,
+            criado_por_email: vistoria.barragem.criadoPorEmail || inspObj?.createdByEmail || null,
+            empreendedor_id: empRegistered ? vistoria.empreendedor.id : null,
+            nome: vistoria.barragem.nome,
+            municipio: vistoria.barragem.municipio,
+            bacia_hidrografica: toNullableString(vistoria.barragem.baciaHidrografica),
+            curso_dagua: toNullableString(vistoria.barragem.cursoDagua),
+            latitude_decimal: vistoria.barragem.coordenadas.latitude,
+            longitude_decimal: vistoria.barragem.coordenadas.longitude,
+            latitude_gms: toNullableString(inspObj?.damIdentification?.coordinates?.latitude),
+            longitude_gms: toNullableString(inspObj?.damIdentification?.coordinates?.longitude),
+            datum: vistoria.barragem.coordenadas.datum || 'SIRGAS 2000',
+            acuracia_metros: toNullableNumber(vistoria.barragem.coordenadas.acuraciaMetros),
+            altitude_metros: toNullableNumber(vistoria.barragem.coordenadas.altitudeEstimadaDispositivo),
+            cota_coroamento_metros: toNullableNumber(vistoria.barragem.cotaCoroamentoMetros),
+            ano_inicio_obra: toNullableNumber(vistoria.barragem.anoInicioObra),
+            ano_final_obra: toNullableNumber(vistoria.barragem.anoFinalObra),
+            tipo_barragem_material: vistoria.barragem.tipoMaterial,
+            uso_principal: vistoria.barragem.usoPrincipal,
+            usos_secundarios: vistoria.barragem.usosSecundarios || [],
+            vertedouro_tipo: inspObj?.damIdentification?.spillwayType || 'canal_lateral_escavado',
+            outorga_possui: inspObj?.damIdentification?.regulatoryStatus?.hasWaterPermit || 'nao_informado',
+            outorga_numero: toNullableString(inspObj?.damIdentification?.regulatoryStatus?.permitNumber),
+            licenca_ambiental_possui:
+              inspObj?.damIdentification?.regulatoryStatus?.hasEnvironmentalLicense || 'nao_informado',
+            licenca_ambiental_numero: toNullableString(inspObj?.damIdentification?.regulatoryStatus?.licenseNumber),
+            car_possui: inspObj?.damIdentification?.regulatoryStatus?.hasCar || 'nao_informado',
+            car_numero: toNullableString(inspObj?.damIdentification?.regulatoryStatus?.carNumber),
+            sincronizado_administra_em: now,
+            updated_at: now
+          });
+          handleDbError(barError, 'barragens');
+        }
+      }
+
+      if (rtRegistered && inspObj?.responsavelTecnico?.nome?.trim()) {
+        const rtPerm = canFiscalizaEditMasterEntity(
+          inspObj.responsavelTecnicoOrigemSistema || inspObj.responsavelTecnico?.sistemaOrigem
+        );
+        if (rtPerm.allowed) {
+          const rtId = inspObj.responsavelTecnicoId || inspObj.responsavelTecnico.id;
+          if (rtId) {
+            const { error: rtError } = await fiscalizaSupabase.from('responsaveis_tecnicos').upsert({
+              id: rtId,
+              sistema_origem: 'fiscaliza',
+              administra_id: rtId,
+              criado_por_email: inspObj.createdByEmail || null,
+              empreendedor_id: empRegistered ? vistoria.empreendedor.id : null,
+              barragem_id: barRegistered ? vistoria.barragem.id : null,
+              nome: inspObj.responsavelTecnico.nome.trim(),
+              cpf: toNullableString(inspObj.responsavelTecnico.cpf),
+              registro_profissional: toNullableString(inspObj.responsavelTecnico.registroProfissional),
+              uf_registro: 'MT',
+              art_numero: toNullableString(inspObj.responsavelTecnico.artNumero),
+              especialidade: toNullableString(inspObj.responsavelTecnico.especialidade),
+              telefone: toNullableString(inspObj.responsavelTecnico.telefone),
+              email: toNullableString(inspObj.responsavelTecnico.email),
+              sincronizado_administra_em: now,
+              updated_at: now
+            });
+            handleDbError(rtError, 'responsaveis_tecnicos');
+          }
+        }
       }
     }
+
+    const dadosRascunhoLocais = inspObj
+      ? {
+          empreendedor_temporario: !empRegistered
+            ? {
+                nome_razao_social: inspObj.damIdentification?.propertyOrBusinessName || '',
+                cpf_cnpj: inspObj.damIdentification?.ownerCpfCnpj || '',
+                endereco: inspObj.damIdentification?.ownerAddress || '',
+                telefone: inspObj.damIdentification?.ownerPhone || '',
+                car_numero: inspObj.damIdentification?.regulatoryStatus?.carNumber || ''
+              }
+            : null,
+          barragem_temporaria: !barRegistered
+            ? {
+                nome: inspObj.damIdentification?.damName || '',
+                municipio: inspObj.damIdentification?.municipality || '',
+                curso_dagua: inspObj.damIdentification?.waterCourse || '',
+                bacia_hidrografica: inspObj.damIdentification?.hydrographicBasin || '',
+                latitude_gms: inspObj.damIdentification?.coordinates?.latitude || '',
+                longitude_gms: inspObj.damIdentification?.coordinates?.longitude || ''
+              }
+            : null,
+          rt_temporario:
+            !rtRegistered && inspObj.responsavelTecnico?.nome?.trim()
+              ? {
+                  nome: inspObj.responsavelTecnico.nome,
+                  cpf: inspObj.responsavelTecnico.cpf || '',
+                  registro_profissional: inspObj.responsavelTecnico.registroProfissional || '',
+                  art_numero: inspObj.responsavelTecnico.artNumero || ''
+                }
+              : null
+        }
+      : {};
+
+    const isDraftFlag = inspObj
+      ? Boolean(inspObj.isDraft || inspObj.tipoPlanejamento === 'futura')
+      : vistoria.statusVistoria === 'rascunho_campo' || vistoria.statusVistoria === 'futura_planejada';
 
     // Produtos exclusivos da base do FISCALIZA: Vistorias, Medições, Itens e Documentos
     const { error: visError } = await fiscalizaSupabase.from('vistorias').upsert({
       id: vistoria.id,
-      barragem_id: vistoria.barragem.id,
+      barragem_id: barRegistered ? vistoria.barragem.id : null,
+      empreendedor_id: empRegistered ? vistoria.empreendedor.id : null,
+      responsavel_tecnico_id:
+        rtRegistered && inspObj ? inspObj.responsavelTecnicoId || inspObj.responsavelTecnico?.id || null : null,
       sistema_origem: 'fiscaliza',
       tipo_planejamento: vistoria.tipoPlanejamento || 'atual',
       itens_observacao_futura: vistoria.itensObservacaoFutura || [],
@@ -952,6 +1075,9 @@ export async function syncVistoriaToSupabase(
       condicoes_climaticas: vistoria.condicoesClimaticas,
       cota_atual_nivel_agua: toNullableNumber(vistoria.medicoes.cotaAtualNivelAgua),
       status_vistoria: vistoria.statusVistoria,
+      is_draft: isDraftFlag,
+      administra_cadastro_status: inspObj?.administraCadastroStatus || {},
+      dados_rascunho_locais: dadosRascunhoLocais,
       outros_problemas_descricao: toNullableString(vistoria.conclusoes.outrosProblemasDescricao),
       conclusoes_sintese_fatica: toNullableString(vistoria.conclusoes.sinteseFatica),
       medidas_imediatas_seguranca: toNullableString(vistoria.conclusoes.medidasImediatasSeguranca),
@@ -960,7 +1086,7 @@ export async function syncVistoriaToSupabase(
       notificacao_prazo_dias: toNullableNumber(vistoria.conclusoes.notificacaoPrazoDias),
       notificacao_assunto: toNullableString(vistoria.conclusoes.notificacaoAssunto),
       notificacao_exigencias: toNullableString(vistoria.conclusoes.notificacaoExigencias),
-      updated_at: new Date().toISOString()
+      updated_at: now
     });
     handleDbError(visError, 'vistorias');
 
