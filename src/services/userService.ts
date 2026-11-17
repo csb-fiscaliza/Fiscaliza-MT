@@ -722,13 +722,15 @@ export async function rejectUserAccess(
 
   if (supabase) {
     try {
-      await supabase.from('perfis_usuarios').upsert({
-        id: users[idx].id,
-        status: 'reprovado',
-        updated_at: now
-      });
+      await supabase
+        .from('perfis_usuarios')
+        .update({
+          status: 'reprovado',
+          updated_at: now
+        })
+        .eq('id', users[idx].id);
     } catch (e) {
-      console.warn('[Users] Falha ao atualizar reprovação no Supabase:', e);
+      console.warn('[Users] Falha ao atualizar reprovação remota:', e);
     }
   }
 

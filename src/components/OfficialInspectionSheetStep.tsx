@@ -1,32 +1,14 @@
 import React, { useState } from 'react';
 import { 
-  FileSpreadsheet, 
   ChevronDown, 
   ChevronUp, 
-  MapPin, 
-  User, 
-  Compass, 
-  Layers, 
-  Ruler, 
-  ShieldAlert, 
   ArrowLeft, 
   ArrowRight,
-  Navigation,
-  Plus,
-  Trash2,
-  Activity,
-  Droplet,
-  Waves,
-  Eye,
   CheckCircle2,
   Save,
   FileDown,
-  Printer,
-  ShieldCheck,
   RefreshCw,
   Lock,
-  WifiOff,
-  CloudCheck,
   AlertCircle,
   CalendarClock,
   PlayCircle,
@@ -39,11 +21,10 @@ import {
   HardHat
 } from 'lucide-react';
 import { exportInspectionSheetPdf } from '../utils/exportInspectionSheetPdf';
-import { BASINS_MT, MUNICIPALITIES_MT } from '../data/damComponents';
+import { MUNICIPALITIES_MT } from '../data/damComponents';
 import { 
   InspectionData, 
   ItemAvaliadoEntity, 
-  EvaluationResponseType, 
   DamType,
   InspectionPhoto,
   ProdutoEcossistema,
@@ -66,7 +47,6 @@ import { ComponentPhotoUploader } from './ComponentPhotoUploader';
 import { GeneralPhotoAttachmentSection } from './GeneralPhotoAttachmentSection';
 import { FiscalizaLogo } from './FiscalizaLogo';
 import { FloatingSheetNavMenu } from './FloatingSheetNavMenu';
-import { formatGmsString } from '../utils/geoCoordinates';
 import { SpeechTextarea } from './SpeechTextarea';
 import { FutureObservationChecklist } from './FutureObservationChecklist';
 
@@ -162,11 +142,31 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     secFotos: true
   });
 
-  // Estado dos comentários das seções e componentes com suporte a ditado por voz
-  const [sectionComments, setSectionComments] = useState<Record<string, string>>({});
+  // Comentários das seções e componentes persistidos diretamente na ficha (com suporte a ditado por voz)
+  const sectionComments = data.sectionComments || {};
   const updateSectionComment = (key: string, text: string) => {
-    setSectionComments(prev => ({ ...prev, [key]: text }));
+    onChange(prev => ({
+      ...prev,
+      sectionComments: {
+        ...(prev.sectionComments || {}),
+        [key]: text
+      }
+    }));
   };
+
+  const timersRef = React.useRef<number[]>([]);
+  const toastTimerRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      timersRef.current.forEach(id => window.clearTimeout(id));
+      timersRef.current = [];
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const toggleSection = (key: string) => {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
@@ -182,7 +182,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       return next;
     });
 
-    setTimeout(() => {
+    const scrollTimer = window.setTimeout(() => {
       const el = document.getElementById(elementId);
       if (el) {
         const headerOffset = window.innerWidth < 640 ? 110 : 130;
@@ -193,11 +193,13 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
           behavior: 'smooth'
         });
         el.classList.add('ring-2', 'ring-emerald-500', 'transition-all');
-        setTimeout(() => {
+        const highlightTimer = window.setTimeout(() => {
           el.classList.remove('ring-2', 'ring-emerald-500');
         }, 2200);
+        timersRef.current.push(highlightTimer);
       }
     }, 80);
+    timersRef.current.push(scrollTimer);
   };
 
   const handleExpandAllSections = () => {
@@ -286,40 +288,6 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     };
   };
 
-  // Captura de GPS
-  const [gpsLoading, setGpsLoading] = useState(false);
-  const handleCaptureGps = () => {
-    if (!navigator.geolocation) {
-      console.warn('Geolocalização não suportada neste dispositivo.');
-      return;
-    }
-    setGpsLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const lat = formatGmsString(pos.coords.latitude, true, false);
-        const lng = formatGmsString(pos.coords.longitude, false, false);
-        onChange(prev => ({
-          ...prev,
-          damIdentification: {
-            ...prev.damIdentification,
-            coordinates: {
-              ...prev.damIdentification.coordinates,
-              latitude: lat,
-              longitude: lng,
-              accuracyMeters: pos.coords.accuracy
-            }
-          }
-        }));
-        setGpsLoading(false);
-      },
-      err => {
-        setGpsLoading(false);
-        console.warn('Erro ao obter satélites GPS:', err.message);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  };
-
   // Listas de itens avaliados por componente oficial para apoio a preenchimento rápido em campo
   const MONTANTE_ITEMS = [
     { code: 'erosoes', label: 'Erosões' },
@@ -373,7 +341,13 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
   const [fieldQuickToast, setFieldQuickToast] = useState<string | null>(null);
   const showFieldToast = (msg: string) => {
     setFieldQuickToast(msg);
-    setTimeout(() => setFieldQuickToast(null), 3500);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setFieldQuickToast(null);
+      toastTimerRef.current = null;
+    }, 3500);
   };
 
   // Helper de Preenchimento Rápido em Campo no Celular e Tablet:
@@ -384,7 +358,19 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     componentName: string,
     itemsList: { code: string; label: string }[]
   ) => {
-    let count = 0;
+    const currentDetailed = data.itensAvaliadosDetalhados || {};
+    const pendingItemsCount = itemsList.reduce((acc, it) => {
+      const existing = currentDetailed[`${componentCode}_${it.code}`];
+      return !existing || !existing.resposta || existing.resposta === 'sem_informacao'
+        ? acc + 1
+        : acc;
+    }, 0);
+
+    if (pendingItemsCount === 0) {
+      showFieldToast(`Todos os itens de "${componentName}" já foram avaliados.`);
+      return;
+    }
+
     onChange(prev => {
       const detailed = { ...(prev.itensAvaliadosDetalhados || {}) };
       itemsList.forEach(it => {
@@ -402,7 +388,6 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
             estadoConservacao: null,
             observacaoComplementar: ''
           };
-          count++;
         }
       });
       return {
@@ -411,11 +396,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       };
     });
 
-    if (count > 0) {
-      showFieldToast(`${count} item(ns) pendente(s) em "${componentName}" marcado(s) como "Não (Normal)"`);
-    } else {
-      showFieldToast(`Todos os itens de "${componentName}" já foram avaliados.`);
-    }
+    showFieldToast(`${pendingItemsCount} item(ns) pendente(s) em "${componentName}" marcado(s) como "Não (Normal)"`);
   };
 
   // Helper para obter estatísticas de preenchimento do componente em tempo real
@@ -577,10 +558,10 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               type="button"
               onClick={onOpenAuthModal}
               className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs bg-rose-700 hover:bg-rose-800 text-white border border-rose-800"
-              title="Resolver permissão RLS do Supabase ou entrar como fiscal"
+              title="Autenticar sessão institucional ou entrar como fiscal"
             >
               <Lock className="w-3.5 h-3.5 text-rose-200" />
-              <span>Resolver Permissão / Acesso</span>
+              <span>Autenticar Acesso / Sessão</span>
             </button>
           )}
 
@@ -755,7 +736,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 Base Padronizada Administra Barragens & Descoberta no Ecossistema
               </h3>
               <p className="text-[11px] text-indigo-800/90 dark:text-indigo-300">
-                Utilize cadastros existentes no Administra ou cadastre novos aqui (gravados direto na base central como origem Fiscaliza). Registros de outros sistemas são somente leitura; correções exigem Solicitação de Alteração.
+                Utilize cadastros existentes no Administra ou cadastre novos aqui. Mesmo utilizando dados pré-cadastrados, todos os campos permanecem editáveis em campo para gravar a versão atualizada no banco de dados.
               </p>
             </div>
           </div>
@@ -879,7 +860,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="ex: PROC-2026/01234-SEMA"
+                  placeholder="Informe o nº do processo SEMA"
                   value={data.generalInfo.recordNumber}
                   onChange={e => onChange(p => ({ ...p, generalInfo: { ...p.generalInfo, recordNumber: e.target.value } }))}
                   className="w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border border-slate-300 rounded-lg bg-slate-50/50"
@@ -927,7 +908,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                     readOnly={readOnlyByImport}
                     title={titleTooltip}
                     onClick={onFocusOrClick}
-                    placeholder="ex: Açude Fazenda Esperança"
+                    placeholder="Informe o nome da barragem ou barramento"
                     value={data.damIdentification.damName}
                     onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, damName: e.target.value } }))}
                     className={className}
@@ -973,7 +954,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                     readOnly={readOnlyByImport}
                     title={titleTooltip}
                     onClick={onFocusOrClick}
-                    placeholder="ex: Córrego do Barreiro"
+                    placeholder="Informe o curso d'água barrado"
                     value={data.damIdentification.waterCourse}
                     onChange={e => onChange(p => ({ ...p, damIdentification: { ...p.damIdentification, waterCourse: e.target.value } }))}
                     className={className}
@@ -1024,7 +1005,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               </EcosystemImportedField>
             </div>
 
-            {/* Coordenadas e GPS com Widget Rigoroso */}
+            {/* Coordenadas e GPS com Widget Rigoroso + Busca SEMA/MT (CAR/MT) */}
             <div className="pt-2">
               <LocationCaptureWidget
                 latitude={data.damIdentification.coordinates.latitude}
@@ -1045,6 +1026,44 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                       }
                     }
                   }));
+                }}
+                onApplyLookupData={payload => {
+                  onChange(prev => {
+                    let next = prev;
+                    if (payload.empreendedor || payload.barragem || payload.responsavelTecnico) {
+                      next = applyMasterSelectionToInspection(next, {
+                        empreendedor: payload.empreendedor,
+                        barragem: payload.barragem,
+                        responsavelTecnico: payload.responsavelTecnico
+                      });
+                    }
+                    if (payload.carImovel) {
+                      const car = payload.carImovel;
+                      const matchedMun = MUNICIPALITIES_MT.find(
+                        m =>
+                          m.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() ===
+                          (car.municipio || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                      );
+                      next = {
+                        ...next,
+                        damIdentification: {
+                          ...next.damIdentification,
+                          municipality: matchedMun || car.municipio || next.damIdentification.municipality,
+                          regulatoryStatus: {
+                            ...next.damIdentification.regulatoryStatus,
+                            hasCar: 'sim',
+                            carNumber: car.codImovel
+                          }
+                        }
+                      };
+                    }
+                    return next;
+                  });
+                  showFieldToast(
+                    payload.carImovel
+                      ? `CAR/MT ${payload.carImovel.codImovel} aplicado. Todos os campos seguem editáveis.`
+                      : 'Dados cadastrados aplicados ao formulário (editáveis).'
+                  );
                 }}
               />
             </div>
@@ -1196,7 +1215,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="ex: PROC-2026/04812"
+                  placeholder="Informe o nº do processo"
                   value={data.generalInfo.recordNumber}
                   onChange={e => onChange(p => ({
                     ...p,
@@ -1375,9 +1394,29 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 setUnlockedImportedFields({});
                 showFieldToast(
                   payload.barragem
-                    ? `Dados de "${payload.empreendedor.nomeRazaoSocial}" e da barragem "${payload.barragem.nome}" exportados (marcados em laranja*).`
-                    : `Dados de "${payload.empreendedor.nomeRazaoSocial}" exportados (marcados em laranja*).`
+                    ? `Dados de "${payload.empreendedor.nomeRazaoSocial}" e da barragem "${payload.barragem.nome}" aplicados (editáveis e marcados em laranja*).`
+                    : `Dados de "${payload.empreendedor.nomeRazaoSocial}" aplicados (editáveis e marcados em laranja*).`
                 );
+              }}
+              onApplyCarOnly={car => {
+                const matchedMun = MUNICIPALITIES_MT.find(
+                  m =>
+                    m.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() ===
+                    (car.municipio || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                );
+                onChange(prev => ({
+                  ...prev,
+                  damIdentification: {
+                    ...prev.damIdentification,
+                    municipality: matchedMun || car.municipio || prev.damIdentification.municipality,
+                    regulatoryStatus: {
+                      ...prev.damIdentification.regulatoryStatus,
+                      hasCar: 'sim',
+                      carNumber: car.codImovel
+                    }
+                  }
+                }));
+                showFieldToast(`CAR/MT ${car.codImovel} inserido no formulário (editável).`);
               }}
             />
 
@@ -1566,7 +1605,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                       readOnly={readOnlyByImport}
                       title={titleTooltip}
                       onClick={onFocusOrClick}
-                      placeholder="rt@exemplo.com.br"
+                      placeholder="E-mail do responsável técnico"
                       value={data.responsavelTecnico?.email || ''}
                       onChange={e =>
                         onChange(p => ({
@@ -1739,6 +1778,14 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 <input
                   type="text"
                   placeholder="ex: 18.0"
+                  value={data.damIdentification.estimatedDimensions.cristaPeDistanceMeters || ''}
+                  onChange={e => onChange(p => ({
+                    ...p,
+                    damIdentification: {
+                      ...p.damIdentification,
+                      estimatedDimensions: { ...p.damIdentification.estimatedDimensions, cristaPeDistanceMeters: e.target.value }
+                    }
+                  }))}
                   className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg bg-slate-50"
                 />
               </div>
@@ -1750,6 +1797,14 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 <input
                   type="text"
                   placeholder="ex: 28°"
+                  value={data.damIdentification.estimatedDimensions.downstreamSlopeDegrees || ''}
+                  onChange={e => onChange(p => ({
+                    ...p,
+                    damIdentification: {
+                      ...p.damIdentification,
+                      estimatedDimensions: { ...p.damIdentification.estimatedDimensions, downstreamSlopeDegrees: e.target.value }
+                    }
+                  }))}
                   className="w-full text-xs sm:text-sm min-h-[44px] p-2.5 border rounded-lg bg-slate-50"
                 />
               </div>
@@ -2011,12 +2066,34 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 Proteção do Talude:
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-                {['RIP RAP', 'Grama', 'Concreto', 'Cascalho', 'Ausente', 'Outros'].map(prot => (
-                  <label key={prot} className="min-h-[40px] flex items-center gap-2 p-2 rounded-lg border border-slate-200 text-xs cursor-pointer hover:bg-slate-50">
-                    <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded" />
-                    <span>{prot}</span>
-                  </label>
-                ))}
+                {['RIP RAP', 'Grama', 'Concreto', 'Cascalho', 'Ausente', 'Outros'].map(prot => {
+                  const selectedList = data.taludeMontanteProtecao || [];
+                  const isChecked = selectedList.includes(prot);
+                  return (
+                    <label key={prot} className="min-h-[40px] flex items-center gap-2 p-2 rounded-lg border border-slate-200 text-xs cursor-pointer hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          onChange(p => {
+                            const current = p.taludeMontanteProtecao || [];
+                            let next: string[];
+                            if (current.includes(prot)) {
+                              next = current.filter(item => item !== prot);
+                            } else if (prot === 'Ausente') {
+                              next = ['Ausente'];
+                            } else {
+                              next = [...current.filter(item => item !== 'Ausente'), prot];
+                            }
+                            return { ...p, taludeMontanteProtecao: next };
+                          });
+                        }}
+                        className="w-4 h-4 text-emerald-600 rounded"
+                      />
+                      <span>{prot}</span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
@@ -2202,6 +2279,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                   <input
                     type="text"
                     placeholder="Condição visual, trincas, erosão no contato..."
+                    value={data.ombreiras?.esquerda || ''}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      ombreiras: { ...(p.ombreiras || {}), esquerda: e.target.value }
+                    }))}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-slate-50"
                   />
                 </div>
@@ -2212,6 +2294,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                   <input
                     type="text"
                     placeholder="Condição visual, trincas, erosão no contato..."
+                    value={data.ombreiras?.direita || ''}
+                    onChange={e => onChange(p => ({
+                      ...p,
+                      ombreiras: { ...(p.ombreiras || {}), direita: e.target.value }
+                    }))}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-slate-50"
                   />
                 </div>
@@ -2576,12 +2663,34 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 'Poços de Alívio',
                 'Réguas Limnimétricas',
                 'NÃO POSSUI'
-              ].map(inst => (
-                <label key={inst} className="min-h-[44px] flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 text-xs cursor-pointer hover:bg-slate-50 font-medium">
-                  <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded" />
-                  <span>{inst}</span>
-                </label>
-              ))}
+              ].map(inst => {
+                const selectedInsts = data.instrumentacaoTipos || [];
+                const isChecked = selectedInsts.includes(inst);
+                return (
+                  <label key={inst} className="min-h-[44px] flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 text-xs cursor-pointer hover:bg-slate-50 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {
+                        onChange(p => {
+                          const current = p.instrumentacaoTipos || [];
+                          let next: string[];
+                          if (current.includes(inst)) {
+                            next = current.filter(item => item !== inst);
+                          } else if (inst === 'NÃO POSSUI') {
+                            next = ['NÃO POSSUI'];
+                          } else {
+                            next = [...current.filter(item => item !== 'NÃO POSSUI'), inst];
+                          }
+                          return { ...p, instrumentacaoTipos: next };
+                        });
+                      }}
+                      className="w-4 h-4 text-emerald-600 rounded"
+                    />
+                    <span>{inst}</span>
+                  </label>
+                );
+              })}
             </div>
 
             <div>

@@ -6,10 +6,9 @@
 // Ao mudar para outra opção, oculta os campos e limpa os valores.
 // ==============================================================================
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   CheckCircle2, 
-  XCircle, 
   EyeOff, 
   Ban, 
   HelpCircle, 
@@ -19,7 +18,6 @@ import {
   Activity,
   Camera,
   Image as ImageIcon,
-  Loader2,
   Check
 } from 'lucide-react';
 import { 
@@ -30,12 +28,6 @@ import {
   MagnitudeType,
   InspectionPhoto
 } from '../types/inspection';
-import { 
-  compressImageToDataUrlAndBlob, 
-  formatTimestampPtBr, 
-  getDeviceGpsCoordinates 
-} from '../utils/photoCaptureUtils';
-import { savePhotoBlob } from '../services/photoStorage';
 import { DeviceCameraCaptureModal } from './DeviceCameraCaptureModal';
 import { VoiceInputButton } from './VoiceInputButton';
 
@@ -67,12 +59,17 @@ export const EvaluationItemCard: React.FC<Props> = ({
   const currentResponse: EvaluationResponseType = value?.resposta || 'sem_informacao';
   const currentId = value?.id || `item-${componentCode}-${itemCode}`;
 
-  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [photoSuccessToast, setPhotoSuccessToast] = useState<string | null>(null);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
   const [fileForModal, setFileForModal] = useState<File | undefined>(undefined);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   // Mapeia o nome oficial do componente para a legenda pré-formatada (ex: Talude de Montante)
   const getPreformattedComponentName = (): string => {
@@ -152,38 +149,6 @@ export const EvaluationItemCard: React.FC<Props> = ({
     });
   };
 
-  const options: { id: EvaluationResponseType; label: string; icon: React.ReactNode; activeClass: string }[] = [
-    {
-      id: 'sim',
-      label: 'Sim',
-      icon: <CheckCircle2 className="w-4 h-4" />,
-      activeClass: 'bg-rose-600 text-white border-rose-700 shadow-sm'
-    },
-    {
-      id: 'nao',
-      label: 'Não',
-      icon: <XCircle className="w-4 h-4" />,
-      activeClass: 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
-    },
-    {
-      id: 'nao_observado',
-      label: 'Não observado',
-      icon: <EyeOff className="w-4 h-4" />,
-      activeClass: 'bg-slate-700 text-white border-slate-800 shadow-sm'
-    },
-    {
-      id: 'impossivel_observar',
-      label: 'Impossível observar',
-      icon: <Ban className="w-4 h-4" />,
-      activeClass: 'bg-amber-600 text-white border-amber-700 shadow-sm'
-    },
-    {
-      id: 'nao_se_aplica',
-      label: 'Não se aplica',
-      icon: <HelpCircle className="w-4 h-4" />,
-      activeClass: 'bg-slate-500 text-white border-slate-600 shadow-sm'
-    }
-  ];
 
   // Borda e fundo com alto contraste para visibilidade sob luz solar no campo
   const cardStatusBorder = 
@@ -267,7 +232,6 @@ export const EvaluationItemCard: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => handleOpenPhotoCapture()}
-            disabled={isProcessingPhoto}
             className={`min-h-[38px] px-3 py-1 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer select-none shadow-xs active:scale-95 ${
               existingItemPhotos.length > 0
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100'
@@ -275,11 +239,7 @@ export const EvaluationItemCard: React.FC<Props> = ({
             }`}
             title={`Tirar foto ou anexar com legenda e time stamp: "${preformattedCaption}"`}
           >
-            {isProcessingPhoto ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
-            ) : (
-              <Camera className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            )}
+            <Camera className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span className="text-xs font-bold">Foto</span>
             {existingItemPhotos.length > 0 && (
               <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-emerald-600 text-white">
@@ -292,7 +252,6 @@ export const EvaluationItemCard: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => galleryInputRef.current?.click()}
-            disabled={isProcessingPhoto}
             className="min-h-[38px] min-w-[38px] p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer flex items-center justify-center active:scale-95"
             title="Selecionar foto da galeria e inserir legenda/timestamp"
           >
@@ -316,7 +275,8 @@ export const EvaluationItemCard: React.FC<Props> = ({
           if (onAddPhoto) {
             onAddPhoto(newPhoto);
             setPhotoSuccessToast(`Foto inserida: "${newPhoto.caption || preformattedCaption}"`);
-            setTimeout(() => setPhotoSuccessToast(null), 3500);
+            if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+            toastTimerRef.current = setTimeout(() => setPhotoSuccessToast(null), 3500);
           }
         }}
       />

@@ -86,7 +86,7 @@ export function decimalToGms(decimal: number | null | undefined, isLatitude: boo
  */
 export function parseGmsToDecimal(
   input: string | number | null | undefined,
-  isLatitude: boolean
+  _isLatitude: boolean
 ): number | null {
   if (input === null || input === undefined || input === '') return null;
 

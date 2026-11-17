@@ -10,7 +10,6 @@ import {
   FileCheck, 
   Bell, 
   ArrowLeft,
-  Download,
   ShieldCheck,
   FileDown
 } from 'lucide-react';
@@ -59,7 +58,7 @@ export const DocumentReviewStep: React.FC<Props> = ({ data, onChange, onPrev }) 
               type="button"
               onClick={() => exportAnonymizedJsonFile(data)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-black dark:hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
-              title="Exportar cópia 100% anonimizada em conformidade com a LGPD para uso no Google AI Studio"
+              title="Exportar cópia 100% anonimizada em conformidade com a LGPD para auditoria externa"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-200" />
               <span>Exportar Cópia Anonimizada (LGPD)</span>

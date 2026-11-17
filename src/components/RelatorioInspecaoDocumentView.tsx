@@ -9,7 +9,7 @@
 // - Editor de texto livre, restauração da minuta-base e exportação
 // ==============================================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileCheck2, 
   RotateCcw, 
@@ -20,13 +20,8 @@ import {
   Download, 
   Copy, 
   Check, 
-  AlertTriangle, 
   CheckCircle2, 
   Building2, 
-  Camera, 
-  MapPin, 
-  Clock, 
-  Layers, 
   ShieldCheck,
   FileText
 } from 'lucide-react';
@@ -47,6 +42,15 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
   );
   const [lastSavedInfo, setLastSavedInfo] = useState<{ timestamp: string; author: string } | null>(null);
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const timersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach(t => window.clearTimeout(t));
+    };
+  }, []);
 
   // Gera dados estruturados fiéis ao modelo
   const report: RelatorioInspecaoGeneratedStructure = generateRelatorioInspecaoData(data);
@@ -81,17 +85,22 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
   }, [data.id, data.drafts.technicalReport]);
 
   const handleRestoreBase = () => {
-    if (confirm('Deseja recarregar o texto-base do Relatório de Inspeção a partir dos dados atuais do formulário? Edições manuais não salvas no editor serão descartadas.')) {
-      const fresh = generateRelatorioInspecaoData(data);
-      setEditorText(fresh.textoCompletoFormatado);
-      onChange(prev => ({
-        ...prev,
-        drafts: {
-          ...prev.drafts,
-          technicalReport: fresh.textoCompletoFormatado
-        }
-      }));
+    if (!confirmRestore) {
+      setConfirmRestore(true);
+      const t = window.setTimeout(() => setConfirmRestore(false), 4000);
+      timersRef.current.push(t);
+      return;
     }
+    setConfirmRestore(false);
+    const fresh = generateRelatorioInspecaoData(data);
+    setEditorText(fresh.textoCompletoFormatado);
+    onChange(prev => ({
+      ...prev,
+      drafts: {
+        ...prev.drafts,
+        technicalReport: fresh.textoCompletoFormatado
+      }
+    }));
   };
 
   const handleSaveFinal = () => {
@@ -108,7 +117,9 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
       timestamp: nowStr,
       author: editorAuthor
     });
-    alert('Minuta do Relatório de Inspeção salva e associada com sucesso ao registro da vistoria!');
+    setSaveFeedback('Minuta do Relatório de Inspeção salva e associada com sucesso ao registro da vistoria.');
+    const t = window.setTimeout(() => setSaveFeedback(null), 4500);
+    timersRef.current.push(t);
   };
 
   const handlePrint = () => {
@@ -118,7 +129,8 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
   const handleCopy = () => {
     navigator.clipboard.writeText(editorText);
     setCopyFeedback(true);
-    setTimeout(() => setCopyFeedback(false), 2000);
+    const t = window.setTimeout(() => setCopyFeedback(false), 2000);
+    timersRef.current.push(t);
   };
 
   const handleDownloadTxt = () => {
@@ -157,11 +169,17 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
             <button
               type="button"
               onClick={handleRestoreBase}
-              className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 font-medium transition flex items-center gap-1.5 cursor-pointer"
+              className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition flex items-center gap-1.5 cursor-pointer ${
+                confirmRestore
+                  ? 'border-amber-500 bg-amber-50 text-amber-800 font-bold'
+                  : 'border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
               title="Restaurar dados do formulário"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Restaurar Base</span>
+              <span className={confirmRestore ? 'inline' : 'hidden sm:inline'}>
+                {confirmRestore ? 'Confirmar Restauração?' : 'Restaurar Base'}
+              </span>
             </button>
 
             <button
@@ -249,6 +267,11 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
       </div>
 
       {/* Alerta de Auditoria / Último Salvamento */}
+      {saveFeedback && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-xs text-emerald-800 font-semibold print:hidden">
+          {saveFeedback}
+        </div>
+      )}
       {lastSavedInfo && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-xs text-emerald-800 flex items-center justify-between print:hidden">
           <div className="flex items-center gap-2">
@@ -340,7 +363,7 @@ export const RelatorioInspecaoDocumentView: React.FC<Props> = ({ data, onChange 
                 CRI alto, conforme classificação do órgão fiscalizatório.
               </p>
               <p>
-                Foi realizada uma vistoria técnica, dia {report.dataVistoriaFormatada}, {report.constatacoesGeraisIntro.includes('sem relato') ? 'sem relato de chuva' : 'conforme condições meteorológicas registradas'}, 
+                Foi realizada uma vistoria técnica, dia {report.dataVistoriaFormatada}, {report.folhaRostoSigamt.objetivoTexto.includes('sem relato') ? 'sem relato de chuva' : 'conforme condições meteorológicas registradas'}, 
                 no barramento localizado no município de {data.damIdentification.municipality || 'Mato Grosso'}/MT.
               </p>
             </div>

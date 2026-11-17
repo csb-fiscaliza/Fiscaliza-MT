@@ -267,7 +267,7 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
       entidadeId: requestForm.entidadeId,
       entidadeNome: requestForm.entidadeNome,
       sistemaDetentor: requestForm.sistemaDetentor,
-      solicitanteEmail: currentUser?.email || 'fiscal@csb.sema.mt.gov.br',
+      solicitanteEmail: currentUser?.email || currentInspection.createdByEmail || 'nao-informado@sistema.local',
       solicitanteNome: currentUser?.fullName || currentUser?.email || 'Fiscal CSB',
       camposAlterados: {
         [requestForm.campoKey]: {
@@ -604,7 +604,7 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
                   <>
                     {filteredBarragens.length === 0 ? (
                       <div className="p-6 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-xs text-slate-500">
-                        Nenhuma barragem no catálogo central ainda. Ao salvar uma vistoria no Fiscaliza ou conectar a chave do Administra Barragens, os registros padronizados aparecerão aqui.
+                        Nenhuma barragem localizada no catálogo central ainda. Ao salvar uma vistoria no Fiscaliza ou sincronizar o servidor do Administra Barragens, os registros padronizados aparecerão aqui.
                       </div>
                     ) : (
                       filteredBarragens.map(bar => {
@@ -1044,19 +1044,16 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
                         ) : node.modoOperacao === 'bloqueado_seguranca' ? (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3" />
-                            Bloqueado (Chave Privada)
+                            Acesso Restrito
                           </span>
                         ) : (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            {live?.statusText || 'Aguardando Chaves .env'}
+                            {live?.statusText || 'Operando Localmente'}
                           </span>
                         )}
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-400">{node.papel}</p>
-                      {node.urlHost && (
-                        <p className="text-[11px] font-mono text-slate-500">Host: {node.urlHost}</p>
-                      )}
                       {live && <p className="text-[11px] text-slate-600 dark:text-slate-300">Teste ao vivo: {live.statusText}</p>}
                       {node.securityError && (
                         <p className="text-[11px] text-rose-600 font-semibold">{node.securityError}</p>

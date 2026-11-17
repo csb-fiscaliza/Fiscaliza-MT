@@ -28,6 +28,8 @@ export type WeatherCondition =
 export type DamType =
   | 'terra_homogenea'
   | 'terra_zoneada'
+  | 'terra_enrocamento'
+  | 'aterro_barragem'
   | 'enrocamento'
   | 'concreto'
   | 'alvenaria_pedra'
@@ -589,6 +591,8 @@ export interface InspectionData {
     damType: DamType;
     estimatedDimensions: {
       heightMeters: string;
+      cristaPeDistanceMeters?: string;
+      downstreamSlopeDegrees?: string;
       crestLengthMeters: string;
       crestWidthMeters: string;
       reservoirAreaHectares: string;
@@ -621,6 +625,13 @@ export interface InspectionData {
 
   componentsData: Record<string, ComponentInspectionData>;
   itensAvaliadosDetalhados?: Record<string, ItemAvaliadoEntity>;
+  taludeMontanteProtecao?: string[];
+  instrumentacaoTipos?: string[];
+  ombreiras?: {
+    esquerda?: string;
+    direita?: string;
+  };
+  sectionComments?: Record<string, string>;
 
   photos: InspectionPhoto[];
   photoRecords?: PhotoRecord[];

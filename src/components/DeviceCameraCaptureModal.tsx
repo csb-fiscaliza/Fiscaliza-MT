@@ -11,11 +11,9 @@ import {
   RotateCcw, 
   SwitchCamera, 
   Check, 
-  Upload, 
   MapPin, 
   Clock, 
   Navigation, 
-  AlertCircle, 
   FileImage, 
   RefreshCw,
   Smartphone,
@@ -293,7 +291,12 @@ export const DeviceCameraCaptureModal: React.FC<DeviceCameraCaptureModalProps> =
       const latNum = hasTimestamp && latitude.trim() ? parseFloat(latitude.replace(',', '.')) : undefined;
       const lngNum = hasTimestamp && longitude.trim() ? parseFloat(longitude.replace(',', '.')) : undefined;
 
-      const coordsStr = (latNum !== undefined && lngNum !== undefined)
+      const coordsStr = (
+        latNum !== undefined &&
+        !isNaN(latNum) &&
+        lngNum !== undefined &&
+        !isNaN(lngNum)
+      )
         ? `${latNum.toFixed(6)}, ${lngNum.toFixed(6)}`
         : undefined;
 

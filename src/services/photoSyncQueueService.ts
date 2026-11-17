@@ -5,7 +5,7 @@
 // Resiliente a quedas de conexão em áreas rurais de Mato Grosso sem sinal de internet.
 // ==============================================================================
 
-import { InspectionData, InspectionPhoto, PhotoRecord, PhotoSyncQueueItem, PhotoQueueStatus } from '../types/inspection';
+import { InspectionData, PhotoSyncQueueItem, PhotoQueueStatus } from '../types/inspection';
 import { 
   savePhotoSyncQueueItem, 
   getAllPhotoSyncQueueItems, 

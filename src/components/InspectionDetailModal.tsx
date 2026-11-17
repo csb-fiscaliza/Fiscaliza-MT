@@ -8,12 +8,8 @@ import React, { useState } from 'react';
 import { 
   X, 
   MapPin, 
-  Calendar, 
-  UserCheck, 
-  AlertTriangle, 
   CheckCircle2, 
   Camera, 
-  FileText, 
   FileCheck, 
   Bell, 
   Download, 

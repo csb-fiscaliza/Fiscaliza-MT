@@ -4,7 +4,7 @@
 // Prioridades institucionais pré-implementação, auditoria e anonimizador para IA
 // ==============================================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShieldCheck, 
   ShieldAlert, 
@@ -12,23 +12,18 @@ import {
   Database, 
   Wifi, 
   WifiOff, 
-  Camera, 
   UserCheck, 
-  CheckCircle2, 
-  AlertTriangle, 
   X, 
   RefreshCw, 
   FileText, 
   Scale, 
-  ExternalLink,
   Eye,
   EyeOff,
   Download,
   Copy,
   Check,
-  ListChecks,
-  HardDrive,
-  Users
+  CheckCircle2,
+  ListChecks
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { getSupabaseSecurityDiagnostics } from '../services/supabase';
@@ -37,7 +32,7 @@ import {
   exportAnonymizedJsonFile, 
   generateAnonymizedDocumentsBundle 
 } from '../utils/anonymizer';
-import { createAuthenticitySeal, OFFICIAL_ANTI_PLAGIARISM_NOTICE } from '../utils/securityCrypto';
+import { createAuthenticitySeal } from '../utils/securityCrypto';
 import { exportEncryptedInspectionToJson } from '../services/storage';
 
 interface Props {
@@ -63,11 +58,15 @@ export const OperationalReviewModal: React.FC<Props> = ({
   const [exportPassphrase, setExportPassphrase] = useState('');
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       runDiagnostics();
     }
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
   }, [isOpen]);
 
   const runDiagnostics = async () => {
@@ -86,7 +85,8 @@ export const OperationalReviewModal: React.FC<Props> = ({
     const bundle = generateAnonymizedDocumentsBundle(data);
     navigator.clipboard.writeText(bundle).then(() => {
       setCopiedBundle(true);
-      setTimeout(() => setCopiedBundle(false), 2500);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopiedBundle(false), 2500);
     });
   };
 
@@ -135,12 +135,6 @@ export const OperationalReviewModal: React.FC<Props> = ({
     return val.replace(/^(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})$/, '$1.***.***-$4');
   };
 
-  const maskPhone = (val?: string) => {
-    if (!val) return 'Não informado';
-    if (!maskSensitiveData) return val;
-    return val.replace(/(\d{2})\s?(\d{4,5})-?(\d{4})/, '($1) *****-$3');
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-auto max-h-[92vh] flex flex-col text-slate-900 dark:text-slate-100 transition-colors">
@@ -155,7 +149,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
                 Governança Operacional, LGPD & Homologação Institucional (SEMA-MT)
               </h2>
               <p className="text-[11px] text-slate-400">
-                Diretrizes pré-implementação, segurança do Supabase, anonimização e validação formal
+                Diretrizes pré-implementação, segurança de dados, anonimização e validação formal
               </p>
             </div>
           </div>
@@ -210,7 +204,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
             }`}
           >
             <Lock className="w-3.5 h-3.5" />
-            <span>3. Supabase & RLS</span>
+            <span>3. Segurança & Banco</span>
           </button>
 
           <button
@@ -309,24 +303,24 @@ export const OperationalReviewModal: React.FC<Props> = ({
                     Definir a política de dados temporários no dispositivo móvel do fiscal:
                   </p>
                   <ul className="text-[11px] text-slate-600 space-y-1 list-disc list-inside bg-white p-2 rounded border border-slate-200">
-                    <li>Funcionamento 100% offline garantido via localStorage/IndexedDB.</li>
-                    <li>Regras de retenção: prazo de expiração de rascunhos locais e flush seguro após confirmação de sincronização no Supabase central.</li>
+                    <li>Funcionamento 100% offline garantido via armazenamento local criptografado.</li>
+                    <li>Regras de retenção: prazo de expiração de rascunhos locais e envio seguro após confirmação no servidor central.</li>
                   </ul>
                 </div>
 
-                {/* 5. Ambiente Oficial Supabase & Vercel */}
+                {/* 5. Ambiente Corporativo Homologado */}
                 <div className="border border-slate-200 rounded-xl p-3.5 bg-slate-50/70 space-y-2">
                   <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs uppercase tracking-wide">
                     <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[11px]">5</span>
-                    <h4>Ambiente Oficial Supabase & Vercel Corporativo</h4>
+                    <h4>Ambiente Corporativo & Banco Centralizado</h4>
                   </div>
                   <p className="text-slate-700 text-[11px] leading-relaxed">
                     Homologar infraestrutura de TI do Estado de Mato Grosso:
                   </p>
                   <ul className="text-[11px] text-slate-600 space-y-1 list-disc list-inside bg-white p-2 rounded border border-slate-200">
                     <li>Separação rigorosa entre ambiente de Desenvolvimento e Produção Governamental.</li>
-                    <li>Aplicação das migrações RLS bloqueando acesso anônimo a CPFs e relatórios.</li>
-                    <li>Bucket privado de fotos com URLs assinadas e sem indexação em motores de busca.</li>
+                    <li>Aplicação de políticas de acesso bloqueando leitura anônima a CPFs e relatórios.</li>
+                    <li>Repositório privado de fotos com URLs assinadas e sem indexação em motores de busca.</li>
                   </ul>
                 </div>
 
@@ -337,7 +331,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
                     <h4>Proteção LGPD & Anonimização para Ferramentas Externas</h4>
                   </div>
                   <p className="text-slate-700 text-[11px] leading-relaxed">
-                    Regra mandatória para uso do Google AI Studio ou ferramentas de terceiros:
+                    Regra mandatória para uso de ferramentas externas de apoio ou auditoria:
                   </p>
                   <ul className="text-[11px] text-slate-600 space-y-1 list-disc list-inside bg-white p-2 rounded border border-slate-200">
                     <li><strong>Proibição de PII:</strong> Jamais submeter CPFs, contatos telefônicos ou nomes reais de servidores e proprietários.</li>
@@ -367,7 +361,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
                   </button>
                 </div>
                 <p className="text-xs text-emerald-900 leading-relaxed">
-                  Para utilizar modelos externos como o <strong>Google AI Studio</strong> para análise de dados, geração de código ou auditoria, utilize os utilitários de anonimização abaixo para expurgar 100% dos dados identificáveis.
+                  Para utilizar ferramentas externas de apoio, análise estatística ou auditoria, utilize os utilitários de anonimização abaixo para expurgar 100% dos dados identificáveis.
                 </p>
               </div>
 
@@ -424,7 +418,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* TAB 3: SEGURANÇA & SUPABASE */}
+          {/* TAB 3: SEGURANÇA & BANCO DE DADOS */}
           {activeTab === 'seguranca' && (
             <div className="space-y-4">
               {/* Status de Conexão e Rascunho */}
@@ -454,7 +448,7 @@ export const OperationalReviewModal: React.FC<Props> = ({
                     <span className="text-slate-500 font-semibold block text-[11px]">Rascunho Local no Dispositivo:</span>
                     <div className="flex items-center gap-1.5 text-slate-800 font-medium">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>Persistido no navegador (IndexedDB / localStorage)</span>
+                      <span>Persistido com proteção no navegador</span>
                     </div>
                     <span className="text-[10px] text-slate-500 block">
                       Último salvamento: <strong>{lastSavedAt || 'Recentemente'}</strong>
@@ -464,22 +458,22 @@ export const OperationalReviewModal: React.FC<Props> = ({
                   <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1">
                     <span className="text-slate-500 font-semibold block text-[11px]">Fotos de Vistoria:</span>
                     <p className="text-slate-700 text-[11px]">
-                      Bucket privado: <code className="bg-slate-100 px-1 rounded">fotos_vistorias_csb</code>
+                      Armazenamento institucional protegido de evidências fotográficas
                     </p>
                     <span className="text-[10px] text-slate-500 block">
-                      {data.photos.length} foto(s) registrada(s) • {fotosLocais.length} pendente(s) de sync
+                      {data.photos.length} foto(s) registrada(s) • {fotosLocais.length} pendente(s) de envio
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Políticas RLS do Supabase */}
+              {/* Políticas de Acesso e Autenticação */}
               <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-white">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Database className="w-4 h-4 text-emerald-600" />
                     <h3 className="text-xs sm:text-sm font-bold text-slate-900">
-                      Supabase, Autenticação & Políticas RLS (Row Level Security)
+                      Autenticação & Controle Estrito de Acesso
                     </h3>
                   </div>
                   <button
@@ -496,20 +490,20 @@ export const OperationalReviewModal: React.FC<Props> = ({
                   <div className="flex items-start gap-2 text-slate-700">
                     <Lock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                     <div>
-                      <strong>Políticas RLS Rigorosas:</strong> O arquivo de migração <code className="bg-slate-100 px-1 rounded">20260929_fiscaliza_csb_schema.sql</code> implementa RLS em todas as tabelas (vistorias, barragens, empreendedores, medições, documentos) exigindo perfil autenticado (<code>authenticated</code>).
+                      <strong>Controle de Acesso por Perfil:</strong> Todas as tabelas institucionais (vistorias, barragens, empreendedores, medições, documentos) exigem sessão autenticada e ativa.
                     </div>
                   </div>
 
                   <div className="flex items-start gap-2 text-slate-700">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                     <div>
-                      <strong>Anon Key Segura no Frontend:</strong> O cliente utiliza apenas a chave anônima pública sem permissões de superusuário ou capacidade de ignorar as políticas de segurança.
+                      <strong>Segurança de Aplicação:</strong> O aplicativo nunca expõe credenciais administrativas ou de acesso irrestrito no navegador do usuário.
                     </div>
                   </div>
 
                   {supabaseDiag?.warnings && supabaseDiag.warnings.length > 0 && (
                     <div className="bg-slate-100 p-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-700 space-y-1">
-                      <span className="font-bold block">Status de Segurança e Migração:</span>
+                      <span className="font-bold block">Status de Segurança:</span>
                       <ul className="list-disc list-inside space-y-0.5">
                         {supabaseDiag.warnings.map((w: string, idx: number) => (
                           <li key={idx}>{w}</li>
@@ -525,17 +519,17 @@ export const OperationalReviewModal: React.FC<Props> = ({
                           <div className="flex items-center justify-between gap-2 font-bold text-slate-800">
                             <span>{node.nomeExibicao}</span>
                             <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                              node.modoOperacao === 'supabase_remoto'
+                              node.modoOperacao === 'remoto_ativo'
                                 ? 'bg-emerald-100 text-emerald-800'
                                 : node.modoOperacao === 'bloqueado_seguranca'
                                 ? 'bg-rose-100 text-rose-800'
                                 : 'bg-amber-100 text-amber-800'
                             }`}>
-                              {node.modoOperacao === 'supabase_remoto'
+                              {node.modoOperacao === 'remoto_ativo'
                                 ? 'Conectado'
                                 : node.modoOperacao === 'bloqueado_seguranca'
-                                ? 'Chave Bloqueada'
-                                : 'Aguardando Chaves'}
+                                ? 'Bloqueado'
+                                : 'Operação Local'}
                             </span>
                           </div>
                           <p className="text-[10px] text-slate-500">{node.papel}</p>

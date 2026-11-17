@@ -10,7 +10,6 @@ import React, { useState } from 'react';
 import { 
   ClipboardList, 
   CheckCircle2, 
-  Circle, 
   Plus, 
   Trash2, 
   AlertCircle, 

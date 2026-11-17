@@ -48,20 +48,26 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   React.useEffect(() => {
     let active = true;
-    import('../services/photoSyncQueueService').then(({ getPhotoQueueSummary, subscribePhotoQueue }) => {
-      const update = async () => {
-        try {
-          const sum = await getPhotoQueueSummary();
-          if (active) setPhotoQueuePending(sum.pending + sum.error);
-        } catch {}
-      };
-      update();
-      const unsub = subscribePhotoQueue(update);
-      return () => {
-        active = false;
-        unsub();
-      };
-    });
+    let unsub: (() => void) | undefined;
+    import('../services/photoSyncQueueService')
+      .then(({ getPhotoQueueSummary, subscribePhotoQueue }) => {
+        if (!active) return;
+        const update = async () => {
+          try {
+            const sum = await getPhotoQueueSummary();
+            if (active) setPhotoQueuePending(sum.pending + sum.error);
+          } catch {
+            // Ignorar erro silencioso de leitura local
+          }
+        };
+        update();
+        unsub = subscribePhotoQueue(update);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      if (unsub) unsub();
+    };
   }, []);
 
   const photosCount = currentInspection.photos?.length || 0;

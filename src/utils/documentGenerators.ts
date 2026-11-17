@@ -123,6 +123,8 @@ function formatDamType(t: string): string {
   switch (t) {
     case 'terra_homogenea': return 'Barragem de terra homogênea';
     case 'terra_zoneada': return 'Barragem de terra zoneada';
+    case 'terra_enrocamento': return 'Barragem de terra com enrocamento';
+    case 'aterro_barragem': return 'Aterro / Barragem de terra';
     case 'enrocamento': return 'Enrocamento com núcleo ou face estanque';
     case 'concreto': return 'Barragem de concreto (gravidade/arco/rolado)';
     case 'alvenaria_pedra': return 'Alvenaria de pedra';
@@ -142,26 +144,5 @@ function formatSpillwayType(s: string): string {
     case 'inexistente_vertimento_crista': return 'INEXISTENTE (vertimento se dá pela crista do maciço - risco de galgamento)';
     case 'outro': return 'Outro tipo de vertedouro';
     default: return s;
-  }
-}
-
-function formatCondition(c: string): string {
-  switch (c) {
-    case 'adequado': return 'Adequado (Sem anomalias visuais significativas)';
-    case 'alerta': return 'Atenção / Alerta (Anomalias que exigem monitoramento ou reparo simples)';
-    case 'critico': return 'Crítico (Anomalias com risco à estabilidade ou capacidade hidráulica)';
-    case 'nao_se_aplica': return 'Não se aplica a esta estrutura';
-    case 'nao_inspecionado': return 'Não inspecionado nesta ocasião';
-    default: return c;
-  }
-}
-
-function formatRegStatus(status: string): string {
-  switch (status) {
-    case 'sim': return 'Sim, regularizado';
-    case 'nao': return 'Não possui / Não regularizado';
-    case 'em_tramitacao': return 'Em tramitação na SEMA-MT';
-    case 'nao_informado': return 'Não informado no momento da vistoria';
-    default: return status;
   }
 }

@@ -8,12 +8,10 @@ import {
   ChevronRight, 
   Layers, 
   ArrowLeft, 
-  ArrowRight,
-  Sparkles,
-  Info
+  ArrowRight
 } from 'lucide-react';
 import { DAM_COMPONENTS } from '../data/damComponents';
-import { InspectionData, SeverityCondition, InspectionPhoto } from '../types/inspection';
+import { InspectionData, SeverityCondition } from '../types/inspection';
 import { ComponentPhotoUploader } from './ComponentPhotoUploader';
 import { SpeechTextarea } from './SpeechTextarea';
 

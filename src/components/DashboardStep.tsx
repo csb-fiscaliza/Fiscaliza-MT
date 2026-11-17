@@ -10,8 +10,6 @@ import {
   Database,
   ArrowRight, 
   PlusCircle, 
-  Wifi, 
-  WifiOff, 
   Clock,
   CheckCircle2,
   AlertTriangle,
@@ -23,11 +21,7 @@ import {
   Camera,
   Search,
   Bell,
-  Sparkles,
-  ShieldCheck,
   ChevronRight,
-  TrendingUp,
-  SlidersHorizontal,
   X,
   Lock,
   RefreshCw
@@ -36,7 +30,7 @@ import { InspectionData } from '../types/inspection';
 import { FiscalizaLogo } from './FiscalizaLogo';
 import { InspectionDetailModal } from './InspectionDetailModal';
 import { InteractiveMap } from './InteractiveMap';
-import { canUserEditInspection, canUserDeleteInspection, canUserCreateInspection } from '../services/userService';
+import { canUserEditInspection, canUserDeleteInspection } from '../services/userService';
 
 interface Props {
   currentInspection: InspectionData;
@@ -67,7 +61,6 @@ export const DashboardStep: React.FC<Props> = ({
   isOnline,
   lastSavedAt,
   onSyncSingle,
-  onSyncAll,
   isSyncing = false,
   currentUser
 }) => {
@@ -79,20 +72,6 @@ export const DashboardStep: React.FC<Props> = ({
 
   const d = currentInspection.damIdentification;
   const g = currentInspection.generalInfo;
-
-  // Cálculo de progresso de preenchimento da vistoria ativa
-  const inspectedComponents = Object.values(currentInspection.componentsData || {}).filter(
-    comp => comp.condition !== 'nao_inspecionado'
-  ).length;
-  const hasCoords = !!(d.coordinates.latitude && d.coordinates.longitude);
-  const hasName = !!(d.damName || d.propertyOrBusinessName);
-  const hasPhotos = (currentInspection.photos || []).length > 0;
-
-  let checklistPoints = 0;
-  if (hasName) checklistPoints += 25;
-  if (hasCoords) checklistPoints += 25;
-  if (inspectedComponents > 0) checklistPoints += 30;
-  if (hasPhotos) checklistPoints += 20;
 
   // Estatísticas Dinâmicas do Banco
   const totalDams = allInspections.length;

@@ -5,7 +5,6 @@
 // ==============================================================================
 
 import React from 'react';
-import { ArrowRight } from 'lucide-react';
 import { FiscalizaLogo } from './FiscalizaLogo';
 
 export const OfficialFooter: React.FC = () => {

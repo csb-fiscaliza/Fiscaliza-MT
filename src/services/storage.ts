@@ -378,10 +378,6 @@ export function createEmptyInspection(creatorUser?: {
   };
 }
 
-export function createSampleInspection(): InspectionData {
-  return createEmptyInspection();
-}
-
 const ENCRYPTION_STORAGE_KEY = 'fiscaliza_csb_sema_inspections_enc_v1';
 const DEVICE_VAULT_SECRET_KEY = 'fiscaliza_csb_device_secret_v2';
 
@@ -418,7 +414,7 @@ export function isSampleInspection(item?: InspectionData | null): boolean {
       strItem.includes('PROC-2026/04812-SEMA') ||
       strItem.includes('Rodovia MT-060') ||
       strItem.includes('contato@fazendaalvorada') ||
-      strItem.includes('99999-0000') && strItem.includes('Alvorada')
+      (strItem.includes('99999-0000') && strItem.includes('Alvorada'))
     ) {
       return true;
     }
@@ -441,34 +437,78 @@ export function isSampleInspection(item?: InspectionData | null): boolean {
   );
 }
 
+function containsLegacyExampleMarker(raw: string): boolean {
+  return (
+    raw.includes('Fazenda Alvorada') ||
+    raw.includes('(Exemplo)') ||
+    raw.includes('fazendaalvorada') ||
+    raw.includes('00.000.000/0001-99') ||
+    raw.includes('Córrego das Araras') ||
+    raw.includes('PROC-2026/04812-SEMA')
+  );
+}
+
 export async function purgeAllMockData(): Promise<void> {
   try {
     // 1. Limpa localStorage de qualquer resquício de dados de exemplo
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      if (
-        raw.includes('Fazenda Alvorada') ||
-        raw.includes('(Exemplo)') ||
-        raw.includes('fazendaalvorada') ||
-        raw.includes('00.000.000/0001-99') ||
-        raw.includes('Córrego das Araras')
-      ) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            const clean = parsed.filter(item => !isSampleInspection(item));
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const clean = parsed.filter(item => !isSampleInspection(item) && !isInspectionEmpty(item));
+          if (clean.length !== parsed.length) {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
             localStorage.setItem(INTEGRITY_SEAL_KEY, computeSha256Sync(JSON.stringify(clean)));
-          } else {
-            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(ENCRYPTION_STORAGE_KEY);
           }
-        } catch {
+        } else if (containsLegacyExampleMarker(raw)) {
           localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(ENCRYPTION_STORAGE_KEY);
+        }
+      } catch {
+        if (containsLegacyExampleMarker(raw)) {
+          localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(ENCRYPTION_STORAGE_KEY);
         }
       }
     }
 
-    // 2. Limpa activeId se apontar para registro de exemplo
+    // 2. Limpa cache local do Administra e produtos se contiver registros legados de exemplo
+    const adminCacheRaw = localStorage.getItem('fiscaliza_csb_administra_cache_v1');
+    if (adminCacheRaw && containsLegacyExampleMarker(adminCacheRaw)) {
+      try {
+        const parsed = JSON.parse(adminCacheRaw);
+        const filterOut = (arr: any[]) =>
+          Array.isArray(arr) ? arr.filter(x => !containsLegacyExampleMarker(JSON.stringify(x))) : [];
+        localStorage.setItem(
+          'fiscaliza_csb_administra_cache_v1',
+          JSON.stringify({
+            ...parsed,
+            empreendedores: filterOut(parsed?.empreendedores),
+            barragens: filterOut(parsed?.barragens),
+            responsaveisTecnicos: filterOut(parsed?.responsaveisTecnicos)
+          })
+        );
+      } catch {
+        localStorage.removeItem('fiscaliza_csb_administra_cache_v1');
+      }
+    }
+
+    const ecoProdsRaw = localStorage.getItem('fiscaliza_csb_ecosystem_products_v1');
+    if (ecoProdsRaw && containsLegacyExampleMarker(ecoProdsRaw)) {
+      try {
+        const parsed = JSON.parse(ecoProdsRaw);
+        if (Array.isArray(parsed)) {
+          const clean = parsed.filter(x => !containsLegacyExampleMarker(JSON.stringify(x)));
+          localStorage.setItem('fiscaliza_csb_ecosystem_products_v1', JSON.stringify(clean));
+        }
+      } catch {
+        localStorage.removeItem('fiscaliza_csb_ecosystem_products_v1');
+      }
+    }
+
+    // 3. Limpa activeId se apontar para registro de exemplo
     const activeId = localStorage.getItem(CURRENT_ACTIVE_KEY);
     if (activeId) {
       const all = getAllInspections();
@@ -477,7 +517,7 @@ export async function purgeAllMockData(): Promise<void> {
       }
     }
 
-    // 3. Limpa IndexedDB
+    // 4. Limpa IndexedDB
     const idbList = await getAllInspectionsFromIndexedDb();
     for (const item of idbList) {
       if (isSampleInspection(item)) {
@@ -491,12 +531,6 @@ export async function purgeAllMockData(): Promise<void> {
 
 export function getAllInspections(): InspectionData[] {
   try {
-    // 1. Tenta carregar dados criptografados se existirem
-    const encRaw = localStorage.getItem(ENCRYPTION_STORAGE_KEY);
-    if (encRaw && encRaw.startsWith('aesgcm:')) {
-      // Nota: Decriptação síncrona não é nativa, usamos fallback decodificado ou espelho seguro
-    }
-
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     

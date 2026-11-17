@@ -79,7 +79,6 @@ function sha256Fallback(ascii: string): string {
     const oldHash = [...hash];
 
     for (j = 0; j < 64; j++) {
-      let w15: number, w2: number;
       if (j < 16) {
         w[j] = words[i + j] | 0;
       } else {

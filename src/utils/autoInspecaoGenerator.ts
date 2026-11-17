@@ -241,7 +241,7 @@ ${c.immediateSafetyMeasures ? `Medidas de segurança imediatas orientadas em cam
   const textoCompletoFormatado = `================================================================================
 Governo do Estado de Mato Grosso
 SEMA - Secretaria de Estado de Meio Ambiente
-AUTO DE INSPEÇÃO                                Nº: ${g.recordNumber || '13503000126'}
+AUTO DE INSPEÇÃO                                Nº: ${g.recordNumber || g.numeroVistoria || 'S/N'}
                                                 DATA: ${dataFormatada}
 ================================================================================
 

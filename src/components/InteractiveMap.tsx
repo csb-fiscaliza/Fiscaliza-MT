@@ -9,18 +9,14 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { 
-  Search, 
   MapPin, 
-  RotateCcw, 
   Maximize2, 
   Minimize2, 
   Calendar, 
   ChevronDown, 
   X,
   Layers,
-  RefreshCw,
-  ExternalLink,
-  Sparkles
+  RefreshCw
 } from 'lucide-react';
 import { 
   NotificationItem, 
@@ -40,7 +36,7 @@ import {
 } from '../services/notificacoesService';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { InspectionData } from '../types/inspection';
-import { decimalToGms, formatGmsString } from '../utils/geoCoordinates';
+import { decimalToGms } from '../utils/geoCoordinates';
 
 interface InteractiveMapProps {
   inspections?: InspectionData[];
@@ -50,6 +46,19 @@ interface InteractiveMapProps {
 
 const MT_CENTER: [number, number] = [-12.90, -56.00];
 const MT_INITIAL_ZOOM = 6;
+
+function escapeHtml(val: unknown): string {
+  return String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizeHexColor(val: string | undefined, fallback = '#8B5CF6'): string {
+  return val && /^#[0-9A-Fa-f]{3,8}$/.test(val.trim()) ? val.trim() : fallback;
+}
 
 function formatLiveGms(lat: number, lng: number): string {
   const gmsLat = decimalToGms(lat, true);
@@ -100,7 +109,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [showAntigas, setShowAntigas] = useState<boolean>(true);
   const [showSnisb, setShowSnisb] = useState<boolean>(false);
   const [showAneel, setShowAneel] = useState<boolean>(false);
-  const [showFiscalizadas, setShowFiscalizadas] = useState<boolean>(true);
+  const showFiscalizadas = true;
 
   // Filtros inferiores da imagem: MÊS/ANO, MUNICÍPIOS, ATENDIDA (ANTIGAS) [SIM] [NÃO]
   const [selectedMesAno, setSelectedMesAno] = useState<string>('todos');
@@ -170,17 +179,17 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       }
     });
 
-    if (!isSupabaseConfigured) return;
+    const client = supabase;
+    if (!isSupabaseConfigured || !client) return;
 
-    // 2. Inscrição no canal Realtime do Supabase (postgres_changes na tabela 'notificacoes')
+    // 2. Inscrição no canal Realtime (postgres_changes na tabela 'notificacoes')
     // Sempre que um analista inserir, editar ou deletar uma notificação, o mapa atualiza automaticamente sem recarregar
-    const channel = supabase
+    const channel = client
       .channel('notificacoes-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notificacoes' },
         (payload: any) => {
-          console.info('[Supabase Realtime] Alteração detectada:', payload.eventType, payload);
 
           if (payload.eventType === 'INSERT' && payload.new) {
             const ponto = rowToNotificacaoPontoMapa(payload.new);
@@ -231,7 +240,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     window.addEventListener('csb:notificacao_changed', handleLocalUpdate);
 
     return () => {
-      supabase.removeChannel(channel);
+      client.removeChannel(channel);
       window.removeEventListener('csb:notificacao_changed', handleLocalUpdate);
     };
   }, []);
@@ -417,7 +426,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       },
       onEachFeature: (feature, fLayer) => {
         const name = feature?.properties?.name || 'Município';
-        fLayer.bindTooltip(name, {
+        fLayer.bindTooltip(escapeHtml(name), {
           sticky: true,
           direction: 'center',
           className: 'px-2 py-0.5 bg-slate-900/90 text-white text-xs font-semibold rounded shadow-md pointer-events-none'
@@ -588,8 +597,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     lng: number;
     actionId?: string;
   }): HTMLElement => {
-    const latGms = formatGmsCard(options.lat, true);
-    const lngGms = formatGmsCard(options.lng, false);
+    const latGms = escapeHtml(formatGmsCard(options.lat, true));
+    const lngGms = escapeHtml(formatGmsCard(options.lng, false));
+    const safeOrigemCor = sanitizeHexColor(options.origemCor);
 
     const div = document.createElement('div');
     div.className = 'sema-info-card';
@@ -633,23 +643,23 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
       <!-- TAG DE CATEGORIA E NÚMERO IDENTIFICADOR -->
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px;">
-        <span style="font-size:12px;font-weight:800;color:${options.origemCor || '#8B5CF6'};text-transform:uppercase;letter-spacing:0.02em;">
-          ${options.origem}
+        <span style="font-size:12px;font-weight:800;color:${safeOrigemCor};text-transform:uppercase;letter-spacing:0.02em;">
+          ${escapeHtml(options.origem)}
         </span>
         <span style="font-size:11px;font-weight:700;color:#94A3B8;font-family:ui-monospace, monospace;">
-          #${options.identificador}
+          #${escapeHtml(options.identificador)}
         </span>
       </div>
 
       <!-- EMPREENDEDOR / NOME PRINCIPAL -->
       <div style="font-size:16px;font-weight:900;color:#0F172A;line-height:1.25;margin-bottom:2px;">
-        ${options.empreendedor || 'Não informado'}
+        ${escapeHtml(options.empreendedor || 'Não informado')}
       </div>
 
       <!-- PROPRIEDADE -->
       ${options.propriedade ? `
         <div style="font-size:11.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;">
-          ${options.propriedade}
+          ${escapeHtml(options.propriedade)}
         </div>
       ` : '<div style="margin-bottom:10px;"></div>'}
 
@@ -660,7 +670,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             DATA
           </div>
           <div style="font-size:12px;font-weight:700;color:#1E293B;margin-top:2px;">
-            ${options.data || '-'}
+            ${escapeHtml(options.data || '-')}
           </div>
         </div>
         <div>
@@ -668,7 +678,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             PRAZO
           </div>
           <div style="font-size:12px;font-weight:700;color:#1E293B;margin-top:2px;">
-            ${options.prazo || '-'}
+            ${escapeHtml(options.prazo || '-')}
           </div>
         </div>
       </div>
@@ -679,7 +689,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           MUNICÍPIO
         </div>
         <div style="font-size:12.5px;font-weight:700;color:#1E293B;margin-top:2px;">
-          ${options.municipio || 'Mato Grosso'}
+          ${escapeHtml(options.municipio || 'Mato Grosso')}
         </div>
       </div>
 
@@ -689,37 +699,36 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           SITUAÇÃO/RESPOSTA
         </div>
         <div style="font-size:11.5px;font-style:italic;color:#334155;line-height:1.45;margin-top:3px;max-height:85px;overflow-y:auto;">
-          ${options.situacaoResposta || 'Sem observações adicionais.'}
+          ${escapeHtml(options.situacaoResposta || 'Sem observações adicionais.')}
         </div>
       </div>
 
       <!-- BOTÃO DE AÇÃO OPCIONAL (SE HOUVER FICHA VINCULADA) -->
       ${options.actionId ? `
-        <button id="btn-popup-${options.actionId}" style="width:100%;margin-top:12px;padding:8px 12px;background:#059669;color:#ffffff;border:none;border-radius:10px;font-size:11px;font-weight:800;cursor:pointer;transition:background 0.15s ease;">
+        <button type="button" data-action-btn="1" style="width:100%;margin-top:12px;padding:8px 12px;background:#059669;color:#ffffff;border:none;border-radius:10px;font-size:11px;font-weight:800;cursor:pointer;transition:background 0.15s ease;">
           Abrir Ficha no Sistema
         </button>
       ` : ''}
     `;
 
-    setTimeout(() => {
-      const closeBtn = div.querySelector('.sema-popup-close-btn');
-      if (closeBtn) {
-        closeBtn.addEventListener('click', (e) => {
+    const closeBtn = div.querySelector('.sema-popup-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        mapInstanceRef.current?.closePopup();
+      });
+    }
+
+    if (options.actionId && onSelectInspection) {
+      const targetActionId = options.actionId;
+      const actionBtn = div.querySelector('[data-action-btn="1"]');
+      if (actionBtn) {
+        actionBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          mapInstanceRef.current?.closePopup();
+          onSelectInspection(targetActionId);
         });
       }
-
-      if (options.actionId && onSelectInspection) {
-        const actionBtn = div.querySelector(`#btn-popup-${options.actionId}`);
-        if (actionBtn) {
-          actionBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            onSelectInspection(options.actionId!);
-          });
-        }
-      }
-    }, 40);
+    }
 
     return div;
   };
@@ -1040,7 +1049,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     showAntigas,
     showSnisb,
     showAneel,
-    showFiscalizadas,
     selectedMesAno,
     selectedMunicipality,
     filtroAtendidaSim,
@@ -1375,7 +1383,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                         : 'bg-slate-100 text-slate-500 border border-slate-200'
                     }`}
-                    title={isRealtimeConnected ? 'Supabase Realtime Ativo: notificações sincronizadas instantaneamente' : 'Supabase Realtime aguardando eventos'}
+                    title={isRealtimeConnected ? 'Tempo Real Ativo: notificações sincronizadas instantaneamente' : 'Monitoramento em Tempo Real aguardando eventos'}
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${isRealtimeConnected ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`} />
                     <span>{isRealtimeConnected ? 'AO VIVO' : 'REALTIME'}</span>
@@ -1440,7 +1448,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
                 <span className="text-emerald-400 font-extrabold uppercase text-[10px] tracking-wider">
-                  Supabase Realtime:
+                  Tempo Real Institucional:
                 </span>
                 <span className="text-slate-100 font-medium">{realtimeToast}</span>
                 <button
@@ -1465,7 +1473,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   });
                 }}
                 className="w-10 h-10 rounded-xl bg-white/95 hover:bg-white text-slate-800 shadow-md border border-slate-200 flex items-center justify-center transition cursor-pointer"
-                title="Sincronizar dados das planilhas e do Supabase Realtime"
+                title="Sincronizar dados das planilhas e monitoramento em tempo real"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-600' : 'text-slate-700'}`} />
               </button>

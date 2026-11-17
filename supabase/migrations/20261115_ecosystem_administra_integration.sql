@@ -186,6 +186,72 @@ CREATE TRIGGER trg_validar_edicao_responsaveis_tecnicos
   BEFORE UPDATE ON public.responsaveis_tecnicos
   FOR EACH ROW EXECUTE FUNCTION public.fn_validar_edicao_ecossistema();
 
+-- 5B. RPC segura para aplicar atualização superior confirmada em Vistoria Presencial
+CREATE OR REPLACE FUNCTION public.rpc_aplicar_edicao_vistoria(
+  p_entidade_tipo TEXT,
+  p_entidade_id UUID,
+  p_dados JSONB
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.is_active_csb_user() THEN
+    RAISE EXCEPTION 'Sessão institucional ativa obrigatória.' USING ERRCODE = '42501';
+  END IF;
+
+  PERFORM set_config('app.caller_system', 'fiscaliza', true);
+  PERFORM set_config('app.vistoria_superioridade', 'true', true);
+
+  IF p_entidade_tipo = 'empreendedor' THEN
+    UPDATE public.empreendedores
+    SET
+      nome_razao_social = coalesce(nullif(p_dados->>'nome_razao_social', ''), nome_razao_social),
+      cpf_cnpj = coalesce(p_dados->>'cpf_cnpj', cpf_cnpj),
+      figura_juridica = coalesce(nullif(p_dados->>'figura_juridica', ''), figura_juridica),
+      endereco = coalesce(p_dados->>'endereco', endereco),
+      telefone = coalesce(p_dados->>'telefone', telefone),
+      email = coalesce(p_dados->>'email', email),
+      car_numero = coalesce(p_dados->>'car_numero', car_numero),
+      declaracao_uso = coalesce(p_dados->>'declaracao_uso', declaracao_uso),
+      quantidade_barragens_propriedade = coalesce((p_dados->>'quantidade_barragens_propriedade')::INT, quantidade_barragens_propriedade),
+      updated_at = now()
+    WHERE id = p_entidade_id;
+    RETURN FOUND;
+  ELSIF p_entidade_tipo = 'barragem' THEN
+    UPDATE public.barragens
+    SET
+      nome = coalesce(nullif(p_dados->>'nome', ''), nome),
+      municipio = coalesce(nullif(p_dados->>'municipio', ''), municipio),
+      bacia_hidrografica = coalesce(p_dados->>'bacia_hidrografica', bacia_hidrografica),
+      curso_dagua = coalesce(p_dados->>'curso_dagua', curso_dagua),
+      ano_inicio_obra = coalesce((p_dados->>'ano_inicio_obra')::INT, ano_inicio_obra),
+      ano_final_obra = coalesce((p_dados->>'ano_final_obra')::INT, ano_final_obra),
+      tipo_barragem_material = coalesce(nullif(p_dados->>'tipo_barragem_material', ''), tipo_barragem_material),
+      uso_principal = coalesce(nullif(p_dados->>'uso_principal', ''), uso_principal),
+      updated_at = now()
+    WHERE id = p_entidade_id;
+    RETURN FOUND;
+  ELSIF p_entidade_tipo = 'responsavel_tecnico' THEN
+    UPDATE public.responsaveis_tecnicos
+    SET
+      nome = coalesce(nullif(p_dados->>'nome', ''), nome),
+      cpf = coalesce(p_dados->>'cpf', cpf),
+      registro_profissional = coalesce(p_dados->>'registro_profissional', registro_profissional),
+      art_numero = coalesce(p_dados->>'art_numero', art_numero),
+      telefone = coalesce(p_dados->>'telefone', telefone),
+      email = coalesce(p_dados->>'email', email),
+      updated_at = now()
+    WHERE id = p_entidade_id;
+    RETURN FOUND;
+  END IF;
+
+  RETURN FALSE;
+END;
+$$;
+
 -- 6. Função auxiliar de verificação de usuário ativo autenticado e administrador
 CREATE OR REPLACE FUNCTION public.is_active_csb_user()
 RETURNS BOOLEAN

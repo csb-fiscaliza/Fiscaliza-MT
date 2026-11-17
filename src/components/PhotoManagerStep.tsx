@@ -3,7 +3,6 @@ import {
   Camera, 
   Upload, 
   Trash2, 
-  ZoomIn, 
   X, 
   ArrowLeft, 
   ArrowRight,
@@ -12,13 +11,9 @@ import {
   Clock,
   MapPin,
   RefreshCw,
-  CloudOff,
   CloudCheck,
   AlertTriangle,
-  Info,
-  CloudUpload,
-  Layers,
-  Database
+  CloudUpload
 } from 'lucide-react';
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { InspectionData, PhotoRecord, PhotoSyncStatus } from '../types/inspection';
@@ -33,8 +28,7 @@ import {
   enqueuePhotoForSync, 
   enqueuePhotosFromInspection, 
   getPhotoQueueSummary, 
-  subscribePhotoQueue,
-  uploadSingleQueuePhoto 
+  subscribePhotoQueue
 } from '../services/photoSyncQueueService';
 import { PhotoSyncQueueModal } from './PhotoSyncQueueModal';
 import { formatGmsString } from '../utils/geoCoordinates';
@@ -80,6 +74,7 @@ export const PhotoManagerStep: React.FC<Props> = ({
 
   // Preview URLs em memória para evitar carregar base64 pesado
   const [photoObjectUrls, setPhotoObjectUrls] = useState<Record<string, string>>({});
+  const createdObjectUrlsRef = useRef<Set<string>>(new Set());
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -92,13 +87,39 @@ export const PhotoManagerStep: React.FC<Props> = ({
     componenteNome: p.componentName,
     descricao: p.caption,
     timestampInclusao: p.timestamp,
-    syncStatus: 'pendente_sincronizacao' as PhotoSyncStatus,
+    syncStatus: (
+      (p.syncStatus as string) === 'synced' || (p.syncStatus as string) === 'sincronizado'
+        ? 'sincronizado'
+        : p.syncStatus === 'error'
+        ? 'falha_envio'
+        : 'pendente_sincronizacao'
+    ) as PhotoSyncStatus,
     thumbnailPreviewUrl: p.dataUrl
   }));
+
+  const photoSignature = photoRecords
+    .map(p => `${p.id}:${p.remoteStorageUrl || ''}:${p.thumbnailPreviewUrl ? '1' : '0'}`)
+    .join('|');
+
+  // Revogar todas as URLs de blob alocadas ao desmontar
+  useEffect(() => {
+    const trackedUrls = createdObjectUrlsRef.current;
+    return () => {
+      trackedUrls.forEach(url => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          // ignore
+        }
+      });
+      trackedUrls.clear();
+    };
+  }, []);
 
   // Retomada do rascunho: carrega Blob do IndexedDB como ObjectURL
   useEffect(() => {
     let isMounted = true;
+    const newlyCreatedUrls: string[] = [];
 
     async function loadPreviews() {
       const urlMap: Record<string, string> = {};
@@ -109,12 +130,35 @@ export const PhotoManagerStep: React.FC<Props> = ({
           urlMap[photo.id] = photo.remoteStorageUrl;
         } else {
           const url = await getPhotoObjectUrl(photo.id);
-          if (url && isMounted) {
-            urlMap[photo.id] = url;
+          if (url) {
+            if (isMounted) {
+              urlMap[photo.id] = url;
+              if (url.startsWith('blob:')) {
+                newlyCreatedUrls.push(url);
+                createdObjectUrlsRef.current.add(url);
+              }
+            } else if (url.startsWith('blob:')) {
+              try {
+                URL.revokeObjectURL(url);
+              } catch {
+                // ignore
+              }
+            }
           }
         }
       }
       if (isMounted) {
+        const activeValues = new Set(Object.values(urlMap));
+        createdObjectUrlsRef.current.forEach(oldUrl => {
+          if (!activeValues.has(oldUrl)) {
+            try {
+              URL.revokeObjectURL(oldUrl);
+            } catch {
+              // ignore
+            }
+            createdObjectUrlsRef.current.delete(oldUrl);
+          }
+        });
         setPhotoObjectUrls(urlMap);
       }
     }
@@ -123,8 +167,18 @@ export const PhotoManagerStep: React.FC<Props> = ({
 
     return () => {
       isMounted = false;
+      newlyCreatedUrls.forEach(url => {
+        if (createdObjectUrlsRef.current.has(url)) {
+          try {
+            URL.revokeObjectURL(url);
+          } catch {
+            // ignore
+          }
+          createdObjectUrlsRef.current.delete(url);
+        }
+      });
     };
-  }, [photoRecords.length]);
+  }, [photoSignature]);
 
   // Monitora a fila de fotos do IndexedDB em tempo real e auto-enfileira fotos desta vistoria
   useEffect(() => {
@@ -239,6 +293,7 @@ export const PhotoManagerStep: React.FC<Props> = ({
         // 1. Armazenar no IndexedDB local seguro (não polui o JSON/localStorage)
         await savePhotoBlob(photoId, compressedBlob);
         const objectUrl = URL.createObjectURL(compressedBlob);
+        createdObjectUrlsRef.current.add(objectUrl);
         updatedObjectUrls[photoId] = objectUrl;
 
         // 2. Registrar na fila persistente de sincronização do IndexedDB
@@ -297,7 +352,16 @@ export const PhotoManagerStep: React.FC<Props> = ({
           componentName: p.componenteNome,
           locationDescription: p.itemRotulo || 'Geral do componente',
           caption: p.descricao || `Registro de ${p.componenteNome}`,
-          timestamp: p.timestampInclusao
+          timestamp: p.timestampInclusao,
+          latitude: p.coordenadas?.latitude,
+          longitude: p.coordenadas?.longitude,
+          accuracyMeters: p.coordenadas?.acuraciaMetros ?? undefined,
+          syncStatus:
+            p.syncStatus === 'sincronizado'
+              ? ('synced' as const)
+              : p.syncStatus === 'falha_envio'
+              ? ('error' as const)
+              : ('local' as const)
         }));
 
         return {
@@ -318,6 +382,16 @@ export const PhotoManagerStep: React.FC<Props> = ({
 
   const handleDeletePhoto = async (photoId: string) => {
     await deletePhotoBlob(photoId);
+
+    const existingUrl = photoObjectUrls[photoId];
+    if (existingUrl && existingUrl.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(existingUrl);
+      } catch {
+        // ignore
+      }
+      createdObjectUrlsRef.current.delete(existingUrl);
+    }
 
     onChange(prev => {
       const updatedRecords = (prev.photoRecords || []).filter(p => p.id !== photoId);
@@ -394,9 +468,24 @@ export const PhotoManagerStep: React.FC<Props> = ({
         }
       }
 
+      const statusMap = new Map(updatedList.map(rec => [rec.id, rec]));
       onChange(prev => ({
         ...prev,
-        photoRecords: updatedList
+        photoRecords: updatedList,
+        photos: (prev.photos || []).map(legacy => {
+          const updatedRec = statusMap.get(legacy.id);
+          if (!updatedRec) return legacy;
+          return {
+            ...legacy,
+            syncStatus:
+              updatedRec.syncStatus === 'sincronizado'
+                ? ('synced' as const)
+                : updatedRec.syncStatus === 'falha_envio'
+                ? ('error' as const)
+                : legacy.syncStatus,
+            dataUrl: updatedRec.remoteStorageUrl || legacy.dataUrl
+          };
+        })
       }));
     } finally {
       setIsRetryingSync(false);

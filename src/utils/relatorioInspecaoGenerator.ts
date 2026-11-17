@@ -232,29 +232,38 @@ export function generateRelatorioInspecaoData(data: InspectionData): RelatorioIn
   }
   if (d.spillwayType && d.spillwayType !== 'outro') {
     const mapSpillway: Record<string, string> = {
+      soleira_livre_concreto: 'Soleira livre em concreto',
+      canal_lateral_escavado: 'Canal lateral escavado',
+      tulipa_morning_glory: 'Tulipa / Morning Glory',
+      tubulacao_manilha: 'Tubulação / Manilha',
+      bueiro: 'Bueiro / Galeria',
+      inexistente_vertimento_crista: 'Inexistente (vertimento pela crista)',
       soleira_livre: 'Canal em soleira livre',
       canal_lateral: 'Canal lateral',
-      tulipa: 'Tulipa / Manhole (Morning Glory)',
-      tubular: 'Tubular / Manilha',
+      tulipa: 'Tulipa / Morning Glory',
+      tubular: 'Tubulação / Manilha',
       comportas: 'Comportas mecânicas',
       inexistente: 'Inexistente'
     };
     caracteristicasGeraisLinhas.push({ 
       rotulo: 'Capacidade do vertedouro / Tipo', 
-      valor: mapSpillway[d.spillwayType] || d.spillwayType 
+      valor: mapSpillway[d.spillwayType] || d.spillwayType.replace(/_/g, ' ') 
     });
   }
   if (d.damType) {
     const mapDamType: Record<string, string> = {
       terra_homogenea: 'terra homogênea',
       terra_zoneada: 'terra zoneada',
+      terra_enrocamento: 'terra com enrocamento',
+      aterro_barragem: 'aterro / barragem de terra',
       enrocamento: 'enrocamento',
       concreto: 'concreto gravidade',
+      alvenaria_pedra: 'alvenaria de pedra',
       alvenaria: 'alvenaria de pedra',
       mista: 'seção mista',
       outro: 'estrutura de barramento'
     };
-    caracteristicasGeraisLinhas.push({ rotulo: 'Material utilizado', valor: mapDamType[d.damType] || d.damType });
+    caracteristicasGeraisLinhas.push({ rotulo: 'Material utilizado', valor: mapDamType[d.damType] || d.damType.replace(/_/g, ' ') });
   }
   if (d.mainWaterUse && d.mainWaterUse.trim() !== '') {
     const usos = [d.mainWaterUse, ...(d.secondaryWaterUses || [])].filter(Boolean).join(', ');

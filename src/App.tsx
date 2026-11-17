@@ -35,8 +35,7 @@ import { getInspectorSession, signOutInspector, fetchLatestNumeroVistoriaFromSup
 import { 
   canUserCreateInspection, 
   canUserEditInspection, 
-  canUserDeleteInspection,
-  canUserManageUsers 
+  canUserDeleteInspection
 } from './services/userService';
 import { 
   processAllPendingPhotoQueue, 
@@ -59,7 +58,6 @@ import {
   syncAllPendingInspections,
   syncSingleInspection,
   loadAllInspectionsWithFallback,
-  getStorageQuotaEstimate,
   isInspectionEmpty,
   isSampleInspection,
   purgeAllMockData
@@ -67,8 +65,7 @@ import {
 import { formatGmsString } from './utils/geoCoordinates';
 import { 
   validateAndSanitizeImportedInspection, 
-  decryptTextAesGcm,
-  createAuthenticitySeal
+  decryptTextAesGcm
 } from './utils/securityCrypto';
 
 // Variantes para animação de deslize (slide) suave entre as etapas (0 a 6) para tablets e campo
@@ -110,35 +107,48 @@ function AppContent() {
   const prevStepRef = useRef<number>(0);
   const previousInspectionBeforeNewRef = useRef<InspectionData | null>(null);
 
+  const activeStepRef = useRef<number>(0);
+  const currentInspectionRef = useRef<InspectionData>(currentInspection);
+  const [showNewInspectionConfirm, setShowNewInspectionConfirm] = useState<boolean>(false);
+
+  useEffect(() => {
+    activeStepRef.current = activeStep;
+  }, [activeStep]);
+
+  useEffect(() => {
+    currentInspectionRef.current = currentInspection;
+  }, [currentInspection]);
+
   // Navegação entre etapas com cálculo de direção para animação suave de deslize (slide)
   const setActiveStep = (stepOrUpdater: number | ((prev: number) => number)) => {
-    setActiveStepState(current => {
-      const next = typeof stepOrUpdater === 'function' ? stepOrUpdater(current) : stepOrUpdater;
-      if (next !== current) {
-        // Se o usuário entrar em "Nova Ficha" mas sair sem preencher nada,
-        // desconsiderar e não salvar automaticamente quando o preenchimento for zero (0%)
-        if (current >= 1 && current <= 4 && (next === 0 || next >= 5)) {
-          if (currentInspection && isInspectionEmpty(currentInspection)) {
-            deleteInspection(currentInspection.id);
-            const validList = getAllInspections();
-            const fallback = previousInspectionBeforeNewRef.current && !isInspectionEmpty(previousInspectionBeforeNewRef.current)
-              ? previousInspectionBeforeNewRef.current
-              : (validList.length > 0 ? validList[0] : createEmptyInspection());
-            setCurrentInspection(fallback);
-            setInspections(validList);
-          }
-        }
-
-        setSlideDirection(next > current ? 1 : -1);
-        prevStepRef.current = current;
-        try {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        } catch {
-          // fallback
+    const current = activeStepRef.current;
+    const next = typeof stepOrUpdater === 'function' ? stepOrUpdater(current) : stepOrUpdater;
+    if (next !== current) {
+      const currInsp = currentInspectionRef.current;
+      // Se o usuário entrar em "Nova Ficha" mas sair sem preencher nada,
+      // desconsiderar e não salvar automaticamente quando o preenchimento for zero (0%)
+      if (current >= 1 && current <= 4 && (next === 0 || next >= 5)) {
+        if (currInsp && isInspectionEmpty(currInsp)) {
+          deleteInspection(currInsp.id);
+          const validList = getAllInspections();
+          const fallback = previousInspectionBeforeNewRef.current && !isInspectionEmpty(previousInspectionBeforeNewRef.current)
+            ? previousInspectionBeforeNewRef.current
+            : (validList.length > 0 ? validList[0] : createEmptyInspection());
+          setCurrentInspection(fallback);
+          setInspections(validList);
         }
       }
-      return next;
-    });
+
+      setSlideDirection(next > current ? 1 : -1);
+      prevStepRef.current = current;
+      activeStepRef.current = next;
+      setActiveStepState(next);
+      try {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch {
+        // fallback
+      }
+    }
   };
 
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -167,6 +177,15 @@ function AppContent() {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; type: 'success' | 'info' | 'error'; isRls?: boolean } | null>(null);
   const saveTimeoutRef = useRef<any>(null);
+  const syncFeedbackTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (syncFeedbackTimeoutRef.current) {
+        window.clearTimeout(syncFeedbackTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -244,7 +263,7 @@ function AppContent() {
       syncAllPendingInspections().then(res => {
         const updatedList = getAllInspections();
         setInspections(updatedList);
-        const curr = updatedList.find(i => i.id === currentInspection.id);
+        const curr = updatedList.find(i => i.id === currentInspectionRef.current.id);
         if (curr) setCurrentInspection(curr);
 
         if (res.synced > 0) {
@@ -261,7 +280,7 @@ function AppContent() {
             isRls: true
           });
         }
-      }).catch(() => {
+      }).finally(() => {
         setIsSyncing(false);
       });
     };
@@ -281,7 +300,7 @@ function AppContent() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [currentInspection.id]);
+  }, []);
 
   // Função para sincronização manual acionada pelo usuário
   const handleSyncNow = async () => {
@@ -329,7 +348,10 @@ function AppContent() {
       });
     } finally {
       setIsSyncing(false);
-      setTimeout(() => {
+      if (syncFeedbackTimeoutRef.current) {
+        window.clearTimeout(syncFeedbackTimeoutRef.current);
+      }
+      syncFeedbackTimeoutRef.current = window.setTimeout(() => {
         setSyncFeedback(prev => (prev?.type === 'success' ? null : prev));
       }, 7000);
     }
@@ -468,108 +490,125 @@ function AppContent() {
     });
   };
 
-  const handleNewInspection = async () => {
-    if (!canUserCreateInspection(session?.role)) {
-      alert('Perfil Visualizador: Acesso apenas para consulta. Seu perfil não possui permissão para criar novas fichas de vistoria.');
-      return;
+  const executeNewInspection = async () => {
+    setShowNewInspectionConfirm(false);
+    // Se a vistoria anterior não for vazia, salva a referência para restauração caso saia sem preencher
+    if (currentInspection && !isInspectionEmpty(currentInspection)) {
+      previousInspectionBeforeNewRef.current = currentInspection;
     }
 
-    let proceed = true;
-    try {
-      proceed = window.confirm('Deseja iniciar uma nova vistoria em branco?');
-    } catch {
-      proceed = true;
-    }
-    if (proceed) {
-      // Se a vistoria anterior não for vazia, salva a referência para restauração caso saia sem preencher
-      if (currentInspection && !isInspectionEmpty(currentInspection)) {
-        previousInspectionBeforeNewRef.current = currentInspection;
-      }
+    const fresh = createEmptyInspection({
+      email: session?.email,
+      fullName: session?.fullName || (session?.email ? session.email.split('@')[0] : 'Fiscal Técnico'),
+      id: (session as any)?.id,
+      cargo: (session as any)?.cargo || 'Fiscal Técnico CSB',
+      sector: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
+    });
+    // NÃO salva automaticamente no storage quando o preenchimento for zero (0%)
+    setCurrentInspection(fresh);
+    setActiveStep(1); // Direciona para a Ficha
 
-      const fresh = createEmptyInspection({
-        email: session?.email,
-        fullName: session?.fullName || (session?.email ? session.email.split('@')[0] : 'Fiscal Técnico'),
-        id: (session as any)?.id,
-        cargo: (session as any)?.cargo || 'Fiscal Técnico CSB',
-        sector: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
-      });
-      // NÃO salva automaticamente no storage quando o preenchimento for zero (0%)
-      setCurrentInspection(fresh);
-      setActiveStep(1); // Direciona para a Ficha
-
-      // Atualiza a numeração caso haja registro mais recente em nuvem (Supabase)
-      fetchLatestNumeroVistoriaFromSupabase().then(remoteNum => {
-        if (remoteNum) {
-          setCurrentInspection(prev => {
-            if (
-              prev.id === fresh.id && 
-              prev.tipoPlanejamento !== 'futura' && 
-              prev.generalInfo.tipoPlanejamento !== 'futura' &&
-              (!prev.generalInfo.numeroVistoria || prev.generalInfo.numeroVistoria === fresh.generalInfo.numeroVistoria)
-            ) {
-              return {
-                ...prev,
-                generalInfo: {
-                  ...prev.generalInfo,
-                  numeroVistoria: remoteNum
-                }
-              };
-            }
-            return prev;
-          });
-        }
-      }).catch(() => {});
-
-      // Captura precisa de coordenadas do navegador ao iniciar a inspeção
-      const loc = await captureBrowserLocation();
-      if (loc) {
+    // Atualiza a numeração caso haja registro mais recente em nuvem
+    fetchLatestNumeroVistoriaFromSupabase().then(remoteNum => {
+      if (remoteNum) {
         setCurrentInspection(prev => {
-          // Se o usuário ainda não alterou manualmente as coordenadas deste formulário
-          if (prev.id === fresh.id && !prev.damIdentification.coordinates.isManualEdit) {
-            const updated: InspectionData = {
+          if (
+            prev.id === fresh.id && 
+            prev.tipoPlanejamento !== 'futura' && 
+            prev.generalInfo.tipoPlanejamento !== 'futura' &&
+            (!prev.generalInfo.numeroVistoria || prev.generalInfo.numeroVistoria === fresh.generalInfo.numeroVistoria)
+          ) {
+            return {
               ...prev,
-              damIdentification: {
-                ...prev.damIdentification,
-                coordinates: {
-                  ...prev.damIdentification.coordinates,
-                  latitude: loc.latitude,
-                  longitude: loc.longitude,
-                  accuracyMeters: loc.accuracyMeters,
-                  altitudeMeters: loc.altitudeMeters,
-                  captureTimestamp: loc.captureTimestamp,
-                  isManualEdit: false
-                }
+              generalInfo: {
+                ...prev.generalInfo,
+                numeroVistoria: remoteNum
               }
             };
-            // Não salva automaticamente com preenchimento 0%
-            return updated;
           }
           return prev;
         });
       }
+    }).catch(() => {});
+
+    // Captura precisa de coordenadas do navegador ao iniciar a inspeção
+    const loc = await captureBrowserLocation();
+    if (loc) {
+      setCurrentInspection(prev => {
+        // Se o usuário ainda não alterou manualmente as coordenadas deste formulário
+        if (prev.id === fresh.id && !prev.damIdentification.coordinates.isManualEdit) {
+          const updated: InspectionData = {
+            ...prev,
+            damIdentification: {
+              ...prev.damIdentification,
+              coordinates: {
+                ...prev.damIdentification.coordinates,
+                latitude: loc.latitude,
+                longitude: loc.longitude,
+                accuracyMeters: loc.accuracyMeters,
+                altitudeMeters: loc.altitudeMeters,
+                captureTimestamp: loc.captureTimestamp,
+                isManualEdit: false
+              }
+            }
+          };
+          // Não salva automaticamente com preenchimento 0%
+          return updated;
+        }
+        return prev;
+      });
+    }
+  };
+
+  const handleNewInspection = () => {
+    if (!canUserCreateInspection(session?.role)) {
+      setSyncFeedback({
+        message: 'Perfil Visualizador: Acesso apenas para consulta. Seu perfil não possui permissão para criar novas fichas de vistoria.',
+        type: 'error'
+      });
+      return;
+    }
+
+    if (currentInspection && !isInspectionEmpty(currentInspection)) {
+      setShowNewInspectionConfirm(true);
+    } else {
+      executeNewInspection();
     }
   };
 
   const handleSaveInspection = async () => {
     const editCheck = canUserEditInspection(session, currentInspection);
     if (!editCheck.allowed) {
-      alert(editCheck.reason || 'Você não possui permissão para salvar alterações nesta vistoria.');
+      setSyncFeedback({
+        message: editCheck.reason || 'Você não possui permissão para salvar alterações nesta vistoria.',
+        type: 'error'
+      });
       return;
     }
 
     // Se o preenchimento for 0%, alerta o usuário
     if (isInspectionEmpty(currentInspection)) {
-      alert('A ficha de vistoria está vazia (0% de preenchimento). Preencha ao menos o nome da barragem, empreendimento ou constatações antes de salvar.');
+      setSyncFeedback({
+        message: 'A ficha de vistoria está vazia (0% de preenchimento). Preencha ao menos o nome da barragem, empreendimento ou constatações antes de salvar.',
+        type: 'info'
+      });
       return;
     }
 
-    // Se a ficha atual ainda não tiver autor registrado, vincula ao usuário logado
-    if (!currentInspection.createdByEmail && session?.email) {
-      currentInspection.createdByEmail = session.email;
-      currentInspection.createdByName = session.fullName || session.email;
+    // Se a ficha atual ainda não tiver autor registrado, vincula ao usuário logado sem mutação direta de estado
+    const preparedInspection: InspectionData = !currentInspection.createdByEmail && session?.email
+      ? {
+          ...currentInspection,
+          createdByEmail: session.email,
+          createdByName: session.fullName || session.email
+        }
+      : currentInspection;
+
+    if (preparedInspection !== currentInspection) {
+      setCurrentInspection(preparedInspection);
     }
 
-    const coords = currentInspection.damIdentification.coordinates;
+    const coords = preparedInspection.damIdentification.coordinates;
     const isManual = coords.isManualEdit;
     const hasLat = !!coords.latitude?.trim();
     const hasLng = !!coords.longitude?.trim();
@@ -587,6 +626,8 @@ function AppContent() {
           }
           const updated: InspectionData = {
             ...prev,
+            createdByEmail: prev.createdByEmail || preparedInspection.createdByEmail,
+            createdByName: prev.createdByName || preparedInspection.createdByName,
             damIdentification: {
               ...prev.damIdentification,
               coordinates: {
@@ -605,12 +646,12 @@ function AppContent() {
           return updated;
         });
       } else {
-        saveInspection(currentInspection);
+        saveInspection(preparedInspection);
         setInspections(getAllInspections());
       }
     } else {
       // Espaço editado manualmente pelo usuário: dados do usuário são integralmente preservados
-      saveInspection(currentInspection);
+      saveInspection(preparedInspection);
       setInspections(getAllInspections());
     }
 
@@ -640,7 +681,10 @@ function AppContent() {
     if (target) {
       const deleteCheck = canUserDeleteInspection(session, target);
       if (!deleteCheck.allowed) {
-        alert(deleteCheck.reason || 'Você não possui permissão para excluir esta vistoria.');
+        setSyncFeedback({
+          message: deleteCheck.reason || 'Você não possui permissão para excluir esta vistoria.',
+          type: 'error'
+        });
         return;
       }
     }
@@ -658,9 +702,8 @@ function AppContent() {
           fullName: session?.fullName,
           id: (session as any)?.id
         });
-        saveInspection(fresh);
         setCurrentInspection(fresh);
-        setInspections([fresh]);
+        setInspections([]);
       }
     }
   };
@@ -1165,6 +1208,36 @@ function AppContent() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Modal de Confirmação para Nova Vistoria em Branco */}
+      {showNewInspectionConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-sm p-5 space-y-4">
+            <h3 className="text-sm font-black text-slate-900 dark:text-white">
+              Iniciar Nova Vistoria em Branco?
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              A ficha atual já possui dados preenchidos e continuará salva automaticamente no aparelho. Deseja abrir uma nova ficha limpa?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowNewInspectionConfirm(false)}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={executeNewInspection}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+              >
+                Sim, Nova Ficha
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

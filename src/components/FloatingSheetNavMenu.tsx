@@ -11,15 +11,7 @@ import {
   ChevronDown, 
   X, 
   ArrowUp, 
-  ArrowDown, 
-  CheckCircle2, 
-  Layers, 
-  Eye, 
-  FileText, 
-  Camera, 
-  Sparkles,
-  Maximize2,
-  Minimize2
+  ArrowDown
 } from 'lucide-react';
 
 export interface NavTopicItem {
@@ -154,8 +146,7 @@ export const FloatingSheetNavMenu: React.FC<FloatingSheetNavMenuProps> = ({
   openSections,
   onNavigateToSection,
   onExpandAll,
-  onCollapseAll,
-  photosCount = 0
+  onCollapseAll
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeSectionId, setActiveSectionId] = useState<string>('sec-topico-1');

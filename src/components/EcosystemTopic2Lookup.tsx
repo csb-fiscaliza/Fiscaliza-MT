@@ -9,7 +9,9 @@ import {
   Landmark,
   Download,
   RefreshCw,
-  X
+  X,
+  Globe,
+  ExternalLink
 } from 'lucide-react';
 import {
   BarragemEntity,
@@ -22,6 +24,7 @@ import {
   ServerConnectivityResult
 } from '../services/ecosystemConfig';
 import { searchEcosystemEntrepreneursAndDams } from '../services/administraEcosystemService';
+import { lookupCarMtByCode, SemaCarImovelResult } from '../services/semaCarPublicService';
 
 interface EcosystemTopic2LookupProps {
   initialQuery?: string;
@@ -30,11 +33,13 @@ interface EcosystemTopic2LookupProps {
     barragem?: BarragemEntity | null;
     responsavelTecnico?: ResponsavelTecnicoEntity | null;
   }) => void;
+  onApplyCarOnly?: (car: SemaCarImovelResult) => void;
 }
 
 export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
   initialQuery = '',
-  onExportSelection
+  onExportSelection,
+  onApplyCarOnly
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState(initialQuery);
@@ -45,12 +50,15 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
     barragens: BarragemEntity[];
     responsaveisTecnicos: ResponsavelTecnicoEntity[];
     queriedRemote: boolean;
+    authBlocked?: boolean;
   }>({
     empreendedores: [],
     barragens: [],
     responsaveisTecnicos: [],
-    queriedRemote: false
+    queriedRemote: false,
+    authBlocked: false
   });
+  const [carResults, setCarResults] = useState<SemaCarImovelResult[]>([]);
   const [selectedEmpId, setSelectedEmpId] = useState<string | null>(null);
   const [selectedDamId, setSelectedDamId] = useState<string | null>(null);
 
@@ -82,8 +90,14 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
         : null
     );
     try {
-      const res = await searchEcosystemEntrepreneursAndDams(q);
+      const trimmedQ = q.trim();
+      const looksLikeCar = isOnline && (/^MT[-_\s]?\d/i.test(trimmedQ) || trimmedQ.replace(/[^A-Z0-9]/gi, '').length >= 16);
+      const [res, carList] = await Promise.all([
+        searchEcosystemEntrepreneursAndDams(q),
+        looksLikeCar ? lookupCarMtByCode(trimmedQ) : Promise.resolve([])
+      ]);
       setResults(res);
+      setCarResults(carList);
       if (res.empreendedores.length === 1) {
         setSelectedEmpId(res.empreendedores[0].id);
       }
@@ -131,7 +145,7 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
                   : s.sistema === 'classifica'
                   ? 'Classifica'
                   : 'Notifica'}
-                : {s.reachable ? `OK${s.latencyMs ? ` (${s.latencyMs}ms)` : ''}` : s.configured ? 'Falha' : 'Sem chave .env'}
+                : {s.reachable ? `OK${s.latencyMs ? ` (${s.latencyMs}ms)` : ''}` : s.configured ? 'Falha' : 'Local'}
               </span>
             </span>
           ))}
@@ -212,11 +226,58 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
           </div>
 
           {results.empreendedores.length === 0 ? (
-            <p className="text-xs text-slate-500 py-2">
-              Nenhum empreendedor localizado para o termo informado.
-              {!results.queriedRemote &&
-                ' Configure VITE_ADMINISTRA_SUPABASE_URL e VITE_ADMINISTRA_SUPABASE_ANON_KEY no .env para consultar registros remotos do Administra.'}
-            </p>
+            <div className="space-y-2 py-2">
+              <p className="text-xs text-slate-500">
+                Nenhum empreendedor localizado para o termo informado (Nome, CPF/CNPJ ou CAR).
+                {results.authBlocked &&
+                  ' Autentique sua sessão institucional para consultar registros protegidos na base remota.'}
+              </p>
+              {carResults.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <span className="text-[11px] font-bold text-indigo-900 flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>CAR/MT localizado na Base Pública SEMA/MT:</span>
+                  </span>
+                  {carResults.map(car => (
+                    <div
+                      key={car.codImovel}
+                      className="p-2.5 rounded-lg bg-indigo-50/70 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div>
+                        <div className="font-mono font-black text-indigo-950">{car.codImovel}</div>
+                        <div className="text-[11px] text-slate-600">
+                          {car.municipio || 'MT'} · {car.statusLabel} · {car.condicao}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <a
+                          href={car.consultaPublicaUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2 py-1 rounded bg-white border border-slate-200 text-[11px] font-semibold text-slate-700 flex items-center gap-1"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>SIMCAR</span>
+                        </a>
+                        {onApplyCarOnly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onApplyCarOnly(car);
+                              setIsOpen(false);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>Utilizar CAR</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           ) : (
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
               {results.empreendedores.map(emp => {

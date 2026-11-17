@@ -3,7 +3,7 @@
 // Visualização fiel ao modelo SEMA-MT (SIGA AUTUAÇÃO), edição e citações legais
 // ==============================================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Printer, 
   RotateCcw, 
@@ -11,9 +11,7 @@ import {
   Edit3, 
   Eye, 
   Scale, 
-  Check, 
   Download, 
-  CheckCircle2, 
   ShieldCheck, 
   FileText,
   UserCheck
@@ -35,7 +33,15 @@ export const AutoInspecaoDocumentView: React.FC<Props> = ({ data, onChange }) =>
     data.generalInfo.inspectors[0]?.name || 'Servidor Fiscalizador CSB'
   );
   const [lastSavedInfo, setLastSavedInfo] = useState<{ timestamp: string; author: string } | null>(null);
-  const [copyFeedback, setCopyFeedback] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const timersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach(t => window.clearTimeout(t));
+    };
+  }, []);
 
   // Inicializar o texto base a partir dos dados do formulário
   const autoData: AutoInspecaoGeneratedStructure = generateAutoInspecaoData(data, legalRefs);
@@ -49,21 +55,25 @@ export const AutoInspecaoDocumentView: React.FC<Props> = ({ data, onChange }) =>
   }, [data.id]);
 
   const handleRestoreBase = () => {
-    if (confirm('Deseja restaurar o texto-base original com os dados do formulário? Quaisquer edições manuais livres serão descartadas.')) {
-      const fresh = generateAutoInspecaoData(data, legalRefs);
-      setEditorText(fresh.textoCompletoFormatado);
-      onChange(prev => ({
-        ...prev,
-        drafts: {
-          ...prev.drafts,
-          inspectionNotice: fresh.textoCompletoFormatado
-        }
-      }));
+    if (!confirmRestore) {
+      setConfirmRestore(true);
+      const t = window.setTimeout(() => setConfirmRestore(false), 4000);
+      timersRef.current.push(t);
+      return;
     }
+    setConfirmRestore(false);
+    const fresh = generateAutoInspecaoData(data, legalRefs);
+    setEditorText(fresh.textoCompletoFormatado);
+    onChange(prev => ({
+      ...prev,
+      drafts: {
+        ...prev.drafts,
+        inspectionNotice: fresh.textoCompletoFormatado
+      }
+    }));
   };
 
   const handleSaveFinal = () => {
-    const now = new Date().toISOString();
     onChange(prev => ({
       ...prev,
       drafts: {
@@ -75,7 +85,9 @@ export const AutoInspecaoDocumentView: React.FC<Props> = ({ data, onChange }) =>
       timestamp: new Date().toLocaleString('pt-BR'),
       author: editorAuthor
     });
-    alert('Minuta do Auto de Inspeção salva e associada com sucesso ao registro da vistoria!');
+    setSaveFeedback('Minuta do Auto de Inspeção salva e associada com sucesso ao registro da vistoria.');
+    const t = window.setTimeout(() => setSaveFeedback(null), 4500);
+    timersRef.current.push(t);
   };
 
   const handlePrint = () => {
@@ -159,11 +171,17 @@ export const AutoInspecaoDocumentView: React.FC<Props> = ({ data, onChange }) =>
           <button
             type="button"
             onClick={handleRestoreBase}
-            className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold flex items-center gap-1.5 cursor-pointer"
+            className={`px-3 py-1.5 rounded-lg border font-semibold flex items-center gap-1.5 cursor-pointer transition ${
+              confirmRestore
+                ? 'border-amber-500 bg-amber-600 hover:bg-amber-700 text-white'
+                : 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200'
+            }`}
             title="Restaura o texto gerado a partir do formulário de campo"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-            <span className="hidden sm:inline">Restaurar Base</span>
+            <RotateCcw className={`w-3.5 h-3.5 ${confirmRestore ? 'text-white' : 'text-slate-400'}`} />
+            <span className={confirmRestore ? 'inline' : 'hidden sm:inline'}>
+              {confirmRestore ? 'Confirmar Restauração?' : 'Restaurar Base'}
+            </span>
           </button>
 
           <button
@@ -207,6 +225,12 @@ export const AutoInspecaoDocumentView: React.FC<Props> = ({ data, onChange }) =>
           </button>
         </div>
       </div>
+
+      {saveFeedback && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded-xl text-xs font-semibold print:hidden">
+          {saveFeedback}
+        </div>
+      )}
 
       {/* ABA 1: MODELO VISUAL OFICIAL (SIGA AUTUAÇÃO SEMA-MT) */}
       {activeTab === 'visual' && (

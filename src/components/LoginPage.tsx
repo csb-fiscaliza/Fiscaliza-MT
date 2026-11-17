@@ -4,7 +4,7 @@
 // Controle de Acesso Estrito sem senhas hardcoded ou credenciais expostas
 // ==============================================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldCheck,
   Lock,
@@ -44,6 +44,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
+  const actionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     hasAnyAdminUser()
@@ -54,6 +55,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
         }
       })
       .catch(() => {});
+    return () => {
+      if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
+    };
   }, []);
 
   const handleSwitchMode = (newMode: 'login' | 'register' | 'bootstrap') => {
@@ -107,7 +111,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
         const res = await signInInspector(email, password);
         if (res.success) {
           setFeedback({ type: 'success', text: 'Autenticação confirmada. Carregando sistema...' });
-          setTimeout(() => {
+          if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
+          actionTimerRef.current = setTimeout(() => {
             onLoginSuccess({
               email: res.email || email,
               fullName: res.fullName,
@@ -129,13 +134,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
           password
         });
         if (res.success && res.user) {
-          await signInInspector(email, password);
+          const signInRes = await signInInspector(email, password);
+          if (!signInRes.success) {
+            setFeedback({
+              type: 'error',
+              text: signInRes.error || 'Administrador criado, mas falhou ao iniciar sessão automática. Tente entrar manualmente.'
+            });
+            setMode('login');
+            setPassword('');
+            setConfirmPassword('');
+            return;
+          }
           setFeedback({ type: 'success', text: 'Administrador inicial configurado com segurança!' });
-          setTimeout(() => {
+          if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
+          actionTimerRef.current = setTimeout(() => {
             onLoginSuccess({
-              email: res.user!.email,
-              fullName: res.user!.name,
-              role: 'administrador'
+              email: signInRes.email || res.user!.email,
+              fullName: signInRes.fullName || res.user!.name,
+              role: signInRes.role || 'administrador'
             });
           }, 400);
         } else {
@@ -156,7 +172,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
               res.message ||
               'Solicitação de acesso enviada com sucesso! Aguarde a aprovação de um Administrador.'
           });
-          setTimeout(() => {
+          if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
+          actionTimerRef.current = setTimeout(() => {
             setMode('login');
             setPassword('');
             setConfirmPassword('');

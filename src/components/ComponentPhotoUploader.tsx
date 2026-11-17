@@ -13,7 +13,6 @@ import {
   Camera, 
   Upload, 
   Trash2, 
-  ZoomIn, 
   X, 
   MapPin, 
   Clock, 
@@ -23,7 +22,6 @@ import {
   ChevronUp,
   Layers,
   Navigation,
-  RefreshCw,
   Image as ImageIcon
 } from 'lucide-react';
 import { InspectionPhoto } from '../types/inspection';
@@ -44,11 +42,11 @@ interface ComponentPhotoUploaderProps {
   componentName: string;
   allPhotos: InspectionPhoto[];
   onUpdatePhotos: (updatedPhotos: InspectionPhoto[]) => void;
-  inspectionId: string;
+  inspectionId?: string;
 }
 
 interface PendingModalBatchData {
-  items: { file: File; previewUrl: string; name: string }[];
+  items: { previewUrl: string; blob: Blob; name: string }[];
   caption: string;
   hasCaption: boolean;
   hasGeoTimestamp: boolean;
@@ -71,8 +69,7 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
   componentId,
   componentName,
   allPhotos,
-  onUpdatePhotos,
-  inspectionId
+  onUpdatePhotos
 }) => {
   // Controle de expandir/suprimir o registro fotográfico deste componente
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
@@ -156,15 +153,15 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
         }
       }
 
-      const processedItems: { file: File; previewUrl: string; name: string }[] = [];
+      const processedItems: { previewUrl: string; blob: Blob; name: string }[] = [];
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         try {
-          const { dataUrl } = await compressImageToDataUrlAndBlob(file, 1600, 0.82);
+          const { dataUrl, blob } = await compressImageToDataUrlAndBlob(file, 1600, 0.82);
           processedItems.push({
-            file,
             previewUrl: dataUrl,
+            blob,
             name: file.name
           });
         } catch (compressErr) {
@@ -216,9 +213,8 @@ export const ComponentPhotoUploader: React.FC<ComponentPhotoUploaderProps> = ({
       for (let i = 0; i < pendingModalData.items.length; i++) {
         const item = pendingModalData.items[i];
         const photoId = `foto-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`;
-        const { blob } = await compressImageToDataUrlAndBlob(item.file, 1600, 0.82);
 
-        await savePhotoBlob(photoId, blob);
+        await savePhotoBlob(photoId, item.blob);
 
         let photoCaption = '';
         if (pendingModalData.hasCaption) {

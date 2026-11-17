@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Info, Edit3, CheckCircle2, BellRing } from 'lucide-react';
+import { Info, Edit3, CheckCircle2 } from 'lucide-react';
 import { ImportedFieldOriginRecord } from '../types/inspection';
 import { getSistemaLabel } from '../services/ecosystemConfig';
 
@@ -62,11 +62,11 @@ export const EcosystemImportedField: React.FC<EcosystemImportedFieldProps> = ({
 
   const sourceLabel = getSistemaLabel(meta.sourceSystem);
   const wasModified = (currentValue || '').trim() !== (meta.originalValue || '').trim();
-  const tooltipText = `Dado importado do sistema: ${sourceLabel}. Clique ou passe o mouse para visualizar a origem e abrir para alterar (a vistoria atualiza os demais sistemas e notifica o analista autor).`;
+  const tooltipText = `Dado importado do sistema: ${sourceLabel}. Editável diretamente — ao salvar a vistoria, a versão editada será gravada no banco e notificará o analista autor.`;
 
   const inputClassName = wasModified
     ? 'w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border-2 border-orange-500 rounded-lg bg-orange-100/90 text-orange-950 font-semibold ring-2 ring-orange-300/60 focus:outline-hidden focus:ring-orange-500'
-    : 'w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border-2 border-orange-400 rounded-lg bg-orange-50 text-orange-950 font-medium ring-1 ring-orange-300/70 cursor-pointer focus:outline-hidden focus:ring-orange-500';
+    : 'w-full text-xs sm:text-sm min-h-[44px] px-3 py-2 border-2 border-orange-400 rounded-lg bg-orange-50 text-orange-950 font-medium ring-1 ring-orange-300/70 focus:outline-hidden focus:ring-orange-500';
 
   return (
     <div
@@ -98,20 +98,22 @@ export const EcosystemImportedField: React.FC<EcosystemImportedFieldProps> = ({
           title={tooltipText}
         >
           <Info className="w-3 h-3 text-orange-600" />
-          <span>{wasModified ? 'Alterado*' : `${sourceLabel.split(' ')[0]}*`}</span>
+          <span>{wasModified ? 'Editado*' : `${sourceLabel.split(' ')[0]}*`}</span>
         </button>
       </div>
 
       <div
         onClick={() => {
-          if (!isUnlocked) setShowInfo(true);
+          if (!isUnlocked) onUnlock();
         }}
-        className={!isUnlocked ? 'cursor-pointer' : undefined}
       >
         {children({
           className: inputClassName,
-          readOnlyByImport: !isUnlocked,
-          onFocusOrClick: () => setShowInfo(true),
+          readOnlyByImport: false,
+          onFocusOrClick: () => {
+            if (!isUnlocked) onUnlock();
+            setShowInfo(true);
+          },
           titleTooltip: tooltipText
         })}
       </div>
@@ -141,31 +143,19 @@ export const EcosystemImportedField: React.FC<EcosystemImportedFieldProps> = ({
           </p>
 
           <p className="leading-snug text-orange-200/95 text-[10px]">
-            <strong>Superioridade da Vistoria:</strong> Caso você altere este campo, o novo dado verificado em campo atualizará os demais sistemas e enviará notificação para a caixa do analista no sistema <strong>{sourceLabel}</strong>.
+            <strong>Edição Livre + Superioridade da Vistoria:</strong> Você pode editar este campo diretamente. Ao salvar a vistoria, a versão editada será gravada no banco e notificará o analista no sistema <strong>{sourceLabel}</strong>.
           </p>
 
           <div className="flex items-center justify-between gap-2 pt-1 border-t border-orange-800/80">
             {wasModified ? (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Alterado na vistoria (notificação armada ao salvar)</span>
+                <span>Versão editada pronta para salvar no banco</span>
               </span>
-            ) : !isUnlocked ? (
-              <button
-                type="button"
-                onClick={() => {
-                  onUnlock();
-                  setShowInfo(false);
-                }}
-                className="w-full py-1.5 px-3 rounded-lg bg-orange-500 hover:bg-orange-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Abrir campo para alterar (atualiza outros sistemas)</span>
-              </button>
             ) : (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-200">
-                <BellRing className="w-3.5 h-3.5 text-orange-400" />
-                <span>Campo aberto para edição superior da vistoria</span>
+                <Edit3 className="w-3.5 h-3.5 text-orange-400" />
+                <span>Campo aberto para edição imediata</span>
               </span>
             )}
           </div>

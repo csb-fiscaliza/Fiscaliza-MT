@@ -9,16 +9,13 @@ import {
   Camera, 
   Upload, 
   Trash2, 
-  Layers, 
   MapPin, 
   Clock, 
   Check, 
   Edit3, 
-  Plus, 
   X, 
   Image as ImageIcon,
-  CheckCircle2,
-  AlertCircle
+  CheckCircle2
 } from 'lucide-react';
 import { InspectionPhoto } from '../types/inspection';
 import { 
@@ -35,22 +32,23 @@ import { SpeechTextarea } from './SpeechTextarea';
 interface GeneralPhotoAttachmentSectionProps {
   allPhotos: InspectionPhoto[];
   onUpdatePhotos: (updatedPhotos: InspectionPhoto[]) => void;
-  inspectionId: string;
+  inspectionId?: string;
 }
 
 export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSectionProps> = ({
   allPhotos,
-  onUpdatePhotos,
-  inspectionId
+  onUpdatePhotos
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [includeGps, setIncludeGps] = useState(true);
   const [zoomPhoto, setZoomPhoto] = useState<InspectionPhoto | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Modal para confirmação de legenda
   const [pendingModalPhoto, setPendingModalPhoto] = useState<{
-    file: File;
     previewUrl: string;
+    blob: Blob;
     caption: string;
     selectedComponentId: string;
     latitude?: number;
@@ -69,6 +67,7 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
   const handleFileSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setIsProcessing(true);
+    setPhotoError(null);
 
     try {
       const file = files[0];
@@ -77,12 +76,12 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
         gpsCoords = await getDeviceGpsCoordinates(8000);
       }
 
-      const { dataUrl } = await compressImageToDataUrlAndBlob(file, 1600, 0.82);
+      const { dataUrl, blob } = await compressImageToDataUrlAndBlob(file, 1600, 0.82);
 
       // Sempre abre para o usuário inserir legenda e escolher se pertence a um componente
       setPendingModalPhoto({
-        file,
         previewUrl: dataUrl,
+        blob,
         caption: '',
         selectedComponentId: 'geral',
         latitude: gpsCoords?.latitude,
@@ -92,7 +91,7 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
       });
     } catch (err) {
       console.error('Erro ao ler foto:', err);
-      try { alert('Não foi possível ler o arquivo da imagem.'); } catch {}
+      setPhotoError('Não foi possível ler o arquivo da imagem.');
     } finally {
       setIsProcessing(false);
       if (cameraInputRef.current) cameraInputRef.current.value = '';
@@ -103,12 +102,12 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
   const handleConfirmAddPhoto = async () => {
     if (!pendingModalPhoto) return;
     setIsProcessing(true);
+    setPhotoError(null);
 
     try {
       const photoId = `foto-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      const { blob } = await compressImageToDataUrlAndBlob(pendingModalPhoto.file, 1600, 0.82);
 
-      await savePhotoBlob(photoId, blob);
+      await savePhotoBlob(photoId, pendingModalPhoto.blob);
 
       const compId = pendingModalPhoto.selectedComponentId;
       const compName = getComponentNameById(compId);
@@ -131,25 +130,18 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
       setPendingModalPhoto(null);
     } catch (err) {
       console.error('Erro ao salvar foto:', err);
-      try { alert('Erro ao salvar a fotografia no banco local.'); } catch {}
+      setPhotoError('Erro ao salvar a fotografia no armazenamento local.');
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleDeletePhoto = async (photoId: string) => {
-    let proceed = true;
-    try {
-      proceed = window.confirm('Deseja excluir esta foto?');
-    } catch {
-      proceed = true;
-    }
-    if (proceed) {
-      await deletePhotoBlob(photoId);
-      const remaining = allPhotos.filter(p => p.id !== photoId);
-      onUpdatePhotos(remaining);
-      if (zoomPhoto?.id === photoId) setZoomPhoto(null);
-    }
+    await deletePhotoBlob(photoId);
+    const remaining = allPhotos.filter(p => p.id !== photoId);
+    onUpdatePhotos(remaining);
+    setConfirmDeleteId(null);
+    if (zoomPhoto?.id === photoId) setZoomPhoto(null);
   };
 
   const handleChangeComponent = (photoId: string, newComponentId: string) => {
@@ -252,6 +244,15 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
 
       {/* Conteúdo Principal */}
       <div className="p-4 sm:p-5 space-y-4">
+        {photoError && (
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-semibold text-rose-700 dark:text-rose-300 flex items-center justify-between gap-2">
+            <span>{photoError}</span>
+            <button type="button" onClick={() => setPhotoError(null)} className="underline cursor-pointer">
+              Fechar
+            </button>
+          </div>
+        )}
+
         {/* Banner Explicativo sobre a Vinculação no Relatório */}
         <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-xl text-xs text-emerald-950 dark:text-emerald-300 flex items-start gap-2.5">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
@@ -291,15 +292,34 @@ export const GeneralPhotoAttachmentSection: React.FC<GeneralPhotoAttachmentSecti
                       #{idx + 1}
                     </span>
 
-                    {/* Botão Excluir */}
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePhoto(photo.id)}
-                      className="absolute top-2 right-2 bg-rose-600/90 hover:bg-rose-700 text-white p-1 rounded-md cursor-pointer transition shadow-xs"
-                      title="Excluir esta foto"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {/* Botão Excluir (Confirmação em 2 cliques sem window.confirm) */}
+                    {confirmDeleteId === photo.id ? (
+                      <div className="absolute top-2 right-2 flex items-center gap-1 bg-slate-950/90 px-1.5 py-1 rounded-lg shadow-md">
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePhoto(photo.id)}
+                          className="px-1.5 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold cursor-pointer"
+                        >
+                          Excluir
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-white text-[10px] font-semibold cursor-pointer"
+                        >
+                          Não
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(photo.id)}
+                        className="absolute top-2 right-2 bg-rose-600/90 hover:bg-rose-700 text-white p-1 rounded-md cursor-pointer transition shadow-xs"
+                        title="Excluir esta foto"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
 
                     {/* Carimbo de dados */}
                     <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent p-1.5 text-[9px] text-white font-mono flex flex-col gap-0.5">

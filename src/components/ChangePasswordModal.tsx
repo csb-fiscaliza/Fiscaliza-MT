@@ -4,7 +4,7 @@
 // Permite que qualquer fiscal logado altere sua senha institucional a qualquer momento
 // ==============================================================================
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   KeyRound, 
   X, 
@@ -36,6 +36,13 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const [showConfirm, setShowConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   if (!isOpen) return null;
 
@@ -62,7 +69,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
           type: 'success', 
           text: 'Senha institucional alterada com sucesso! Utilize a nova senha nos próximos acessos.' 
         });
-        setTimeout(() => {
+        if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = setTimeout(() => {
           onClose();
           setNewPassword('');
           setConfirmPassword('');
@@ -141,10 +149,10 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               <input
                 type={showNew ? 'text' : 'password'}
                 required
-                minLength={6}
+                minLength={8}
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
-                placeholder="Mínimo 6 caracteres"
+                placeholder="Mínimo 8 caracteres"
                 className="w-full text-xs sm:text-sm pl-9 pr-10 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
               />
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -168,7 +176,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               <input
                 type={showConfirm ? 'text' : 'password'}
                 required
-                minLength={6}
+                minLength={8}
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
                 placeholder="Repita a nova senha exatamente"

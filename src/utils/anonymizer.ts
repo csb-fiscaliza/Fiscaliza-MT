@@ -1,8 +1,8 @@
 // ==============================================================================
 // ARQUIVO: src/utils/anonymizer.ts
 // Utilitário de Anonimização de Dados em Conformidade com a LGPD (Lei 13.709/2018)
-// Permite sanitizar vistorias para uso em ferramentas externas (Google AI Studio,
-// testes automatizados, benchmarking e auditoria externa) sem exposição de dados pessoais.
+// Permite sanitizar vistorias para uso em ferramentas externas (análise automatizada,
+// benchmarking e auditoria técnica) sem exposição de dados pessoais.
 // ==============================================================================
 
 import { InspectionData } from '../types/inspection';
@@ -232,7 +232,7 @@ export function exportAnonymizedJsonFile(data: InspectionData): void {
 
 /**
  * Gera pacote textual completo das minutas oficiais totalmente anonimizadas
- * Seguro para colar em prompts do Google AI Studio ou compartilhar externamente
+ * Seguro para compartilhar externamente ou em análises de auditoria técnica
  */
 export function generateAnonymizedDocumentsBundle(data: InspectionData): string {
   const sanitized = anonymizeInspectionData(data);
@@ -243,7 +243,7 @@ export function generateAnonymizedDocumentsBundle(data: InspectionData): string 
   return [
     '==============================================================================',
     'DOCUMENTOS INSTITUCIONAIS CSB/SEMA-MT – CÓPIA 100% ANONIMIZADA (LGPD)',
-    'Apropriado para envio seguro ao Google AI Studio ou auditoria de TI',
+    'Apropriado para envio seguro a ferramentas externas ou auditoria técnica',
     'Todos os CPFs, telefones, e-mails e nomes próprios foram suprimidos.',
     '==============================================================================',
     '',

@@ -23,7 +23,9 @@ import {
   isFiscalizaSupabaseConfigured,
   isAdministraSupabaseConfigured,
   getEcosystemStatus,
-  EcosystemNodeStatus
+  EcosystemNodeStatus,
+  syncEcosystemAuthSession,
+  ensureEcosystemClientsSession
 } from './ecosystemConfig';
 import {
   canFiscalizaEditMasterEntity,
@@ -165,8 +167,8 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     id: data.id,
     vistoriaId: data.id,
     alturaBarragemMetros: toNullableNumber(data.damIdentification.estimatedDimensions?.heightMeters),
-    distanciaCristaPeMetros: null,
-    declividadeTaludeJusanteGraus: null,
+    distanciaCristaPeMetros: toNullableNumber(data.damIdentification.estimatedDimensions?.cristaPeDistanceMeters),
+    declividadeTaludeJusanteGraus: toNullableNumber(data.damIdentification.estimatedDimensions?.downstreamSlopeDegrees),
     larguraCoroamentoMetros: toNullableNumber(data.damIdentification.estimatedDimensions?.crestWidthMeters),
     extensaoCoroamentoMetros: toNullableNumber(data.damIdentification.estimatedDimensions?.crestLengthMeters),
     bordaLivreMetros: toNullableNumber(data.damIdentification.estimatedDimensions?.freeboardMeters),
@@ -515,6 +517,7 @@ export async function signInInspector(
         password
       });
       if (!error && data?.user) {
+        syncEcosystemAuthSession(cleanEmail, password).catch(() => {});
         return createLocalSession();
       }
       if (error && navigator.onLine) {
@@ -770,6 +773,7 @@ export async function getInspectorSession(): Promise<{
         sessionEmail = session.user.email || '';
         sessionFullName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || '';
         sessionRole = session.user.user_metadata?.perfil || session.user.user_metadata?.role || '';
+        ensureEcosystemClientsSession().catch(() => {});
       }
     } catch {
       // Fallback para sessão local válida dentro do TTL
@@ -849,7 +853,7 @@ export async function syncVistoriaToSupabase(
       success: false,
       skippedReadOnlyEntities,
       error:
-        'Chaves do Supabase ainda não configuradas para o ambiente de nuvem. Seus dados e produtos estão salvos com criptografia localmente e preparados no espelho de migração do Ecossistema.'
+        'Serviço remoto indisponível no momento. Seus dados e produtos estão salvos com segurança localmente neste dispositivo.'
     };
   }
 
@@ -860,7 +864,7 @@ export async function syncVistoriaToSupabase(
       isRlsError: true,
       code: 'AUTH_REQUIRED',
       error:
-        'Autenticação obrigatória para transmissão ao banco de dados em nuvem (RLS ativo). Entre com sua conta institucional ou aguarde a configuração das chaves de produção.'
+        'Autenticação obrigatória para transmissão ao banco de dados institucional. Entre com sua conta para sincronizar.'
     };
   }
 
@@ -870,7 +874,7 @@ export async function syncVistoriaToSupabase(
     const msg = String(err.message || '');
     if (code === '42501' || msg.includes('row-level security') || msg.includes('violates row-level')) {
       const e = new Error(
-        `Permissão de Segurança (RLS 42501 na tabela "${tableName}"): O banco exige sessão autenticada de usuário ativo. Seus dados seguem protegidos localmente.`
+        `Permissão de acesso requerida na tabela "${tableName}". Autentique sua sessão institucional; seus dados seguem protegidos localmente.`
       );
       (e as any).code = '42501';
       (e as any).isRlsError = true;
@@ -1039,7 +1043,7 @@ export async function uploadFotoToSupabaseStorage(
   if (!fiscalizaSupabase) {
     return {
       success: false,
-      error: 'Armazenamento em nuvem aguardando configuração de chaves. Foto retida localmente.'
+      error: 'Serviço remoto offline no momento. Foto retida com segurança no dispositivo.'
     };
   }
 
@@ -1087,9 +1091,9 @@ export async function getSupabaseSecurityDiagnostics(): Promise<{
       ecosystemNodes,
       warnings: [
         ...warnings,
-        'Chaves do Supabase ainda não inseridas no arquivo .env (migração preparada).',
-        'Autenticação reforçada com PBKDF2-SHA256 (120.000 iterações) + zero senhas padrão no código.',
-        'Base local operando em espelho seguro pronto para conexão com Administra, Fiscaliza, Classifica e Notifica.'
+        'Operação em modo local seguro neste dispositivo.',
+        'Autenticação protegida com criptografia de credenciais.',
+        'Base local operando em espelho seguro pronto para sincronização.'
       ]
     };
   }
@@ -1107,7 +1111,7 @@ export async function getSupabaseSecurityDiagnostics(): Promise<{
       userEmail = session.user.email;
       role = session.user.user_metadata?.perfil || session.user.role || 'authenticated';
     } else {
-      warnings.push('RLS ativo exigindo sessão autenticada (acesso anônimo desabilitado).');
+      warnings.push('Sessão institucional autenticada requerida para sincronização remota.');
     }
   } catch (e: any) {
     warnings.push(`Status da checagem de sessão: ${e.message}`);
@@ -1127,7 +1131,8 @@ export async function getSupabaseSecurityDiagnostics(): Promise<{
 
 export async function fetchLatestNumeroVistoriaFromSupabase(customYear?: number): Promise<string | null> {
   if (!fiscalizaSupabase) return null;
-  const year = customYear || new Date().getFullYear();
+  const rawYear = Number(customYear || new Date().getFullYear());
+  const year = Number.isInteger(rawYear) && rawYear >= 2000 && rawYear <= 2100 ? rawYear : new Date().getFullYear();
 
   try {
     const { data, error } = await fiscalizaSupabase
@@ -1153,7 +1158,7 @@ export async function fetchLatestNumeroVistoriaFromSupabase(customYear?: number)
       return `${String(maxNum + 1).padStart(4, '0')}/${year}`;
     }
   } catch (e) {
-    console.warn('[Vistorias] Erro ao consultar próximo número no Supabase:', e);
+    console.warn('[Vistorias] Erro ao consultar próximo número remoto:', e);
   }
   return null;
 }

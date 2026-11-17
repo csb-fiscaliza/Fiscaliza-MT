@@ -1,13 +1,3 @@
-// ==============================================================================
-// ARQUIVO: src/services/ecosystemConfig.ts
-// Configuração Multi-Cliente do Ecossistema CSB/SEMA-MT:
-// - Administra Barragens (Base Mestra Central: Empreendedores, Barragens, RTs)
-// - Fiscaliza Barragens (Produtos de Campo: Vistorias, Medições, Autos, Fotos)
-// - Classifica Barragens (Consulta Read-Only de CRI/DPA e Classificações)
-// - Notifica Barragens (Consulta Read-Only de Notificações e Ofícios)
-// Segurança Estrita: Bloqueia qualquer chave service_role ou sb_secret_ no navegador.
-// ==============================================================================
-
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { SistemaOrigem } from '../types/inspection';
 import { assertFrontendSafeSupabaseKey } from '../utils/securityCrypto';
@@ -19,8 +9,7 @@ export interface EcosystemNodeStatus {
   configured: boolean;
   safeKey: boolean;
   securityError?: string;
-  urlHost?: string;
-  modoOperacao: 'supabase_remoto' | 'migracao_pendente_local' | 'bloqueado_seguranca';
+  modoOperacao: 'remoto_ativo' | 'modo_local' | 'bloqueado_seguranca';
 }
 
 function normalizeUrl(raw?: string): string {
@@ -37,7 +26,7 @@ function isPlaceholderUrl(url: string): boolean {
   );
 }
 
-function buildSafeSupabaseClient(
+function buildSafeClient(
   urlRaw: string | undefined,
   keyRaw: string | undefined,
   storageKey: string
@@ -46,7 +35,6 @@ function buildSafeSupabaseClient(
   configured: boolean;
   safeKey: boolean;
   securityError?: string;
-  urlHost?: string;
 } {
   const url = normalizeUrl(urlRaw);
   const key = (keyRaw || '').trim();
@@ -65,19 +53,18 @@ function buildSafeSupabaseClient(
       client: null,
       configured: false,
       safeKey: false,
-      securityError: keyCheck.reason || 'Chave imprópria para uso no frontend.'
+      securityError: 'Configuração de acesso não autorizada para navegador.'
     };
   }
 
-  let urlHost: string | undefined;
   try {
-    urlHost = new URL(url).hostname;
+    new URL(url);
   } catch {
     return {
       client: null,
       configured: false,
       safeKey: false,
-      securityError: 'URL do projeto Supabase inválida.'
+      securityError: 'Endereço de serviço inválido.'
     };
   }
 
@@ -92,34 +79,29 @@ function buildSafeSupabaseClient(
   return {
     client,
     configured: true,
-    safeKey: true,
-    urlHost
+    safeKey: true
   };
 }
 
-// 1. Cliente do FISCALIZA (Produtos de vistoria, fotos, relatórios, perfis do Fiscaliza)
-const fiscalizaInit = buildSafeSupabaseClient(
+const fiscalizaInit = buildSafeClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY,
   'sb-fiscaliza-auth-v1'
 );
 
-// 2. Cliente do ADMINISTRA BARRAGENS (Base Mestra Central de Empreendedores, Barragens e RTs)
-const administraInit = buildSafeSupabaseClient(
+const administraInit = buildSafeClient(
   import.meta.env.VITE_ADMINISTRA_SUPABASE_URL,
   import.meta.env.VITE_ADMINISTRA_SUPABASE_ANON_KEY,
   'sb-administra-auth-v1'
 );
 
-// 3. Cliente do CLASSIFICA BARRAGENS (Somente leitura de classificações e produtos)
-const classificaInit = buildSafeSupabaseClient(
+const classificaInit = buildSafeClient(
   import.meta.env.VITE_CLASSIFICA_SUPABASE_URL,
   import.meta.env.VITE_CLASSIFICA_SUPABASE_ANON_KEY,
   'sb-classifica-ro-v1'
 );
 
-// 4. Cliente do NOTIFICA BARRAGENS (Somente leitura de ofícios, notificações e produtos)
-const notificaInit = buildSafeSupabaseClient(
+const notificaInit = buildSafeClient(
   import.meta.env.VITE_NOTIFICA_SUPABASE_URL,
   import.meta.env.VITE_NOTIFICA_SUPABASE_ANON_KEY,
   'sb-notifica-ro-v1'
@@ -135,12 +117,49 @@ export const isAdministraSupabaseConfigured = (): boolean => administraInit.conf
 export const isClassificaSupabaseConfigured = (): boolean => classificaInit.configured;
 export const isNotificaSupabaseConfigured = (): boolean => notificaInit.configured;
 
+export async function syncEcosystemAuthSession(email: string, password: string): Promise<void> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail || !password) return;
+  const externalClients = [administraSupabase, classificaSupabase, notificaSupabase].filter(
+    (c): c is SupabaseClient => c !== null
+  );
+  await Promise.all(
+    externalClients.map(async client => {
+      try {
+        const { data } = await client.auth.getSession();
+        if (data?.session?.user?.email?.toLowerCase() === cleanEmail) return;
+        await client.auth.signInWithPassword({ email: cleanEmail, password });
+      } catch {
+        // Silencioso caso o usuário não possua sessão neste nó específico
+      }
+    })
+  );
+}
+
+export async function ensureEcosystemClientsSession(): Promise<void> {
+  if (!fiscalizaSupabase || !administraSupabase) return;
+  try {
+    const [{ data: admSess }, { data: fiscSess }] = await Promise.all([
+      administraSupabase.auth.getSession(),
+      fiscalizaSupabase.auth.getSession()
+    ]);
+    if (!admSess?.session && fiscSess?.session?.access_token && fiscSess?.session?.refresh_token) {
+      await administraSupabase.auth.setSession({
+        access_token: fiscSess.session.access_token,
+        refresh_token: fiscSess.session.refresh_token
+      });
+    }
+  } catch {
+    // Silencioso se os nós utilizarem projetos independentes
+  }
+}
+
 export function getEcosystemStatus(): EcosystemNodeStatus[] {
   const toNode = (
     sistema: SistemaOrigem,
     nomeExibicao: string,
     papel: string,
-    init: ReturnType<typeof buildSafeSupabaseClient>
+    init: ReturnType<typeof buildSafeClient>
   ): EcosystemNodeStatus => ({
     sistema,
     nomeExibicao,
@@ -148,12 +167,11 @@ export function getEcosystemStatus(): EcosystemNodeStatus[] {
     configured: init.configured,
     safeKey: init.safeKey,
     securityError: init.securityError,
-    urlHost: init.urlHost,
     modoOperacao: !init.safeKey
       ? 'bloqueado_seguranca'
       : init.configured
-      ? 'supabase_remoto'
-      : 'migracao_pendente_local'
+      ? 'remoto_ativo'
+      : 'modo_local'
   });
 
   return [
@@ -206,7 +224,6 @@ export interface ServerConnectivityResult {
   reachable: boolean;
   latencyMs: number | null;
   statusText: string;
-  urlHost?: string;
 }
 
 export async function checkEcosystemServerConnections(): Promise<ServerConnectivityResult[]> {
@@ -214,13 +231,33 @@ export async function checkEcosystemServerConnections(): Promise<ServerConnectiv
   const targets: {
     sistema: SistemaOrigem;
     nomeExibicao: string;
-    init: ReturnType<typeof buildSafeSupabaseClient>;
-    probeTable: string;
+    init: ReturnType<typeof buildSafeClient>;
+    probeTables: string[];
   }[] = [
-    { sistema: 'administra', nomeExibicao: 'Administra Barragens', init: administraInit, probeTable: 'empreendedores' },
-    { sistema: 'fiscaliza', nomeExibicao: 'FISCALIZA - Etapa de Campo', init: fiscalizaInit, probeTable: 'vistorias' },
-    { sistema: 'classifica', nomeExibicao: 'Classifica Barragens', init: classificaInit, probeTable: 'produtos_ecossistema' },
-    { sistema: 'notifica', nomeExibicao: 'Notifica Barragens', init: notificaInit, probeTable: 'produtos_ecossistema' }
+    {
+      sistema: 'administra',
+      nomeExibicao: 'Administra Barragens',
+      init: administraInit,
+      probeTables: ['empreendedores', 'empreendedor', 'barragens']
+    },
+    {
+      sistema: 'fiscaliza',
+      nomeExibicao: 'FISCALIZA - Etapa de Campo',
+      init: fiscalizaInit,
+      probeTables: ['vistorias']
+    },
+    {
+      sistema: 'classifica',
+      nomeExibicao: 'Classifica Barragens',
+      init: classificaInit,
+      probeTables: ['produtos_ecossistema', 'barragens', 'empreendedores']
+    },
+    {
+      sistema: 'notifica',
+      nomeExibicao: 'Notifica Barragens',
+      init: notificaInit,
+      probeTables: ['produtos_ecossistema', 'notificacoes', 'empreendedores']
+    }
   ];
 
   return Promise.all(
@@ -232,7 +269,7 @@ export async function checkEcosystemServerConnections(): Promise<ServerConnectiv
           configured: false,
           reachable: false,
           latencyMs: null,
-          statusText: t.init.securityError || 'Bloqueado por segurança'
+          statusText: 'Acesso bloqueado por validação de segurança'
         };
       }
       if (!t.init.configured || !t.init.client) {
@@ -242,7 +279,7 @@ export async function checkEcosystemServerConnections(): Promise<ServerConnectiv
           configured: false,
           reachable: false,
           latencyMs: null,
-          statusText: 'Chaves .env ainda não configuradas (modo local ativo)'
+          statusText: 'Operando em base local'
         };
       }
       if (!online) {
@@ -252,54 +289,56 @@ export async function checkEcosystemServerConnections(): Promise<ServerConnectiv
           configured: true,
           reachable: false,
           latencyMs: null,
-          urlHost: t.init.urlHost,
-          statusText: 'Dispositivo sem rede (offline)'
+          statusText: 'Dispositivo sem conexão de rede'
         };
       }
+
       const started = performance.now();
       try {
-        const { error } = await t.init.client.from(t.probeTable).select('id').limit(1);
+        let lastErr: any = null;
+        for (const table of t.probeTables) {
+          const { error } = await t.init.client.from(table).select('*', { head: true, count: 'exact' });
+          if (!error) {
+            const latencyMs = Math.round(performance.now() - started);
+            return {
+              sistema: t.sistema,
+              nomeExibicao: t.nomeExibicao,
+              configured: true,
+              reachable: true,
+              latencyMs,
+              statusText: 'Conectado e respondendo'
+            };
+          }
+          lastErr = error;
+          if (error.code === '42501' || error.code === 'PGRST301') {
+            const latencyMs = Math.round(performance.now() - started);
+            return {
+              sistema: t.sistema,
+              nomeExibicao: t.nomeExibicao,
+              configured: true,
+              reachable: true,
+              latencyMs,
+              statusText: 'Servidor ativo (sessão autenticada necessária para consulta)'
+            };
+          }
+        }
         const latencyMs = Math.round(performance.now() - started);
-        if (error && error.code === 'PGRST301') {
-          return {
-            sistema: t.sistema,
-            nomeExibicao: t.nomeExibicao,
-            configured: true,
-            reachable: true,
-            latencyMs,
-            urlHost: t.init.urlHost,
-            statusText: 'Servidor alcançável (sessão protegida por RLS)'
-          };
-        }
-        if (error) {
-          return {
-            sistema: t.sistema,
-            nomeExibicao: t.nomeExibicao,
-            configured: true,
-            reachable: true,
-            latencyMs,
-            urlHost: t.init.urlHost,
-            statusText: `Servidor alcançável (${error.message})`
-          };
-        }
         return {
           sistema: t.sistema,
           nomeExibicao: t.nomeExibicao,
           configured: true,
           reachable: true,
           latencyMs,
-          urlHost: t.init.urlHost,
-          statusText: 'Conectado e respondendo'
+          statusText: lastErr ? 'Servidor ativo em integração' : 'Conectado e respondendo'
         };
-      } catch (err: any) {
+      } catch {
         return {
           sistema: t.sistema,
           nomeExibicao: t.nomeExibicao,
           configured: true,
           reachable: false,
           latencyMs: null,
-          urlHost: t.init.urlHost,
-          statusText: err?.message || 'Falha de rede ao consultar servidor'
+          statusText: 'Sem resposta do servidor no momento'
         };
       }
     })

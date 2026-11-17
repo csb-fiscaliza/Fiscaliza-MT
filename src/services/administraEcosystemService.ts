@@ -31,6 +31,7 @@ import {
 import {
   administraSupabase,
   classificaSupabase,
+  ensureEcosystemClientsSession,
   fiscalizaSupabase,
   notificaSupabase
 } from './ecosystemConfig';
@@ -122,15 +123,37 @@ export function canFiscalizaEditMasterEntity(
 // 2. ARMAZENAMENTO LOCAL RESILIENTE + CLIENTE REMOTO DO ADMINISTRA
 // ==============================================================================
 
+function isLegacySampleEntity(obj: unknown): boolean {
+  try {
+    const s = JSON.stringify(obj);
+    return (
+      s.includes('Fazenda Alvorada') ||
+      s.includes('(Exemplo)') ||
+      s.includes('fazendaalvorada') ||
+      s.includes('00.000.000/0001-99') ||
+      s.includes('Córrego das Araras') ||
+      s.includes('PROC-2026/04812-SEMA')
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function loadLocalAdministraCatalog(): AdministraMasterCatalog {
   try {
     const raw = localStorage.getItem(ADMINISTRA_CACHE_KEY);
     if (raw) {
       const parsed = sanitizeDeepObject(JSON.parse(raw)) as Partial<AdministraMasterCatalog>;
       return {
-        empreendedores: Array.isArray(parsed.empreendedores) ? parsed.empreendedores : [],
-        barragens: Array.isArray(parsed.barragens) ? parsed.barragens : [],
-        responsaveisTecnicos: Array.isArray(parsed.responsaveisTecnicos) ? parsed.responsaveisTecnicos : [],
+        empreendedores: Array.isArray(parsed.empreendedores)
+          ? parsed.empreendedores.filter(e => !isLegacySampleEntity(e))
+          : [],
+        barragens: Array.isArray(parsed.barragens)
+          ? parsed.barragens.filter(b => !isLegacySampleEntity(b))
+          : [],
+        responsaveisTecnicos: Array.isArray(parsed.responsaveisTecnicos)
+          ? parsed.responsaveisTecnicos.filter(r => !isLegacySampleEntity(r))
+          : [],
         updatedAt: parsed.updatedAt || new Date().toISOString()
       };
     }
@@ -158,126 +181,387 @@ function saveLocalAdministraCatalog(catalog: AdministraMasterCatalog): void {
   }
 }
 
-/**
- * Busca catálogo padronizado do Administra Barragens (remoto se configurado, mesclado ao cache local).
- */
-export async function fetchAdministraMasterCatalog(): Promise<AdministraMasterCatalog> {
-  const localCatalog = loadLocalAdministraCatalog();
+function pickFirstString(row: Record<string, any>, keys: string[]): string | null {
+  for (const k of keys) {
+    const v = row?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') {
+      return String(v).trim();
+    }
+  }
+  return null;
+}
 
-  if (!administraSupabase) {
+function pickFirstNumber(row: Record<string, any>, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = row?.[k];
+    if (v !== undefined && v !== null && v !== '' && !isNaN(Number(v))) {
+      return Number(v);
+    }
+  }
+  return null;
+}
+
+function formatCpfDigits(d: string): string {
+  return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+}
+
+function formatCnpjDigits(d: string): string {
+  return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+}
+
+function mapRawEmpreendedor(row: Record<string, any>, defaultOrigin: SistemaOrigem = 'administra'): EmpreendedorEntity | null {
+  const id = pickFirstString(row, ['id', 'empreendedor_id', 'uid', 'uuid']);
+  const nome = pickFirstString(row, [
+    'nome_razao_social',
+    'nome',
+    'razao_social',
+    'nome_empreendedor',
+    'empreendedor',
+    'proprietario',
+    'nome_proprietario',
+    'nome_completo',
+    'nomeRazaoSocial'
+  ]);
+  const doc = pickFirstString(row, [
+    'cpf_cnpj',
+    'cpf',
+    'cnpj',
+    'cpfCnpj',
+    'documento',
+    'nr_cpf_cnpj',
+    'cpf_cnpj_empreendedor'
+  ]);
+  const car = pickFirstString(row, [
+    'car_numero',
+    'car',
+    'numero_car',
+    'codigo_car',
+    'cod_imovel',
+    'recibo_car',
+    'registro_car',
+    'car_mt',
+    'carNumero'
+  ]);
+  if (!id && !nome && !doc && !car) return null;
+  const resolvedId = id || `${defaultOrigin}_emp_${normalizeDocumentDigits(doc) || normalizeNameForMatch(nome) || generateUUID()}`;
+  const now = new Date().toISOString();
+  return {
+    id: resolvedId,
+    administraId: pickFirstString(row, ['administra_id']) || resolvedId,
+    sistemaOrigem: (pickFirstString(row, ['sistema_origem']) || defaultOrigin) as SistemaOrigem,
+    criadoPorEmail: pickFirstString(row, ['criado_por_email', 'email_analista', 'usuario_email', 'created_by']),
+    nomeRazaoSocial: nome || 'Empreendedor sem nome',
+    cpfCnpj: doc,
+    figuraJuridica: (pickFirstString(row, ['figura_juridica', 'tipo_pessoa', 'natureza_juridica']) ||
+      'empresa_privada') as EmpreendedorEntity['figuraJuridica'],
+    processoNumero: pickFirstString(row, ['processo_numero', 'processo_sema', 'numero_processo']),
+    endereco: pickFirstString(row, ['endereco', 'logradouro', 'endereco_correspondencia', 'localizacao']) || '',
+    municipio: pickFirstString(row, ['municipio', 'cidade']),
+    uf: pickFirstString(row, ['uf', 'estado']) || 'MT',
+    telefone: pickFirstString(row, ['telefone', 'celular', 'whatsapp', 'fone']),
+    email: pickFirstString(row, ['email', 'e_mail']),
+    documentosPessoais: pickFirstString(row, ['documentos_pessoais']),
+    carNumero: car,
+    declaracaoUsoOutorga: pickFirstString(row, ['declaracao_uso', 'outorga', 'declaracao_uso_outorga']),
+    quantidadeBarragens: pickFirstNumber(row, ['quantidade_barragens_propriedade', 'quantidade_barragens', 'qtd_barragens']) ?? 1,
+    comentarios: pickFirstString(row, ['comentarios', 'observacoes']),
+    sincronizadoAdministraEm: row.updated_at || now,
+    createdAt: row.created_at || now,
+    updatedAt: row.updated_at || now
+  };
+}
+
+function mapRawBarragem(row: Record<string, any>, defaultOrigin: SistemaOrigem = 'administra'): BarragemEntity | null {
+  const id = pickFirstString(row, ['id', 'barragem_id', 'uid', 'uuid']);
+  const nome = pickFirstString(row, ['nome', 'nome_barragem', 'barragem_nome', 'titulo', 'nome_barramento']);
+  if (!id && !nome) return null;
+  const resolvedId = id || `${defaultOrigin}_bar_${normalizeNameForMatch(nome) || generateUUID()}`;
+  const now = new Date().toISOString();
+  return {
+    id: resolvedId,
+    administraId: pickFirstString(row, ['administra_id']) || resolvedId,
+    sistemaOrigem: (pickFirstString(row, ['sistema_origem']) || defaultOrigin) as SistemaOrigem,
+    criadoPorEmail: pickFirstString(row, ['criado_por_email', 'email_analista', 'usuario_email']),
+    empreendedorId: pickFirstString(row, ['empreendedor_id', 'id_empreendedor', 'proprietario_id', 'owner_id']) || '',
+    nome: nome || 'Barragem',
+    municipio: pickFirstString(row, ['municipio', 'cidade']) || '',
+    baciaHidrografica: pickFirstString(row, ['bacia_hidrografica', 'bacia']),
+    cursoDagua: pickFirstString(row, ['curso_dagua', 'rio', 'corrego', 'curso_agua']),
+    coordenadas: {
+      latitude: pickFirstNumber(row, ['latitude_decimal', 'latitude', 'lat']),
+      longitude: pickFirstNumber(row, ['longitude_decimal', 'longitude', 'lng', 'lon']),
+      horarioCaptura: row.updated_at || null,
+      acuraciaMetros: null,
+      altitudeEstimadaDispositivo: null,
+      editadoManualmente: true,
+      datum: pickFirstString(row, ['datum']) || 'SIRGAS 2000'
+    },
+    cotaCoroamentoMetros: pickFirstNumber(row, ['cota_coroamento_metros', 'altura_metros', 'altura']),
+    anoInicioObra: pickFirstNumber(row, ['ano_inicio_obra']),
+    anoFinalObra: pickFirstNumber(row, ['ano_final_obra']),
+    idadeBarragemAnos: null,
+    tipoMaterial: (pickFirstString(row, ['tipo_barragem_material', 'tipo_material', 'material']) ||
+      'terra_homogenea') as BarragemEntity['tipoMaterial'],
+    usoPrincipal: pickFirstString(row, ['uso_principal', 'finalidade', 'uso']) || '',
+    usosSecundarios: Array.isArray(row.usos_secundarios) ? row.usos_secundarios : [],
+    sincronizadoAdministraEm: row.updated_at || now,
+    createdAt: row.created_at || now,
+    updatedAt: row.updated_at || now
+  };
+}
+
+function mapRawRt(row: Record<string, any>, defaultOrigin: SistemaOrigem = 'administra'): ResponsavelTecnicoEntity | null {
+  const id = pickFirstString(row, ['id', 'rt_id', 'uid']);
+  const nome = pickFirstString(row, ['nome', 'nome_rt', 'responsavel_tecnico']);
+  if (!id && !nome) return null;
+  const resolvedId = id || `${defaultOrigin}_rt_${normalizeNameForMatch(nome) || generateUUID()}`;
+  const now = new Date().toISOString();
+  return {
+    id: resolvedId,
+    administraId: pickFirstString(row, ['administra_id']) || resolvedId,
+    sistemaOrigem: (pickFirstString(row, ['sistema_origem']) || defaultOrigin) as SistemaOrigem,
+    criadoPorEmail: pickFirstString(row, ['criado_por_email', 'email_analista']),
+    empreendedorId: pickFirstString(row, ['empreendedor_id', 'id_empreendedor']),
+    barragemId: pickFirstString(row, ['barragem_id', 'id_barragem']),
+    nome: nome || 'Responsável Técnico',
+    cpf: pickFirstString(row, ['cpf', 'cpf_rt', 'documento']),
+    registroProfissional: pickFirstString(row, ['registro_profissional', 'crea', 'registro']),
+    ufRegistro: pickFirstString(row, ['uf_registro']) || 'MT',
+    artNumero: pickFirstString(row, ['art_numero', 'art']),
+    especialidade: pickFirstString(row, ['especialidade', 'formacao']),
+    telefone: pickFirstString(row, ['telefone', 'celular', 'fone']),
+    email: pickFirstString(row, ['email']),
+    sincronizadoAdministraEm: row.updated_at || now,
+    createdAt: row.created_at || now,
+    updatedAt: row.updated_at || now
+  };
+}
+
+const MISSING_TABLE_CACHE = new Set<string>();
+
+async function queryTableWithOptionalFilter(
+  client: NonNullable<typeof administraSupabase>,
+  nodeKey: string,
+  tableCandidates: string[],
+  searchTerms: string[]
+): Promise<{ rows: Record<string, any>[]; tableName: string | null; authBlocked: boolean }> {
+  let authBlocked = false;
+
+  for (const table of tableCandidates) {
+    const cacheKey = `${nodeKey}:${table}`;
+    if (MISSING_TABLE_CACHE.has(cacheKey)) continue;
+
+    try {
+      const { data: baseRows, error: baseError } = await client.from(table).select('*').limit(1000);
+      if (baseError) {
+        const msg = String(baseError.message || '').toLowerCase();
+        if (
+          baseError.code === 'PGRST205' ||
+          baseError.code === '42P01' ||
+          msg.includes('does not exist') ||
+          msg.includes('could not find the table')
+        ) {
+          MISSING_TABLE_CACHE.add(cacheKey);
+          continue;
+        }
+        if (baseError.code === '42501' || baseError.code === 'PGRST301') {
+          authBlocked = true;
+          continue;
+        }
+        continue;
+      }
+
+      const rows = Array.isArray(baseRows) ? [...baseRows] : [];
+      if (searchTerms.length > 0 && rows.length > 0) {
+        const sample = rows[0];
+        const sampleKeys = Object.keys(sample);
+        const textCols = sampleKeys.filter(
+          k =>
+            (typeof sample[k] === 'string' || sample[k] === null) &&
+            /nome|razao|proprietar|empreend|cpf|cnpj|doc|car|imovel|recibo|municip|cidade|barragem|titulo/i.test(k)
+        );
+        const numericCols = sampleKeys.filter(
+          k =>
+            typeof sample[k] === 'number' &&
+            /cpf|cnpj|doc|car|codigo|imovel/i.test(k)
+        );
+
+        const orParts: string[] = [];
+        for (const col of textCols.slice(0, 8)) {
+          for (const term of searchTerms.slice(0, 4)) {
+            const cleanTerm = term.replace(/[,().*%\\'"]/g, '').trim();
+            if (cleanTerm.length >= 2) {
+              orParts.push(`${col}.ilike.%${cleanTerm}%`);
+            }
+          }
+        }
+        const digitsOnlyTerms = searchTerms.filter(t => /^\d{6,14}$/.test(t));
+        for (const col of numericCols.slice(0, 3)) {
+          for (const dTerm of digitsOnlyTerms.slice(0, 2)) {
+            orParts.push(`${col}.eq.${dTerm}`);
+          }
+        }
+
+        if (orParts.length > 0) {
+          const { data: filteredRows } = await client
+            .from(table)
+            .select('*')
+            .or(orParts.join(','))
+            .limit(100);
+          if (Array.isArray(filteredRows) && filteredRows.length > 0) {
+            const byId = new Map<string, Record<string, any>>();
+            filteredRows.forEach((r, idx) => byId.set(String(r.id || `f_${idx}`), r));
+            rows.forEach((r, idx) => {
+              const k = String(r.id || `b_${idx}`);
+              if (!byId.has(k)) byId.set(k, r);
+            });
+            return { rows: Array.from(byId.values()), tableName: table, authBlocked };
+          }
+        }
+      } else if (searchTerms.length > 0 && rows.length === 0) {
+        const fallbackCols = ['nome_razao_social', 'nome', 'razao_social', 'cpf_cnpj', 'cpf', 'cnpj', 'car_numero', 'car', 'cod_imovel'];
+        for (const col of fallbackCols) {
+          for (const term of searchTerms.slice(0, 4)) {
+            const cleanTerm = term.replace(/[,().*%\\'"]/g, '').trim();
+            if (cleanTerm.length < 2) continue;
+            const { data: singleTry, error: singleErr } = await client
+              .from(table)
+              .select('*')
+              .ilike(col, `%${cleanTerm}%`)
+              .limit(50);
+            if (!singleErr && Array.isArray(singleTry) && singleTry.length > 0) {
+              return { rows: singleTry, tableName: table, authBlocked };
+            }
+          }
+        }
+      }
+
+      return { rows, tableName: table, authBlocked };
+    } catch {
+      continue;
+    }
+  }
+
+  return { rows: [], tableName: null, authBlocked };
+}
+
+/**
+ * Busca catálogo padronizado do Administra Barragens e nós integrados (remoto se configurado, mesclado ao cache local).
+ */
+export async function fetchAdministraMasterCatalog(searchTerms: string[] = []): Promise<AdministraMasterCatalog> {
+  const localCatalog = loadLocalAdministraCatalog();
+  await ensureEcosystemClientsSession();
+
+  const clientsToQuery = [
+    { key: 'administra', client: administraSupabase, defaultOrigin: 'administra' as SistemaOrigem },
+    { key: 'fiscaliza', client: fiscalizaSupabase, defaultOrigin: 'fiscaliza' as SistemaOrigem },
+    { key: 'classifica', client: classificaSupabase, defaultOrigin: 'classifica' as SistemaOrigem },
+    { key: 'notifica', client: notificaSupabase, defaultOrigin: 'notifica' as SistemaOrigem }
+  ].filter(c => c.client !== null);
+
+  if (clientsToQuery.length === 0) {
     return localCatalog;
   }
 
   try {
-    const [empRes, barRes, rtRes] = await Promise.all([
-      administraSupabase.from('empreendedores').select('*').limit(500),
-      administraSupabase.from('barragens').select('*').limit(500),
-      administraSupabase.from('responsaveis_tecnicos').select('*').limit(500)
-    ]);
-
     const empMap = new Map<string, EmpreendedorEntity>();
     localCatalog.empreendedores.forEach(e => empMap.set(e.id, e));
-    if (!empRes.error && Array.isArray(empRes.data)) {
-      empRes.data.forEach((row: any) => {
-        empMap.set(row.id, {
-          id: row.id,
-          administraId: row.administra_id || row.id,
-          sistemaOrigem: (row.sistema_origem || 'administra') as SistemaOrigem,
-          criadoPorEmail: row.criado_por_email || null,
-          nomeRazaoSocial: row.nome_razao_social,
-          cpfCnpj: row.cpf_cnpj,
-          figuraJuridica: row.figura_juridica || 'empresa_privada',
-          processoNumero: row.processo_numero || null,
-          endereco: row.endereco || '',
-          municipio: row.municipio || null,
-          uf: row.uf || 'MT',
-          telefone: row.telefone || null,
-          email: row.email || null,
-          documentosPessoais: row.documentos_pessoais || null,
-          carNumero: row.car_numero || null,
-          declaracaoUsoOutorga: row.declaracao_uso || null,
-          quantidadeBarragens: row.quantidade_barragens_propriedade ?? 1,
-          comentarios: row.comentarios || null,
-          sincronizadoAdministraEm: row.updated_at || new Date().toISOString(),
-          createdAt: row.created_at || new Date().toISOString(),
-          updatedAt: row.updated_at || new Date().toISOString()
-        });
-      });
-    }
 
     const barMap = new Map<string, BarragemEntity>();
     localCatalog.barragens.forEach(b => barMap.set(b.id, b));
-    if (!barRes.error && Array.isArray(barRes.data)) {
-      barRes.data.forEach((row: any) => {
-        barMap.set(row.id, {
-          id: row.id,
-          administraId: row.administra_id || row.id,
-          sistemaOrigem: (row.sistema_origem || 'administra') as SistemaOrigem,
-          criadoPorEmail: row.criado_por_email || null,
-          empreendedorId: row.empreendedor_id,
-          nome: row.nome,
-          municipio: row.municipio || '',
-          baciaHidrografica: row.bacia_hidrografica || null,
-          cursoDagua: row.curso_dagua || null,
-          coordenadas: {
-            latitude: row.latitude_decimal ?? null,
-            longitude: row.longitude_decimal ?? null,
-            horarioCaptura: row.updated_at || null,
-            acuraciaMetros: null,
-            altitudeEstimadaDispositivo: null,
-            editadoManualmente: true,
-            datum: row.datum || 'SIRGAS 2000'
-          },
-          cotaCoroamentoMetros: row.cota_coroamento_metros ?? null,
-          anoInicioObra: row.ano_inicio_obra ?? null,
-          anoFinalObra: row.ano_final_obra ?? null,
-          idadeBarragemAnos: null,
-          tipoMaterial: row.tipo_barragem_material || 'terra_homogenea',
-          usoPrincipal: row.uso_principal || '',
-          usosSecundarios: Array.isArray(row.usos_secundarios) ? row.usos_secundarios : [],
-          sincronizadoAdministraEm: row.updated_at || new Date().toISOString(),
-          createdAt: row.created_at || new Date().toISOString(),
-          updatedAt: row.updated_at || new Date().toISOString()
-        });
-      });
-    }
 
     const rtMap = new Map<string, ResponsavelTecnicoEntity>();
     localCatalog.responsaveisTecnicos.forEach(rt => rtMap.set(rt.id, rt));
-    if (!rtRes.error && Array.isArray(rtRes.data)) {
-      rtRes.data.forEach((row: any) => {
-        rtMap.set(row.id, {
-          id: row.id,
-          administraId: row.administra_id || row.id,
-          sistemaOrigem: (row.sistema_origem || 'administra') as SistemaOrigem,
-          criadoPorEmail: row.criado_por_email || null,
-          empreendedorId: row.empreendedor_id || null,
-          barragemId: row.barragem_id || null,
-          nome: row.nome,
-          cpf: row.cpf || null,
-          registroProfissional: row.registro_profissional || null,
-          ufRegistro: row.uf_registro || 'MT',
-          artNumero: row.art_numero || null,
-          especialidade: row.especialidade || null,
-          telefone: row.telefone || null,
-          email: row.email || null,
-          sincronizadoAdministraEm: row.updated_at || new Date().toISOString(),
-          createdAt: row.created_at || new Date().toISOString(),
-          updatedAt: row.updated_at || new Date().toISOString()
-        });
-      });
-    }
 
-    const merged: AdministraMasterCatalog = {
+    let anyAuthBlocked = false;
+
+    await Promise.all(
+      clientsToQuery.map(async ({ key, client, defaultOrigin }) => {
+        if (!client) return;
+        const [empQ, barQ, rtQ, propQ] = await Promise.all([
+          queryTableWithOptionalFilter(
+            client,
+            key,
+            ['empreendedores', 'empreendedor', 'proprietarios', 'cadastros_empreendedores'],
+            searchTerms
+          ),
+          queryTableWithOptionalFilter(
+            client,
+            key,
+            ['barragens', 'barragem', 'barramentos'],
+            searchTerms
+          ),
+          queryTableWithOptionalFilter(
+            client,
+            key,
+            ['responsaveis_tecnicos', 'responsavel_tecnico'],
+            searchTerms
+          ),
+          queryTableWithOptionalFilter(
+            client,
+            key,
+            ['propriedades', 'imoveis', 'imoveis_rurais'],
+            searchTerms
+          )
+        ]);
+
+        if (empQ.authBlocked || barQ.authBlocked || rtQ.authBlocked) {
+          anyAuthBlocked = true;
+        }
+
+        empQ.rows.forEach(row => {
+          const mapped = mapRawEmpreendedor(row, defaultOrigin);
+          if (mapped) empMap.set(mapped.id, mapped);
+        });
+
+        propQ.rows.forEach(row => {
+          const mapped = mapRawEmpreendedor(row, defaultOrigin);
+          if (mapped && !empMap.has(mapped.id)) empMap.set(mapped.id, mapped);
+        });
+
+        barQ.rows.forEach(row => {
+          const mapped = mapRawBarragem(row, defaultOrigin);
+          if (mapped) {
+            barMap.set(mapped.id, mapped);
+            // Caso a tabela de barragens traga CAR ou dados denormalizados do empreendedor
+            const inlineCar = pickFirstString(row, ['car_numero', 'car', 'numero_car', 'codigo_car']);
+            const inlineEmpName = pickFirstString(row, ['empreendedor_nome', 'proprietario', 'razao_social']);
+            const inlineEmpDoc = pickFirstString(row, ['cpf_cnpj_empreendedor', 'cpf_empreendedor', 'cpf_cnpj']);
+            if ((inlineCar || inlineEmpName || inlineEmpDoc) && mapped.empreendedorId && !empMap.has(mapped.empreendedorId)) {
+              const syntheticEmp = mapRawEmpreendedor(
+                {
+                  id: mapped.empreendedorId,
+                  nome_razao_social: inlineEmpName || 'Empreendedor vinculado',
+                  cpf_cnpj: inlineEmpDoc,
+                  car_numero: inlineCar,
+                  municipio: mapped.municipio,
+                  sistema_origem: mapped.sistemaOrigem
+                },
+                defaultOrigin
+              );
+              if (syntheticEmp) empMap.set(syntheticEmp.id, syntheticEmp);
+            }
+          }
+        });
+
+        rtQ.rows.forEach(row => {
+          const mapped = mapRawRt(row, defaultOrigin);
+          if (mapped) rtMap.set(mapped.id, mapped);
+        });
+      })
+    );
+
+    const merged: AdministraMasterCatalog & { authBlocked?: boolean } = {
       empreendedores: Array.from(empMap.values()),
       barragens: Array.from(barMap.values()),
       responsaveisTecnicos: Array.from(rtMap.values()),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      authBlocked: anyAuthBlocked
     };
     saveLocalAdministraCatalog(merged);
     return merged;
   } catch (err) {
-    console.warn('[Ecossistema] Usando cache local do Administra (remoto indisponível):', err);
+    console.warn('[Ecossistema] Usando cache local:', err);
     return localCatalog;
   }
 }
@@ -556,7 +840,7 @@ export async function upsertMasterEntitiesFromInspection(
 
   saveLocalAdministraCatalog(catalog);
 
-  // Grava no projeto Supabase do ADMINISTRA quando configurado
+  // Grava no servidor remoto do Administra quando ativo
   let savedToAdministraRemote = false;
   if (administraSupabase) {
     try {
@@ -578,7 +862,7 @@ export async function upsertMasterEntitiesFromInspection(
     }
   }
 
-  // Aplica superioridade de campo da Vistoria para qualquer dado importado que o fiscal tenha alterado
+  // Aplica superioridade da Vistoria para qualquer dado importado/pré-carregado que o fiscal tenha editado
   if (inspection.importedFieldsOrigin && Object.keys(inspection.importedFieldsOrigin).length > 0) {
     const supRes = await applyVistoriaSuperiorityUpdates(
       inspection,
@@ -606,7 +890,7 @@ export function loadLocalEcosystemProducts(): ProdutoEcossistema[] {
     const raw = localStorage.getItem(ECOSYSTEM_PRODUCTS_KEY);
     if (raw) {
       const parsed = sanitizeDeepObject(JSON.parse(raw));
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? parsed.filter(p => !isLegacySampleEntity(p)) : [];
     }
   } catch {}
   return [];
@@ -737,7 +1021,7 @@ export async function registerFiscalizaProductsFromInspection(
   productsToRegister.forEach(p => map.set(p.id, p));
   saveLocalEcosystemProducts(Array.from(map.values()));
 
-  // Sincroniza índice no Supabase se configurado
+  // Sincroniza índice remoto quando ativo
   const remoteClient = administraSupabase || fiscalizaSupabase;
   if (remoteClient) {
     try {
@@ -763,7 +1047,7 @@ export async function registerFiscalizaProductsFromInspection(
       }));
       await remoteClient.from('produtos_ecossistema').upsert(payload);
     } catch {
-      // Tabela pode ainda não estar migrada no Supabase destino
+      // Silencioso se estrutura remota estiver pendente
     }
   }
 }
@@ -1091,18 +1375,45 @@ export async function searchEcosystemEntrepreneursAndDams(query: string): Promis
   barragens: BarragemEntity[];
   responsaveisTecnicos: ResponsavelTecnicoEntity[];
   queriedRemote: boolean;
+  authBlocked?: boolean;
 }> {
-  const catalog = await fetchAdministraMasterCatalog();
-  const q = normalizeNameForMatch(query);
-  const qDigits = normalizeDocumentDigits(query);
+  const trimmed = (query || '').trim();
+  const qDigits = normalizeDocumentDigits(trimmed);
+  const searchTerms: string[] = [];
+  if (trimmed) searchTerms.push(trimmed);
+  if (qDigits && qDigits !== trimmed) searchTerms.push(qDigits);
+  if (qDigits.length === 11) searchTerms.push(formatCpfDigits(qDigits));
+  if (qDigits.length === 14) searchTerms.push(formatCnpjDigits(qDigits));
+
+  const catalog = (await fetchAdministraMasterCatalog(searchTerms)) as AdministraMasterCatalog & {
+    authBlocked?: boolean;
+  };
+  const q = normalizeNameForMatch(trimmed);
+
+  const matchDam = (b: BarragemEntity) => {
+    if (!q) return false;
+    return (
+      normalizeNameForMatch(b.nome).includes(q) ||
+      normalizeNameForMatch(b.municipio).includes(q) ||
+      normalizeNameForMatch(b.cursoDagua).includes(q)
+    );
+  };
+
+  const directlyMatchedDamEmpIds = new Set(
+    catalog.barragens.filter(matchDam).map(b => b.empreendedorId).filter(Boolean)
+  );
 
   const matchEmp = (e: EmpreendedorEntity) => {
     if (!q && !qDigits) return true;
-    const nameMatch = normalizeNameForMatch(e.nomeRazaoSocial).includes(q);
-    const munMatch = normalizeNameForMatch(e.municipio).includes(q);
-    const carMatch = normalizeNameForMatch(e.carNumero).includes(q);
-    const docMatch = qDigits ? normalizeDocumentDigits(e.cpfCnpj).includes(qDigits) : false;
-    return nameMatch || munMatch || carMatch || docMatch;
+    if (directlyMatchedDamEmpIds.has(e.id)) return true;
+    const nameMatch = q ? normalizeNameForMatch(e.nomeRazaoSocial).includes(q) : false;
+    const munMatch = q ? normalizeNameForMatch(e.municipio).includes(q) : false;
+    const carNorm = normalizeNameForMatch(e.carNumero);
+    const carMatch = q ? carNorm.includes(q) || carNorm.replace(/[^a-z0-9]/g, '').includes(q.replace(/[^a-z0-9]/g, '')) : false;
+    const docDigits = normalizeDocumentDigits(e.cpfCnpj);
+    const docMatch = qDigits && qDigits.length >= 3 ? docDigits.includes(qDigits) : false;
+    const rawDocMatch = q ? normalizeNameForMatch(e.cpfCnpj).includes(q) : false;
+    return nameMatch || munMatch || carMatch || docMatch || rawDocMatch;
   };
 
   const matchedEmps = catalog.empreendedores.filter(matchEmp);
@@ -1111,17 +1422,15 @@ export async function searchEcosystemEntrepreneursAndDams(query: string): Promis
   const matchedBars = catalog.barragens.filter(b => {
     if (matchedEmpIds.has(b.empreendedorId)) return true;
     if (!q) return true;
-    return (
-      normalizeNameForMatch(b.nome).includes(q) ||
-      normalizeNameForMatch(b.municipio).includes(q)
-    );
+    return matchDam(b);
   });
 
   return {
     empreendedores: matchedEmps,
     barragens: matchedBars,
     responsaveisTecnicos: catalog.responsaveisTecnicos,
-    queriedRemote: !!administraSupabase
+    queriedRemote: !!(administraSupabase || fiscalizaSupabase || classificaSupabase || notificaSupabase),
+    authBlocked: !!catalog.authBlocked
   };
 }
 
@@ -1287,11 +1596,15 @@ export async function applyVistoriaSuperiorityUpdates(
   const notificationsSent: NotificacaoAnalistaEcossistema[] = [];
   const warnings: string[] = [];
   const existingInbox = loadLocalAnalystInbox();
+  const existingReqs = loadLocalAlterationRequests();
+  const newAuditReqs: SolicitacaoAlteracaoEcossistema[] = [];
+  const seenFieldKeys = new Set<string>();
   const catalog = loadLocalAdministraCatalog();
   const now = new Date().toISOString();
   let updatedCount = 0;
 
   for (const [fieldKey, meta] of Object.entries(importedMap) as [string, ImportedFieldOriginRecord][]) {
+    if (seenFieldKeys.has(fieldKey)) continue;
     const liveVal = getLiveInspectionFieldValue(inspection, fieldKey).trim();
     const origVal = (meta.originalValue || '').trim();
     if (liveVal === origVal) continue;
@@ -1305,6 +1618,7 @@ export async function applyVistoriaSuperiorityUpdates(
     );
     if (alreadyNotifiedSameValue) continue;
 
+    seenFieldKeys.add(fieldKey);
     updatedCount++;
 
     // 1. Atualiza o catálogo local (e Administra remoto) com o dado verificado em vistoria
@@ -1362,7 +1676,7 @@ export async function applyVistoriaSuperiorityUpdates(
       id: generateUUID(),
       sistemaDestino: meta.sourceSystem,
       sistemaOrigem: 'fiscaliza',
-      destinatarioAnalistaEmail: (meta.originalAnalystEmail || 'analista.responsavel@csb.sema.mt.gov.br').toLowerCase(),
+      destinatarioAnalistaEmail: (meta.originalAnalystEmail || 'nao-informado@sistema.local').toLowerCase(),
       entidadeTipo: meta.entidadeTipo,
       entidadeId: meta.entidadeId,
       entidadeNome,
@@ -1372,7 +1686,7 @@ export async function applyVistoriaSuperiorityUpdates(
       campoRotulo: meta.fieldLabel,
       valorAnterior: origVal,
       valorAtualizadoVistoria: liveVal,
-      alteradoPorEmail: (actorEmail || 'fiscal@csb.sema.mt.gov.br').toLowerCase(),
+      alteradoPorEmail: (actorEmail || inspection.createdByEmail || 'nao-informado@sistema.local').toLowerCase(),
       alteradoPorNome: actorName || 'Fiscal de Campo',
       motivoSuperioridade:
         'Alteração aplicada por superioridade da Vistoria Presencial em Campo (dado conferido in loco pelo fiscal).',
@@ -1416,8 +1730,6 @@ export async function applyVistoriaSuperiorityUpdates(
       })
     );
 
-    // Registra histórico de alteração aplicada por superioridade de vistoria
-    const existingReqs = loadLocalAlterationRequests();
     const auditReq: SolicitacaoAlteracaoEcossistema = {
       id: generateUUID(),
       entidadeTipo: meta.entidadeTipo,
@@ -1444,50 +1756,95 @@ export async function applyVistoriaSuperiorityUpdates(
       criadoEm: now,
       atualizadoEm: now
     };
-    saveLocalAlterationRequests([auditReq, ...existingReqs]);
+    newAuditReqs.push(auditReq);
   }
 
   if (updatedCount > 0) {
+    saveLocalAlterationRequests([...newAuditReqs, ...existingReqs]);
     saveLocalAdministraCatalog(catalog);
     saveLocalAnalystInbox([...notificationsSent, ...existingInbox]);
 
-    // Propaga alterações no Administra e demais servidores configurados
-    if (administraSupabase) {
+    // Propaga alterações no Administra e base institucional (RPC com superioridade de vistoria + fallback update)
+    const remoteTargets = [administraSupabase, fiscalizaSupabase].filter(Boolean);
+    for (const remote of remoteTargets) {
+      if (!remote) continue;
       try {
-        const empTarget = catalog.empreendedores.find(e => e.id === inspection.empreendedorId);
-        if (empTarget) {
-          await administraSupabase
-            .from('empreendedores')
-            .update({
-              nome_razao_social: empTarget.nomeRazaoSocial,
-              cpf_cnpj: empTarget.cpfCnpj,
-              figura_juridica: empTarget.figuraJuridica,
-              endereco: empTarget.endereco,
-              telefone: empTarget.telefone,
-              email: empTarget.email,
-              car_numero: empTarget.carNumero,
-              declaracao_uso: empTarget.declaracaoUsoOutorga,
-              quantidade_barragens_propriedade: empTarget.quantidadeBarragens,
-              updated_at: now
-            })
-            .eq('id', empTarget.id);
+        const empTargetId = inspection.empreendedorId;
+        const empTarget = empTargetId ? catalog.empreendedores.find(e => e.id === empTargetId) : undefined;
+        if (empTargetId && (empTarget || inspection.damIdentification?.propertyOrBusinessName)) {
+          const empUpdateData = {
+            nome_razao_social: empTarget?.nomeRazaoSocial ?? inspection.damIdentification.propertyOrBusinessName,
+            cpf_cnpj: empTarget?.cpfCnpj ?? inspection.damIdentification.ownerCpfCnpj ?? null,
+            figura_juridica: empTarget?.figuraJuridica ?? inspection.damIdentification.ownerLegalType ?? 'empresa_privada',
+            endereco: empTarget?.endereco ?? inspection.damIdentification.ownerAddress ?? '',
+            telefone: empTarget?.telefone ?? inspection.damIdentification.ownerPhone ?? null,
+            email: empTarget?.email ?? inspection.conclusions?.notificationDetails?.destinatario?.email ?? null,
+            car_numero: empTarget?.carNumero ?? inspection.damIdentification.regulatoryStatus?.carNumber ?? null,
+            declaracao_uso: empTarget?.declaracaoUsoOutorga ?? inspection.damIdentification.regulatoryStatus?.permitNumber ?? null,
+            quantidade_barragens_propriedade:
+              empTarget?.quantidadeBarragens ??
+              (inspection.damIdentification.damsCountOnProperty ? Number(inspection.damIdentification.damsCountOnProperty) || 1 : 1),
+            updated_at: now
+          };
+          const { error: rpcErr } = await remote.rpc('rpc_aplicar_edicao_vistoria', {
+            p_entidade_tipo: 'empreendedor',
+            p_entidade_id: empTargetId,
+            p_dados: empUpdateData
+          });
+          if (rpcErr) {
+            await remote.from('empreendedores').update(empUpdateData).eq('id', empTargetId);
+          }
         }
-        const barTarget = catalog.barragens.find(b => b.id === inspection.barragemId);
-        if (barTarget) {
-          await administraSupabase
-            .from('barragens')
-            .update({
-              nome: barTarget.nome,
-              municipio: barTarget.municipio,
-              curso_dagua: barTarget.cursoDagua,
-              ano_inicio_obra: barTarget.anoInicioObra,
-              ano_final_obra: barTarget.anoFinalObra,
-              updated_at: now
-            })
-            .eq('id', barTarget.id);
+        const barTargetId = inspection.barragemId;
+        const barTarget = barTargetId ? catalog.barragens.find(b => b.id === barTargetId) : undefined;
+        if (barTargetId && (barTarget || inspection.damIdentification?.damName)) {
+          const barUpdateData = {
+            nome: barTarget?.nome ?? inspection.damIdentification.damName,
+            municipio: barTarget?.municipio ?? inspection.damIdentification.municipality,
+            bacia_hidrografica: barTarget?.baciaHidrografica ?? inspection.damIdentification.hydrographicBasin ?? null,
+            curso_dagua: barTarget?.cursoDagua ?? inspection.damIdentification.waterCourse ?? null,
+            ano_inicio_obra:
+              barTarget?.anoInicioObra ??
+              (inspection.damIdentification.workStartYear ? parseInt(inspection.damIdentification.workStartYear, 10) || null : null),
+            ano_final_obra:
+              barTarget?.anoFinalObra ??
+              (inspection.damIdentification.workEndYear ? parseInt(inspection.damIdentification.workEndYear, 10) || null : null),
+            tipo_barragem_material: barTarget?.tipoMaterial ?? inspection.damIdentification.damType ?? 'terra_homogenea',
+            uso_principal: barTarget?.usoPrincipal ?? inspection.damIdentification.mainWaterUse ?? '',
+            updated_at: now
+          };
+          const { error: rpcErr } = await remote.rpc('rpc_aplicar_edicao_vistoria', {
+            p_entidade_tipo: 'barragem',
+            p_entidade_id: barTargetId,
+            p_dados: barUpdateData
+          });
+          if (rpcErr) {
+            await remote.from('barragens').update(barUpdateData).eq('id', barTargetId);
+          }
+        }
+        const rtTargetId = inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id;
+        const rtTarget = rtTargetId ? catalog.responsaveisTecnicos.find(r => r.id === rtTargetId) : undefined;
+        if (rtTargetId && (rtTarget || inspection.responsavelTecnico?.nome)) {
+          const rtUpdateData = {
+            nome: rtTarget?.nome ?? inspection.responsavelTecnico?.nome ?? '',
+            cpf: rtTarget?.cpf ?? inspection.responsavelTecnico?.cpf ?? null,
+            registro_profissional: rtTarget?.registroProfissional ?? inspection.responsavelTecnico?.registroProfissional ?? null,
+            art_numero: rtTarget?.artNumero ?? inspection.responsavelTecnico?.artNumero ?? null,
+            telefone: rtTarget?.telefone ?? inspection.responsavelTecnico?.telefone ?? null,
+            email: rtTarget?.email ?? inspection.responsavelTecnico?.email ?? null,
+            updated_at: now
+          };
+          const { error: rpcErr } = await remote.rpc('rpc_aplicar_edicao_vistoria', {
+            p_entidade_tipo: 'responsavel_tecnico',
+            p_entidade_id: rtTargetId,
+            p_dados: rtUpdateData
+          });
+          if (rpcErr) {
+            await remote.from('responsaveis_tecnicos').update(rtUpdateData).eq('id', rtTargetId);
+          }
         }
       } catch (err: any) {
-        warnings.push(`Propagação Administra: ${err?.message || 'aguardando regra RLS/trigger'}`);
+        warnings.push(`Propagação de edição na base integrada: ${err?.message || 'sincronização pendente'}`);
       }
     }
   }
@@ -1534,7 +1891,6 @@ export function applyMasterSelectionToInspection(
     originalAnalystEmail: string | null | undefined,
     value: string
   ) => {
-    if (!value) return;
     originMap[fieldKey] = {
       fieldKey,
       fieldLabel,
@@ -1542,8 +1898,8 @@ export function applyMasterSelectionToInspection(
       entidadeId,
       sourceSystem,
       originalAnalystEmail: originalAnalystEmail || null,
-      originalValue: value,
-      currentValue: value,
+      originalValue: value || '',
+      currentValue: value || '',
       importedAt: now,
       modifiedInVistoria: false
     };

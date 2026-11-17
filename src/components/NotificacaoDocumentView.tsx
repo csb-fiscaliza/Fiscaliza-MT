@@ -4,7 +4,7 @@
 // Recurso CONDICIONAL, com seleção de modelos distintos, validação sem inferência
 // ==============================================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   BellRing, 
   RotateCcw, 
@@ -16,19 +16,15 @@ import {
   CheckCircle2, 
   Printer, 
   Download, 
-  FileText, 
   Building2, 
-  Calendar, 
   Clock, 
   Check, 
   ShieldCheck, 
   Scale, 
   Link2,
-  Trash2,
-  Plus,
   Info
 } from 'lucide-react';
-import { InspectionData, NotificacaoModelType, NotificationLegalReference } from '../types/inspection';
+import { InspectionData, NotificacaoModelType } from '../types/inspection';
 import { NOTIFICATION_TEMPLATES } from '../config/notificationTemplates';
 import { generateNotificacaoData, NotificacaoGeneratedStructure } from '../utils/notificacaoGenerator';
 
@@ -49,7 +45,17 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
   const [lastSavedInfo, setLastSavedInfo] = useState<{ timestamp: string; author: string } | null>(
     notif.dataRevisao ? { timestamp: notif.dataRevisao, author: notif.revisadoPor || 'Servidor' } : null
   );
-  const [copyFeedback, setCopyFeedback] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
+  const [confirmDisable, setConfirmDisable] = useState(false);
+  const [pendingModelType, setPendingModelType] = useState<NotificacaoModelType | null>(null);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const timersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach(t => window.clearTimeout(t));
+    };
+  }, []);
 
   // Gera dados estruturados e identifica pendências
   const generated: NotificacaoGeneratedStructure = generateNotificacaoData(data);
@@ -96,60 +102,51 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
     }));
   };
 
-  const updateLocalOcorrencia = (field: string, value: string) => {
-    onChange(prev => ({
-      ...prev,
-      conclusions: {
-        ...prev.conclusions,
-        notificationDetails: {
-          ...prev.conclusions.notificationDetails,
-          localOcorrencia: {
-            ...prev.conclusions.notificationDetails.localOcorrencia,
-            [field]: value
-          }
-        }
-      }
-    }));
+  const handleSelectModel = (modelType: NotificacaoModelType) => {
+    if (modelType === notif.modelType) return;
+    if (!NOTIFICATION_TEMPLATES[modelType]) return;
+    setPendingModelType(modelType);
   };
 
-  const handleSelectModel = (modelType: NotificacaoModelType) => {
+  const confirmSelectModel = () => {
+    if (!pendingModelType) return;
+    const modelType = pendingModelType;
     const tmpl = NOTIFICATION_TEMPLATES[modelType];
+    setPendingModelType(null);
     if (!tmpl) return;
 
-    if (confirm(`Deseja alterar para o "${tmpl.title}"? O objetivo, solicitações e referências normativas serão carregados do modelo selecionado.`)) {
-      onChange(prev => {
-        const updatedDetails = {
-          ...prev.conclusions.notificationDetails,
-          modelType,
-          modelTitle: tmpl.title,
-          objetivo: tmpl.defaultObjetivo,
-          // Não define prazo automaticamente sem consentimento explícito
-          prazoDias: prev.conclusions.notificationDetails.prazoDias || tmpl.sugestaoPrazoDias,
-          solicitacoesTexto: tmpl.defaultSolicitacoes,
-          observacoesGeraisTexto: tmpl.defaultObservacoesGerais,
-          referenciasNormativas: tmpl.referenciasNormativas.map(r => ({ ...r }))
-        };
+    onChange(prev => {
+      const updatedDetails = {
+        ...prev.conclusions.notificationDetails,
+        modelType,
+        modelTitle: tmpl.title,
+        objetivo: tmpl.defaultObjetivo,
+        // Não define prazo automaticamente sem consentimento explícito
+        prazoDias: prev.conclusions.notificationDetails.prazoDias || tmpl.sugestaoPrazoDias,
+        solicitacoesTexto: tmpl.defaultSolicitacoes,
+        observacoesGeraisTexto: tmpl.defaultObservacoesGerais,
+        referenciasNormativas: tmpl.referenciasNormativas.map(r => ({ ...r }))
+      };
 
-        const freshData = {
-          ...prev,
-          conclusions: {
-            ...prev.conclusions,
-            notificationDetails: updatedDetails
-          }
-        };
+      const freshData = {
+        ...prev,
+        conclusions: {
+          ...prev.conclusions,
+          notificationDetails: updatedDetails
+        }
+      };
 
-        const freshGen = generateNotificacaoData(freshData);
-        setEditorText(freshGen.textoCompletoFormatado);
+      const freshGen = generateNotificacaoData(freshData);
+      setEditorText(freshGen.textoCompletoFormatado);
 
-        return {
-          ...freshData,
-          drafts: {
-            ...prev.drafts,
-            notificationLetter: freshGen.textoCompletoFormatado
-          }
-        };
-      });
-    }
+      return {
+        ...freshData,
+        drafts: {
+          ...prev.drafts,
+          notificationLetter: freshGen.textoCompletoFormatado
+        }
+      };
+    });
   };
 
   const toggleLegalRef = (refId: string) => {
@@ -159,17 +156,22 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
   };
 
   const handleRestoreBase = () => {
-    if (confirm('Deseja recarregar o texto base do modelo selecionado com os dados atuais do formulário? Edições manuais não salvas serão descartadas.')) {
-      const freshGen = generateNotificacaoData(data);
-      setEditorText(freshGen.textoCompletoFormatado);
-      onChange(prev => ({
-        ...prev,
-        drafts: {
-          ...prev.drafts,
-          notificationLetter: freshGen.textoCompletoFormatado
-        }
-      }));
+    if (!confirmRestore) {
+      setConfirmRestore(true);
+      const t = window.setTimeout(() => setConfirmRestore(false), 4000);
+      timersRef.current.push(t);
+      return;
     }
+    setConfirmRestore(false);
+    const freshGen = generateNotificacaoData(data);
+    setEditorText(freshGen.textoCompletoFormatado);
+    onChange(prev => ({
+      ...prev,
+      drafts: {
+        ...prev.drafts,
+        notificationLetter: freshGen.textoCompletoFormatado
+      }
+    }));
   };
 
   const handleSaveFinal = () => {
@@ -194,7 +196,9 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
       timestamp: nowStr,
       author: editorAuthor
     });
-    alert('Minuta de Notificação salva e associada com sucesso ao registro da vistoria!');
+    setSaveFeedback('Minuta de Notificação salva e associada com sucesso ao registro da vistoria.');
+    const t = window.setTimeout(() => setSaveFeedback(null), 4500);
+    timersRef.current.push(t);
   };
 
   const handlePrint = () => {
@@ -223,15 +227,20 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
   };
 
   const handleDisableNotification = () => {
-    if (confirm('Tem certeza de que deseja dispensar a emissão de Notificação para esta vistoria? A minuta ficará inativa.')) {
-      onChange(prev => ({
-        ...prev,
-        conclusions: {
-          ...prev.conclusions,
-          requiresNotification: false
-        }
-      }));
+    if (!confirmDisable) {
+      setConfirmDisable(true);
+      const t = window.setTimeout(() => setConfirmDisable(false), 4000);
+      timersRef.current.push(t);
+      return;
     }
+    setConfirmDisable(false);
+    onChange(prev => ({
+      ...prev,
+      conclusions: {
+        ...prev.conclusions,
+        requiresNotification: false
+      }
+    }));
   };
 
   // Se a notificação não foi indicada como necessária pelo servidor
@@ -295,20 +304,30 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
             <button
               type="button"
               onClick={handleDisableNotification}
-              className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 font-medium transition cursor-pointer"
+              className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition cursor-pointer ${
+                confirmDisable
+                  ? 'border-red-600 bg-red-600 text-white font-bold'
+                  : 'border-red-200 text-red-700 hover:bg-red-50'
+              }`}
               title="Dispensar Notificação"
             >
-              Dispensar Notificação
+              {confirmDisable ? 'Confirmar Dispensa?' : 'Dispensar Notificação'}
             </button>
 
             <button
               type="button"
               onClick={handleRestoreBase}
-              className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 font-medium transition flex items-center gap-1.5 cursor-pointer"
+              className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition flex items-center gap-1.5 cursor-pointer ${
+                confirmRestore
+                  ? 'border-amber-500 bg-amber-50 text-amber-800 font-bold'
+                  : 'border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
               title="Restaurar dados do modelo e formulário"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Restaurar Base</span>
+              <span className={confirmRestore ? 'inline' : 'hidden sm:inline'}>
+                {confirmRestore ? 'Confirmar Restauração?' : 'Restaurar Base'}
+              </span>
             </button>
 
             <button
@@ -389,6 +408,34 @@ export const NotificacaoDocumentView: React.FC<Props> = ({ data, onChange }) => 
       </div>
 
       {/* Alerta de Auditoria / Último Salvamento */}
+      {saveFeedback && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-xs text-emerald-800 font-semibold print:hidden">
+          {saveFeedback}
+        </div>
+      )}
+      {pendingModelType && NOTIFICATION_TEMPLATES[pendingModelType] && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-xs text-amber-950 flex flex-wrap items-center justify-between gap-2 print:hidden">
+          <span>
+            Alterar para <strong>{NOTIFICATION_TEMPLATES[pendingModelType].title}</strong>? O objetivo, solicitações e referências normativas serão carregados do modelo selecionado.
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setPendingModelType(null)}
+              className="px-3 py-1 rounded-lg bg-white border border-slate-300 text-slate-700 font-semibold cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={confirmSelectModel}
+              className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
+            >
+              Confirmar Troca
+            </button>
+          </div>
+        </div>
+      )}
       {lastSavedInfo && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-xs text-emerald-800 flex items-center justify-between">
           <div className="flex items-center gap-2">

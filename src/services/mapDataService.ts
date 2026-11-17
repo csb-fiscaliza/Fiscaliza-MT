@@ -86,7 +86,7 @@ export interface GeoJsonMunicipalityCollection {
 /**
  * Converte qualquer representação de coordenada (GMS com :, com graus, decimal) para decimal negativo
  */
-export function parseCoordinate(val: unknown, isLat: boolean): number | null {
+export function parseCoordinate(val: unknown, _isLat: boolean): number | null {
   if (val === null || val === undefined) return null;
   if (typeof val === 'number') {
     if (isNaN(val) || val === 0) return null;

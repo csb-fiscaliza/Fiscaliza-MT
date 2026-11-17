@@ -5,7 +5,7 @@
 // status individual, tamanho de arquivos, progresso em tempo real e reenvio.
 // ==============================================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Camera, 
   CloudUpload, 
@@ -17,17 +17,14 @@ import {
   X, 
   ZoomIn, 
   HardDrive, 
-  Wifi, 
   WifiOff, 
-  Filter, 
   Check, 
   AlertTriangle,
   FileImage,
-  ExternalLink,
   MapPin,
   Calendar
 } from 'lucide-react';
-import { PhotoSyncQueueItem, PhotoQueueStatus, InspectionData } from '../types/inspection';
+import { PhotoSyncQueueItem, InspectionData } from '../types/inspection';
 import { 
   getPhotoSyncQueue, 
   getPhotoQueueSummary, 
@@ -37,8 +34,7 @@ import {
   clearCompletedPhotosFromQueue, 
   reEnqueuePhoto,
   subscribePhotoQueue,
-  enqueuePhotosFromInspection,
-  formatBytes
+  enqueuePhotosFromInspection
 } from '../services/photoSyncQueueService';
 
 interface PhotoSyncQueueModalProps {
@@ -73,6 +69,13 @@ export const PhotoSyncQueueModal: React.FC<PhotoSyncQueueModalProps> = ({
   } | null>(null);
   const [zoomPhoto, setZoomPhoto] = useState<PhotoSyncQueueItem | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+    };
+  }, []);
 
   // Carrega e atualiza a lista de fotos da fila do IndexedDB
   const refreshQueue = async () => {
@@ -128,7 +131,8 @@ export const PhotoSyncQueueModal: React.FC<PhotoSyncQueueModalProps> = ({
       console.error('Erro na sincronização da fila de fotos:', err);
     } finally {
       setIsSyncingAll(false);
-      setTimeout(() => {
+      if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+      progressTimerRef.current = setTimeout(() => {
         setSyncProgress(null);
       }, 4000);
     }

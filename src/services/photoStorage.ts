@@ -4,7 +4,6 @@
 // ==============================================================================
 
 import { supabase, isSupabaseConfigured } from './supabase';
-import { PhotoRecord } from '../types/inspection';
 import { getOfflineDb, STORE_PHOTOS } from './offlineDb';
 
 const STORE_NAME = STORE_PHOTOS;
@@ -81,14 +80,14 @@ export async function uploadPhotoToRemoteStorage(
   if (!isSupabaseConfigured() || !supabase) {
     return {
       success: false,
-      error: 'Supabase Storage não conectado. Imagem salva localmente no aparelho.'
+      error: 'Armazenamento remoto indisponível. Imagem salva localmente no aparelho.'
     };
   }
 
   try {
-    const filePath = `${vistoriaId}/${photoId}.jpg`;
-    const { data, error } = await supabase.storage
-      .from('vistorias-fotos')
+    const filePath = `vistorias/${vistoriaId}/${photoId}.jpg`;
+    const { error } = await supabase.storage
+      .from('fotos_vistorias_csb')
       .upload(filePath, blob, {
         contentType: 'image/jpeg',
         upsert: true
@@ -98,13 +97,13 @@ export async function uploadPhotoToRemoteStorage(
       return { success: false, error: error.message };
     }
 
-    const { data: publicUrlData } = supabase.storage
-      .from('vistorias-fotos')
-      .getPublicUrl(filePath);
+    const { data: signedData } = await supabase.storage
+      .from('fotos_vistorias_csb')
+      .createSignedUrl(filePath, 3600);
 
     return {
       success: true,
-      remoteUrl: publicUrlData.publicUrl
+      remoteUrl: signedData?.signedUrl || filePath
     };
   } catch (err: any) {
     return {

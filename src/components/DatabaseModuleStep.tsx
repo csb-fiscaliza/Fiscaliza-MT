@@ -14,8 +14,6 @@ import {
   Edit3, 
   Trash2, 
   PlusCircle, 
-  Download, 
-  ShieldCheck, 
   AlertTriangle, 
   CheckCircle2, 
   Camera, 
@@ -24,22 +22,16 @@ import {
   Calendar, 
   FileSpreadsheet,
   ArrowUpDown,
-  Sparkles,
   RefreshCw,
-  FolderOpen,
   Lock,
-  CloudCheck,
   AlertCircle,
-  CloudUpload,
   CalendarClock
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { InspectionDetailModal } from './InspectionDetailModal';
 import { PhotoSyncQueueModal } from './PhotoSyncQueueModal';
 import { getPhotoQueueSummary, subscribePhotoQueue } from '../services/photoSyncQueueService';
-import { exportInspectionToJson } from '../services/storage';
-import { exportAnonymizedJsonFile } from '../utils/anonymizer';
-import { canUserEditInspection, canUserDeleteInspection, canUserCreateInspection } from '../services/userService';
+import { canUserEditInspection, canUserDeleteInspection } from '../services/userService';
 
 interface Props {
   inspections: InspectionData[];

@@ -6,7 +6,7 @@
 
 import React, { useState } from 'react';
 import { VoiceInputButton } from './VoiceInputButton';
-import { Sparkles, AudioLines } from 'lucide-react';
+import { AudioLines } from 'lucide-react';
 
 export interface SpeechTextareaProps
   extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {

@@ -7,7 +7,6 @@ import {
   ArrowRight,
   ShieldAlert,
   Info,
-  CheckSquare,
   Plus
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';

@@ -9,9 +9,28 @@
 // - Layout otimizado para impressão/PDF A4 (sem corte de páginas)
 // ==============================================================================
 
-import { InspectionData, ItemAvaliadoEntity, InspectionPhoto } from '../types/inspection';
-import { createAuthenticitySeal, AuthenticitySealData } from './securityCrypto';
+import { InspectionData, ItemAvaliadoEntity } from '../types/inspection';
+import { createAuthenticitySeal } from './securityCrypto';
 import { formatGmsString } from './geoCoordinates';
+
+const esc = (val: string | number | null | undefined): string => {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
+const sanitizeImageSrc = (src: string | null | undefined): string => {
+  if (!src) return '';
+  const trimmed = src.trim();
+  if (/^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(trimmed)) return trimmed;
+  if (/^blob:/i.test(trimmed)) return trimmed;
+  if (/^https:\/\//i.test(trimmed)) return esc(trimmed);
+  return '';
+};
 
 /**
  * Traduz valores de resposta para exibição legível
@@ -254,28 +273,28 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
               return `
                 <tr class="${resp.isSim ? 'tr-anomalia' : ''}">
                   <td class="td-label">
-                    <strong>${label}</strong>
+                    <strong>${esc(label)}</strong>
                     ${hasObs ? `
                       <div class="item-detalhe-obs">
-                        ${item?.localizacaoDetalhe ? `<span><strong>Localização:</strong> ${item.localizacaoDetalhe}</span><br/>` : ''}
-                        ${item?.observacaoComplementar ? `<span><strong>Obs:</strong> ${item.observacaoComplementar}</span>` : ''}
+                        ${item?.localizacaoDetalhe ? `<span><strong>Localização:</strong> ${esc(item.localizacaoDetalhe)}</span><br/>` : ''}
+                        ${item?.observacaoComplementar ? `<span><strong>Obs:</strong> ${esc(item.observacaoComplementar)}</span>` : ''}
                       </div>
                     ` : ''}
                   </td>
                   <td>
-                    <span class="badge ${resp.classe}">${resp.texto}</span>
+                    <span class="badge ${resp.classe}">${esc(resp.texto)}</span>
                   </td>
                   <td>
                     ${perigo ? `
                       <span class="badge" style="background-color: ${perigo.bg}; color: ${perigo.cor}; border: 1px solid ${perigo.cor}40;">
-                        ${perigo.texto}
+                        ${esc(perigo.texto)}
                       </span>
                     ` : '<span class="text-muted">—</span>'}
                   </td>
                   <td>
                     ${mag ? `
                       <span class="badge" style="background-color: ${mag.bg}; color: ${mag.cor}; border: 1px solid ${mag.cor}40;">
-                        ${mag.texto}
+                        ${esc(mag.texto)}
                       </span>
                     ` : '<span class="text-muted">—</span>'}
                   </td>
@@ -294,7 +313,7 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
     } else if (comp.code === 'vertedouro') {
       itemsBlockHtml = `
         <div class="bloco-info-livre">
-          <p><strong>Tipologia e Descrição Hidráulica:</strong> ${d.spillwayType ? d.spillwayType.replace(/_/g, ' ').toUpperCase() : 'Não informado'}. Vertedouro operacional avaliado visualmente.</p>
+          <p><strong>Tipologia e Descrição Hidráulica:</strong> ${esc(d.spillwayType ? d.spillwayType.replace(/_/g, ' ').toUpperCase() : 'Não informado')}. Vertedouro operacional avaliado visualmente.</p>
         </div>
       `;
     }
@@ -319,11 +338,11 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
           ${compPhotos.map(p => `
             <div class="foto-mini-card">
               <div class="foto-mini-img-wrapper">
-                <img src="${p.dataUrl}" alt="${p.caption || 'Foto do componente'}" />
+                <img src="${sanitizeImageSrc(p.dataUrl)}" alt="${esc(p.caption || 'Foto do componente')}" />
               </div>
               <div class="foto-mini-info">
-                <strong>Fig. ${p.figuraNum}:</strong> ${p.caption || 'Sem legenda'}
-                ${p.timestamp ? `<div class="foto-mini-meta">🕒 ${p.timestamp}</div>` : ''}
+                <strong>Fig. ${p.figuraNum}:</strong> ${esc(p.caption || 'Sem legenda')}
+                ${p.timestamp ? `<div class="foto-mini-meta">🕒 ${esc(p.timestamp)}</div>` : ''}
                 ${(p.latitude !== undefined && p.longitude !== undefined) ? `<div class="foto-mini-meta">📍 Lat: ${p.latitude.toFixed(5)} / Lon: ${p.longitude.toFixed(5)}</div>` : ''}
               </div>
             </div>
@@ -334,7 +353,7 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
 
     return `
       <div class="subtopico-bloco">
-        <h4 class="subtopico-header">${comp.title}</h4>
+        <h4 class="subtopico-header">${esc(comp.title)}</h4>
         ${itemsBlockHtml}
         ${compPhotosHtml}
       </div>
@@ -355,22 +374,22 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
           return `
             <div class="foto-card-oficial">
               <div class="foto-img-container">
-                <img src="${photo.dataUrl}" alt="${photo.caption || compNome}" />
+                <img src="${sanitizeImageSrc(photo.dataUrl)}" alt="${esc(photo.caption || compNome)}" />
               </div>
               <div class="foto-legenda-box">
                 <div class="foto-titulo">
-                  <strong>Figura ${photo.figuraNum}:</strong> ${compNome}
+                  <strong>Figura ${photo.figuraNum}:</strong> ${esc(compNome)}
                 </div>
                 ${photo.caption ? `
                   <div class="foto-descricao-texto">
-                    ${photo.caption}
+                    ${esc(photo.caption)}
                   </div>
                 ` : '<div class="foto-descricao-texto italic">Registro fotográfico da estrutura</div>'}
                 
                 <div class="foto-metadados-grid">
                   ${photo.timestamp ? `
                     <div class="foto-meta-item">
-                      <strong>Registro:</strong> ${photo.timestamp}
+                      <strong>Registro:</strong> ${esc(photo.timestamp)}
                     </div>
                   ` : ''}
                   ${(photo.latitude !== undefined && photo.longitude !== undefined) ? `
@@ -381,7 +400,7 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
                   ` : ''}
                   ${photo.locationDescription ? `
                     <div class="foto-meta-item">
-                      <strong>Local:</strong> ${photo.locationDescription}
+                      <strong>Local:</strong> ${esc(photo.locationDescription)}
                     </div>
                   ` : ''}
                 </div>
@@ -407,7 +426,7 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>FICHA DE VISTORIA SEMA-MT - ${d.damName || 'BARRAGEM'} - ${g.recordNumber || 'S-N'}</title>
+  <title>FICHA DE VISTORIA SEMA-MT - ${esc(d.damName || 'BARRAGEM')} - ${esc(g.recordNumber || 'S-N')}</title>
   <style>
     /* Configurações Globais de Página e Impressão A4 */
     @page {
@@ -913,7 +932,7 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
   <!-- TÍTULO DA FICHA -->
   <div class="titulo-documento-box">
     <h2>Ficha Oficial de Vistoria de Segurança de Barragem</h2>
-    <div class="num-ficha">${g.numeroVistoria ? `Vistoria Nº ${g.numeroVistoria}` : ''}${g.recordNumber ? ` • Processo: ${g.recordNumber}` : (!g.numeroVistoria ? 'Nº S/N - REGISTRO DE CAMPO' : '')}</div>
+    <div class="num-ficha">${g.numeroVistoria ? `Vistoria Nº ${esc(g.numeroVistoria)}` : ''}${g.recordNumber ? ` • Processo: ${esc(g.recordNumber)}` : (!g.numeroVistoria ? 'Nº S/N - REGISTRO DE CAMPO' : '')}</div>
   </div>
 
   <!-- ======================================================================= -->
@@ -924,26 +943,26 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
     <table class="tabela-dados">
       <tr>
         <td class="label">Nº da Vistoria:</td>
-        <td class="val"><strong>${g.numeroVistoria || 'S/N'}</strong></td>
+        <td class="val"><strong>${esc(g.numeroVistoria || 'S/N')}</strong></td>
         <td class="label">Nº do Processo SEMA:</td>
-        <td class="val"><strong>${g.recordNumber || 'Não informado'}</strong></td>
+        <td class="val"><strong>${esc(g.recordNumber || 'Não informado')}</strong></td>
       </tr>
       <tr>
         <td class="label">Data da Vistoria:</td>
-        <td class="val"><strong>${dataVistoria}</strong></td>
+        <td class="val"><strong>${esc(dataVistoria)}</strong></td>
         <td class="label">Horário de Início / Fim:</td>
-        <td class="val">${g.startTime || '--:--'} às ${g.endTime || '--:--'}</td>
+        <td class="val">${esc(g.startTime || '--:--')} às ${esc(g.endTime || '--:--')}</td>
       </tr>
       <tr>
         <td class="label">Condições Climáticas:</td>
-        <td class="val">${g.weather ? g.weather.replace(/_/g, ' ').toUpperCase() : 'Tempo Seco / Ensolarado'}</td>
+        <td class="val">${esc(g.weather ? g.weather.replace(/_/g, ' ').toUpperCase() : 'Tempo Seco / Ensolarado')}</td>
         <td class="label">Emissão do Relatório:</td>
-        <td class="val">${dataEmissao} (Horário de Brasília)</td>
+        <td class="val">${esc(dataEmissao)} (Horário de Brasília)</td>
       </tr>
       <tr>
         <td class="label">Equipe Fiscalizadora:</td>
         <td class="val" colspan="3">
-          ${equipeFiscal.map(e => `<strong>${e.name}</strong> (${e.role || 'ANALISTA DE MEIO AMBIENTE'} - Matrícula: ${e.registrationNumber || 'N/I'})`).join('; ')}
+          ${equipeFiscal.map(e => `<strong>${esc(e.name)}</strong> (${esc(e.role || 'ANALISTA DE MEIO AMBIENTE')} - Matrícula: ${esc(e.registrationNumber || 'N/I')})`).join('; ')}
         </td>
       </tr>
     </table>
@@ -957,21 +976,21 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
     <table class="tabela-dados">
       <tr>
         <td class="label">Nome da Barragem:</td>
-        <td class="val"><strong>${d.damName || 'Não informada'}</strong></td>
+        <td class="val"><strong>${esc(d.damName || 'Não informada')}</strong></td>
         <td class="label">Propriedade / Fazenda:</td>
-        <td class="val">${d.propertyOrBusinessName || 'Não informada'}</td>
+        <td class="val">${esc(d.propertyOrBusinessName || 'Não informada')}</td>
       </tr>
       <tr>
         <td class="label">Município / UF:</td>
-        <td class="val"><strong>${d.municipality || 'Município de MT'} – MT</strong></td>
+        <td class="val"><strong>${esc(d.municipality || 'Município de MT')} – MT</strong></td>
         <td class="label">Bacia Hidrográfica:</td>
-        <td class="val">${d.hydrographicBasin || 'Não informada'}</td>
+        <td class="val">${esc(d.hydrographicBasin || 'Não informada')}</td>
       </tr>
       <tr>
         <td class="label">Curso Hídrico Barrado:</td>
-        <td class="val">${d.waterCourse || 'Não informado'}</td>
+        <td class="val">${esc(d.waterCourse || 'Não informado')}</td>
         <td class="label">Coordenadas Geográficas:</td>
-        <td class="val"><strong>${coordsStr}</strong></td>
+        <td class="val"><strong>${esc(coordsStr)}</strong></td>
       </tr>
       <tr>
         <td class="label">Precisão do GPS:</td>
@@ -990,19 +1009,19 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
     <table class="tabela-dados">
       <tr>
         <td class="label">Uso Principal:</td>
-        <td class="val"><strong>${d.mainWaterUse || 'Acumulação de água / Irrigação / Dessedentação'}</strong></td>
+        <td class="val"><strong>${esc(d.mainWaterUse || 'Acumulação de água / Irrigação / Dessedentação')}</strong></td>
         <td class="label">Usos Secundários:</td>
-        <td class="val">${(d.secondaryWaterUses && d.secondaryWaterUses.length > 0) ? d.secondaryWaterUses.join(', ') : 'Sem usos secundários'}</td>
+        <td class="val">${(d.secondaryWaterUses && d.secondaryWaterUses.length > 0) ? esc(d.secondaryWaterUses.join(', ')) : 'Sem usos secundários'}</td>
       </tr>
       <tr>
         <td class="label">Outorga de Uso da Água:</td>
-        <td class="val">${d.regulatoryStatus.hasWaterPermit ? d.regulatoryStatus.hasWaterPermit.toUpperCase() : 'NÃO INFORMADO'} ${d.regulatoryStatus.permitNumber ? `(Nº ${d.regulatoryStatus.permitNumber})` : ''}</td>
+        <td class="val">${esc(d.regulatoryStatus.hasWaterPermit ? d.regulatoryStatus.hasWaterPermit.toUpperCase() : 'NÃO INFORMADO')} ${d.regulatoryStatus.permitNumber ? `(Nº ${esc(d.regulatoryStatus.permitNumber)})` : ''}</td>
         <td class="label">Licença Ambiental:</td>
-        <td class="val">${d.regulatoryStatus.hasEnvironmentalLicense ? d.regulatoryStatus.hasEnvironmentalLicense.toUpperCase() : 'NÃO INFORMADO'} ${d.regulatoryStatus.licenseNumber ? `(Nº ${d.regulatoryStatus.licenseNumber})` : ''}</td>
+        <td class="val">${esc(d.regulatoryStatus.hasEnvironmentalLicense ? d.regulatoryStatus.hasEnvironmentalLicense.toUpperCase() : 'NÃO INFORMADO')} ${d.regulatoryStatus.licenseNumber ? `(Nº ${esc(d.regulatoryStatus.licenseNumber)})` : ''}</td>
       </tr>
       <tr>
         <td class="label">Cadastro Ambiental Rural (CAR):</td>
-        <td class="val" colspan="3">${d.regulatoryStatus.carNumber || 'Não informado no ato da vistoria'}</td>
+        <td class="val" colspan="3">${esc(d.regulatoryStatus.carNumber || 'Não informado no ato da vistoria')}</td>
       </tr>
     </table>
   </div>
@@ -1015,27 +1034,27 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
     <table class="tabela-dados">
       <tr>
         <td class="label">Tipologia Construtiva:</td>
-        <td class="val"><strong>${d.damType ? d.damType.replace(/_/g, ' ').toUpperCase() : 'BARRAGEM DE TERRA'}</strong></td>
+        <td class="val"><strong>${esc(d.damType ? d.damType.replace(/_/g, ' ').toUpperCase() : 'BARRAGEM DE TERRA')}</strong></td>
         <td class="label">Altura do Maciço (m):</td>
-        <td class="val">${dim.heightMeters ? `≅ ${dim.heightMeters} m` : 'Não informada'}</td>
+        <td class="val">${dim.heightMeters ? `≅ ${esc(dim.heightMeters)} m` : 'Não informada'}</td>
       </tr>
       <tr>
         <td class="label">Comprimento da Crista (m):</td>
-        <td class="val">${dim.crestLengthMeters ? `≅ ${dim.crestLengthMeters} m` : 'Não informado'}</td>
+        <td class="val">${dim.crestLengthMeters ? `≅ ${esc(dim.crestLengthMeters)} m` : 'Não informado'}</td>
         <td class="label">Largura da Crista (m):</td>
-        <td class="val">${dim.crestWidthMeters ? `≅ ${dim.crestWidthMeters} m` : 'Não informada'}</td>
+        <td class="val">${dim.crestWidthMeters ? `≅ ${esc(dim.crestWidthMeters)} m` : 'Não informada'}</td>
       </tr>
       <tr>
         <td class="label">Volume Estimado (m³):</td>
-        <td class="val">${dim.reservoirVolumeM3 ? `≅ ${dim.reservoirVolumeM3} m³` : 'Não informado'}</td>
+        <td class="val">${dim.reservoirVolumeM3 ? `≅ ${esc(dim.reservoirVolumeM3)} m³` : 'Não informado'}</td>
         <td class="label">Área Inundada (ha):</td>
-        <td class="val">${dim.reservoirAreaHectares ? `≅ ${dim.reservoirAreaHectares} ha` : 'Não informada'}</td>
+        <td class="val">${dim.reservoirAreaHectares ? `≅ ${esc(dim.reservoirAreaHectares)} ha` : 'Não informada'}</td>
       </tr>
       <tr>
         <td class="label">Borda Livre Estimada:</td>
-        <td class="val">${dim.freeboardMeters ? `≅ ${dim.freeboardMeters} m` : 'Não informada'}</td>
+        <td class="val">${dim.freeboardMeters ? `≅ ${esc(dim.freeboardMeters)} m` : 'Não informada'}</td>
         <td class="label">Tipo de Vertedouro:</td>
-        <td class="val"><strong>${d.spillwayType ? d.spillwayType.replace(/_/g, ' ').toUpperCase() : 'SOLEIRA LIVRE'}</strong></td>
+        <td class="val"><strong>${esc(d.spillwayType ? d.spillwayType.replace(/_/g, ' ').toUpperCase() : 'SOLEIRA LIVRE')}</strong></td>
       </tr>
     </table>
   </div>
@@ -1064,14 +1083,14 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
         <td class="label">Acompanhado por:</td>
         <td class="val" colspan="3">
           ${g.accompaniedBy.hasAccompaniment 
-            ? `<strong>${g.accompaniedBy.name || 'Representante identificado'}</strong> (Doc: ${g.accompaniedBy.document || 'N/I'}, Vínculo: ${g.accompaniedBy.relationship || 'Preposto'}, Tel: ${g.accompaniedBy.phone || 'N/I'})`
+            ? `<strong>${esc(g.accompaniedBy.name || 'Representante identificado')}</strong> (Doc: ${esc(g.accompaniedBy.document || 'N/I')}, Vínculo: ${esc(g.accompaniedBy.relationship || 'Preposto')}, Tel: ${esc(g.accompaniedBy.phone || 'N/I')})`
             : 'Vistoria realizada sem acompanhamento presencial do proprietário ou preposto.'}
         </td>
       </tr>
       ${data.conclusions.generalFindings ? `
         <tr>
           <td class="label">Observações Gerais:</td>
-          <td class="val" colspan="3">${data.conclusions.generalFindings}</td>
+          <td class="val" colspan="3">${esc(data.conclusions.generalFindings)}</td>
         </tr>
       ` : ''}
     </table>
@@ -1088,16 +1107,16 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
   <div class="selo-autenticidade-bloco">
     <div class="selo-header">
       <strong>🛡️ Selo Digital de Autenticidade e Rastreabilidade (CSB / SEMA-MT)</strong>
-      <span class="selo-codigo">${seal.verificationCode}</span>
+      <span class="selo-codigo">${esc(seal.verificationCode)}</span>
     </div>
     <div class="selo-grid">
-      <div><strong>HASH SHA-256:</strong> ${seal.sha256Hash}</div>
-      <div><strong>CHAVE RASTREIO:</strong> ${seal.rastreabilidadeId}</div>
-      <div><strong>EMISSÃO DIGITAL:</strong> ${seal.timestampFormatted}</div>
+      <div><strong>HASH SHA-256:</strong> ${esc(seal.sha256Hash)}</div>
+      <div><strong>CHAVE RASTREIO:</strong> ${esc(seal.rastreabilidadeId)}</div>
+      <div><strong>EMISSÃO DIGITAL:</strong> ${esc(seal.timestampFormatted)}</div>
       <div><strong>ÓRGÃO EMISSOR:</strong> SEMA-MT / CSB (Fé Pública)</div>
     </div>
     <div class="selo-aviso">
-      ${seal.avisoLegal}
+      ${esc(seal.avisoLegal)}
     </div>
   </div>
 
@@ -1108,20 +1127,20 @@ export function generateInspectionSheetHtml(data: InspectionData): string {
     <div class="assinaturas-grid">
       <div class="assinatura-coluna">
         <div class="linha-assinatura"></div>
-        <div class="assinatura-nome">${equipeFiscal[0]?.name || 'ANALISTA AMBIENTAL'}</div>
-        <div class="assinatura-cargo">${equipeFiscal[0]?.role || 'Servidor Fiscalizador'} - CSB/SEMA-MT</div>
-        <div class="assinatura-cargo">Matrícula: ${equipeFiscal[0]?.registrationNumber || 'N/I'}</div>
+        <div class="assinatura-nome">${esc(equipeFiscal[0]?.name || 'ANALISTA AMBIENTAL')}</div>
+        <div class="assinatura-cargo">${esc(equipeFiscal[0]?.role || 'Servidor Fiscalizador')} - CSB/SEMA-MT</div>
+        <div class="assinatura-cargo">Matrícula: ${esc(equipeFiscal[0]?.registrationNumber || 'N/I')}</div>
       </div>
 
       <div class="assinatura-coluna">
         <div class="linha-assinatura"></div>
         <div class="assinatura-nome">
-          ${g.accompaniedBy.hasAccompaniment ? (g.accompaniedBy.name || 'ACOMPANHANTE / PREPOSTO') : 'EMPREENDEDOR / PROPRIETÁRIO'}
+          ${g.accompaniedBy.hasAccompaniment ? esc(g.accompaniedBy.name || 'ACOMPANHANTE / PREPOSTO') : 'EMPREENDEDOR / PROPRIETÁRIO'}
         </div>
         <div class="assinatura-cargo">
-          ${g.accompaniedBy.hasAccompaniment ? `Vínculo: ${g.accompaniedBy.relationship || 'Representante Legal'}` : 'Responsável pelo Imóvel / Barramento'}
+          ${g.accompaniedBy.hasAccompaniment ? `Vínculo: ${esc(g.accompaniedBy.relationship || 'Representante Legal')}` : 'Responsável pelo Imóvel / Barramento'}
         </div>
-        <div class="assinatura-cargo">CPF / Documento: ${g.accompaniedBy.document || '____________________'}</div>
+        <div class="assinatura-cargo">CPF / Documento: ${esc(g.accompaniedBy.document || '____________________')}</div>
       </div>
     </div>
   </div>
@@ -1182,21 +1201,23 @@ export function exportInspectionSheetPdf(data: InspectionData): void {
 
   // Aguarda o carregamento das imagens antes de acionar a impressão
   const triggerPrint = () => {
+    const cleanupFrame = () => {
+      try {
+        iframe.remove();
+      } catch {
+        // ignora
+      }
+    };
     try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
+      const win = iframe.contentWindow;
+      win?.addEventListener('afterprint', cleanupFrame, { once: true });
+      win?.focus();
+      win?.print();
     } catch (err) {
       console.warn('Erro ao disparar impressão via iframe, acionando fallback:', err);
       window.print();
     } finally {
-      // Remove o iframe após o diálogo ser fechado
-      setTimeout(() => {
-        try {
-          iframe.remove();
-        } catch {
-          // ignora
-        }
-      }, 5000);
+      setTimeout(cleanupFrame, 30000);
     }
   };
 

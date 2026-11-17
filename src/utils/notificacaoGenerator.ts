@@ -3,7 +3,7 @@
 // Rigorosamente condicional, com rastreamento de pendências e sem inferência de dados
 // ==============================================================================
 
-import { InspectionData, NotificationDetailsState, NotificationLegalReference } from '../types/inspection';
+import { InspectionData, NotificationLegalReference } from '../types/inspection';
 import { NOTIFICATION_TEMPLATES } from '../config/notificationTemplates';
 import { formatGmsString } from './geoCoordinates';
 import { createAuthenticitySeal, AuthenticitySealData } from './securityCrypto';

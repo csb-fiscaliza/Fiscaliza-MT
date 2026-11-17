@@ -100,7 +100,7 @@ export function rowToNotificacaoPontoMapa(row: any): NotificacaoPontoMapa | null
 }
 
 export async function fetchNovasNotificacoes(): Promise<NotificacaoPontoMapa[]> {
-  if (!isSupabaseConfigured) {
+  if (!isSupabaseConfigured || !supabase) {
     return [];
   }
 
@@ -112,11 +112,9 @@ export async function fetchNovasNotificacoes(): Promise<NotificacaoPontoMapa[]> 
 
     if (error) {
       if (error.code === 'PGRST205' || error.message?.includes('schema cache')) {
-        console.info('[Supabase Realtime] Tabela "notificacoes" aguardando registros no banco.');
-      } else if (error.code === 'PGRST125') {
-        console.warn('[Supabase Realtime] Verifique a URL do Supabase no ambiente (.env).');
+        console.info('[Mapa em Tempo Real] Camada aguardando sincronização de registros.');
       } else {
-        console.warn('[Supabase Realtime] Aviso ao consultar notificações:', error.message || error);
+        console.warn('[Mapa em Tempo Real] Aviso ao consultar ocorrências:', error.message || error);
       }
       return [];
     }
@@ -132,7 +130,7 @@ export async function fetchNovasNotificacoes(): Promise<NotificacaoPontoMapa[]> 
 
     return pontos;
   } catch (err) {
-    console.error('[Supabase Realtime] Exceção ao buscar notificações:', err);
+    console.error('[Mapa em Tempo Real] Exceção ao consultar ocorrências:', err);
     return [];
   }
 }

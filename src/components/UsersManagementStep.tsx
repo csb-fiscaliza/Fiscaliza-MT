@@ -5,7 +5,7 @@
 // Permite Gerenciar: Administrador, Analista e Visualizador
 // ==============================================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
   UserPlus, 
@@ -14,22 +14,18 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Search, 
-  Filter, 
   Edit3, 
   Trash2, 
   KeyRound, 
   Check, 
   Copy, 
-  Terminal, 
   Power, 
   UserCheck, 
   UserX, 
   Eye, 
-  FileText, 
   ArrowLeft,
   X,
   Mail,
-  Building2,
   BadgeAlert,
   Info,
   Clock,
@@ -46,7 +42,6 @@ import {
   resetUserPasswordToDefault,
   approveUserAccess,
   rejectUserAccess,
-  generateApprovalEmail,
   ApprovalEmailPayload,
   subscribeUsers 
 } from '../services/userService';
@@ -61,7 +56,6 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
   onGoToDashboard
 }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'todos' | UserRole>('todos');
   const [statusFilter, setStatusFilter] = useState<'todos' | UserStatus>('todos');
@@ -69,8 +63,14 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
   // Modais de Criação e Edição
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
-  const [showSqlModal, setShowSqlModal] = useState(false);
-  const [copiedSql, setCopiedSql] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    danger?: boolean;
+    onConfirm: () => Promise<void>;
+  } | null>(null);
+  const [isConfirmingAction, setIsConfirmingAction] = useState(false);
 
   // Modais de Aprovação e Notificação por E-mail
   const [approvalModalUser, setApprovalModalUser] = useState<UserProfile | null>(null);
@@ -84,6 +84,13 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
 
   // Feedback
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleFeedbackClear = (ms: number) => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = setTimeout(() => setFeedback(null), ms);
+  };
 
   // Formulário de Criação/Edição
   const [formData, setFormData] = useState({
@@ -100,8 +107,8 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
     try {
       const list = await getUsers();
       setUsers(list);
-    } finally {
-      setIsLoading(false);
+    } catch (err) {
+      console.error('Erro ao carregar usuários:', err);
     }
   };
 
@@ -110,7 +117,11 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
     const unsub = subscribeUsers(() => {
       loadData();
     });
-    return () => unsub();
+    return () => {
+      unsub();
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
   }, []);
 
   const handleOpenCreate = () => {
@@ -169,7 +180,7 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
         type: 'success', 
         message: `Usuário ${formData.name} cadastrado com senha temporária segura gerada em tempo de execução.` 
       });
-      setTimeout(() => setFeedback(null), 6000);
+      scheduleFeedbackClear(6000);
     } else {
       setFeedback({ type: 'error', message: res.error || 'Erro ao criar usuário.' });
     }
@@ -191,64 +202,75 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
     if (res.success) {
       setFeedback({ type: 'success', message: 'Dados do usuário atualizados com sucesso.' });
       setEditingUser(null);
-      setTimeout(() => setFeedback(null), 5000);
+      scheduleFeedbackClear(5000);
     } else {
       setFeedback({ type: 'error', message: res.error || 'Erro ao atualizar usuário.' });
     }
   };
 
-  const handleToggleStatus = async (user: UserProfile) => {
+  const handleToggleStatus = (user: UserProfile) => {
     const action = user.status === 'ativo' ? 'inativar' : 'reativar';
-    if (!window.confirm(`Tem certeza de que deseja ${action} o acesso de ${user.name}?`)) {
-      return;
-    }
-
-    const res = await toggleUserStatus(user.id);
-    if (res.success) {
-      setFeedback({ 
-        type: 'info', 
-        message: `Status do usuário ${user.name} alterado para ${res.newStatus?.toUpperCase()}.` 
-      });
-      setTimeout(() => setFeedback(null), 4000);
-    } else {
-      setFeedback({ type: 'error', message: res.error || 'Falha ao alterar status.' });
-    }
+    setPendingConfirm({
+      title: `${user.status === 'ativo' ? 'Inativar' : 'Reativar'} Acesso`,
+      message: `Tem certeza de que deseja ${action} o acesso de ${user.name}?`,
+      confirmLabel: user.status === 'ativo' ? 'Inativar' : 'Reativar',
+      danger: user.status === 'ativo',
+      onConfirm: async () => {
+        const res = await toggleUserStatus(user.id);
+        if (res.success) {
+          setFeedback({
+            type: 'info',
+            message: `Status do usuário ${user.name} alterado para ${res.newStatus?.toUpperCase()}.`
+          });
+          scheduleFeedbackClear(4000);
+        } else {
+          setFeedback({ type: 'error', message: res.error || 'Falha ao alterar status.' });
+        }
+      }
+    });
   };
 
-  const handleDelete = async (user: UserProfile) => {
-    if (!window.confirm(`ATENÇÃO: Deseja realmente excluir o usuário "${user.name}" (${user.email})? Esta ação não pode ser desfeita.`)) {
-      return;
-    }
-
-    const res = await deleteUser(user.id, currentUser?.email);
-    if (res.success) {
-      setFeedback({ type: 'success', message: `Usuário ${user.name} excluído do sistema.` });
-      setTimeout(() => setFeedback(null), 5000);
-    } else {
-      setFeedback({ type: 'error', message: res.error || 'Falha ao excluir usuário.' });
-    }
+  const handleDelete = (user: UserProfile) => {
+    setPendingConfirm({
+      title: 'Excluir Usuário',
+      message: `Deseja realmente excluir o usuário "${user.name}" (${user.email})? Esta ação não pode ser desfeita.`,
+      confirmLabel: 'Excluir Usuário',
+      danger: true,
+      onConfirm: async () => {
+        const res = await deleteUser(user.id, currentUser?.email);
+        if (res.success) {
+          setFeedback({ type: 'success', message: `Usuário ${user.name} excluído do sistema.` });
+          scheduleFeedbackClear(5000);
+        } else {
+          setFeedback({ type: 'error', message: res.error || 'Falha ao excluir usuário.' });
+        }
+      }
+    });
   };
 
-  const handleResetPassword = async (user: UserProfile) => {
-    if (!window.confirm(`Deseja gerar uma nova senha temporária criptográfica para "${user.name}"?`)) {
-      return;
-    }
-
-    const res = await resetUserPasswordToDefault(user.email);
-    if (res.success && res.temporaryPassword) {
-      setOneTimePwdModal({
-        userEmail: user.email,
-        userName: user.name,
-        tempPwd: res.temporaryPassword
-      });
-      setFeedback({ 
-        type: 'success', 
-        message: `Nova senha temporária gerada com segurança para ${user.name}.` 
-      });
-      setTimeout(() => setFeedback(null), 6000);
-    } else {
-      setFeedback({ type: 'error', message: res.error || 'Falha ao redefinir senha.' });
-    }
+  const handleResetPassword = (user: UserProfile) => {
+    setPendingConfirm({
+      title: 'Gerar Nova Senha Temporária',
+      message: `Deseja gerar uma nova senha temporária criptográfica para "${user.name}"?`,
+      confirmLabel: 'Gerar Senha',
+      onConfirm: async () => {
+        const res = await resetUserPasswordToDefault(user.email);
+        if (res.success && res.temporaryPassword) {
+          setOneTimePwdModal({
+            userEmail: user.email,
+            userName: user.name,
+            tempPwd: res.temporaryPassword
+          });
+          setFeedback({
+            type: 'success',
+            message: `Nova senha temporária gerada com segurança para ${user.name}.`
+          });
+          scheduleFeedbackClear(6000);
+        } else {
+          setFeedback({ type: 'error', message: res.error || 'Falha ao redefinir senha.' });
+        }
+      }
+    });
   };
 
   const handleOpenApproveModal = (user: UserProfile) => {
@@ -283,26 +305,31 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
         type: 'success',
         message: `Acesso liberado com sucesso para ${userToApprove.name}! O e-mail com as informações de login e orientações foi preparado.`
       });
-      setTimeout(() => setFeedback(null), 8000);
+      scheduleFeedbackClear(8000);
     } else {
       setFeedback({ type: 'error', message: res.error || 'Erro ao aprovar solicitação de acesso.' });
     }
   };
 
-  const handleReject = async (user: UserProfile) => {
-    if (!window.confirm(`Tem certeza de que deseja reprovar a solicitação de acesso do fiscal "${user.name}" (${user.email})?`)) {
-      return;
-    }
-    const res = await rejectUserAccess(user.id, 'Indeferido pela Administração CSB/SEMA-MT');
-    if (res.success) {
-      setFeedback({
-        type: 'info',
-        message: `Solicitação de acesso de ${user.name} foi indeferida.`
-      });
-      setTimeout(() => setFeedback(null), 5000);
-    } else {
-      setFeedback({ type: 'error', message: res.error || 'Erro ao reprovar solicitação.' });
-    }
+  const handleReject = (user: UserProfile) => {
+    setPendingConfirm({
+      title: 'Reprovar Solicitação de Acesso',
+      message: `Tem certeza de que deseja reprovar a solicitação de acesso do fiscal "${user.name}" (${user.email})?`,
+      confirmLabel: 'Reprovar Solicitação',
+      danger: true,
+      onConfirm: async () => {
+        const res = await rejectUserAccess(user.id, 'Indeferido pela Administração CSB/SEMA-MT');
+        if (res.success) {
+          setFeedback({
+            type: 'info',
+            message: `Solicitação de acesso de ${user.name} foi indeferida.`
+          });
+          scheduleFeedbackClear(5000);
+        } else {
+          setFeedback({ type: 'error', message: res.error || 'Erro ao reprovar solicitação.' });
+        }
+      }
+    });
   };
 
   // Usuários cadastrados no sistema (ativos, inativos, etc. - exclui pendentes de aprovação)
@@ -334,91 +361,6 @@ export const UsersManagementStep: React.FC<UsersManagementStepProps> = ({
   const analistaCount = users.filter(u => u.role === 'analista').length;
   const visualizadorCount = users.filter(u => u.role === 'visualizador').length;
   const activeCount = users.filter(u => u.status === 'ativo').length;
-
-  const sqlToConfigureAuth = `-- ==============================================================================
--- GOVERNO DO ESTADO DE MATO GROSSO / SEMA-MT / CSB
--- CONFIGURAÇÃO SEGURA DE PERFIS DE USUÁRIOS (RBAC) E RLS ESTRITA
--- ==============================================================================
-
-CREATE TABLE IF NOT EXISTS public.perfis_usuarios (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email TEXT UNIQUE NOT NULL,
-  nome TEXT NOT NULL,
-  perfil TEXT NOT NULL DEFAULT 'analista' CHECK (perfil IN ('administrador', 'analista', 'visualizador')),
-  status TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('ativo', 'inativo', 'pendente', 'reprovado')),
-  cargo TEXT,
-  matricula TEXT,
-  setor TEXT DEFAULT 'Coordenadoria de Segurança de Barragens - CSB/SURH/SEMA-MT',
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE OR REPLACE FUNCTION public.check_is_admin()
-RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT auth.role() = 'authenticated' AND EXISTS (
-    SELECT 1 FROM public.perfis_usuarios p
-    WHERE lower(trim(p.email)) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
-      AND p.perfil = 'administrador'
-      AND p.status = 'ativo'
-  );
-$$;
-
-ALTER TABLE public.perfis_usuarios ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "perfis_select_policy" ON public.perfis_usuarios;
-DROP POLICY IF EXISTS "perfis_insert_policy" ON public.perfis_usuarios;
-DROP POLICY IF EXISTS "perfis_insert_self_pending" ON public.perfis_usuarios;
-DROP POLICY IF EXISTS "perfis_update_policy" ON public.perfis_usuarios;
-DROP POLICY IF EXISTS "perfis_delete_policy" ON public.perfis_usuarios;
-
-CREATE POLICY "perfis_select_policy"
-  ON public.perfis_usuarios
-  FOR SELECT
-  TO authenticated
-  USING (
-    public.check_is_admin()
-    OR lower(trim(email)) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
-  );
-
-CREATE POLICY "perfis_insert_self_pending"
-  ON public.perfis_usuarios
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (
-    public.check_is_admin()
-    OR (
-      lower(trim(email)) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
-      AND status = 'pendente'
-      AND perfil = 'analista'
-    )
-  );
-
-CREATE POLICY "perfis_update_policy"
-  ON public.perfis_usuarios
-  FOR UPDATE
-  TO authenticated
-  USING (public.check_is_admin())
-  WITH CHECK (public.check_is_admin());
-
-CREATE POLICY "perfis_delete_policy"
-  ON public.perfis_usuarios
-  FOR DELETE
-  TO authenticated
-  USING (public.check_is_admin());
-
--- Para promover um usuário existente a Administrador no SQL Editor, informe o e-mail institucional:
--- UPDATE public.perfis_usuarios SET perfil = 'administrador', status = 'ativo' WHERE email = 'SEU_ADMIN@DOMINIO';`;
-
-  const copySqlToClipboard = () => {
-    navigator.clipboard.writeText(sqlToConfigureAuth);
-    setCopiedSql(true);
-    setTimeout(() => setCopiedSql(false), 2500);
-  };
 
   const userRole = (currentUser?.role || '').toLowerCase();
   const isAdmin = userRole === 'administrador' || userRole === 'admin';
@@ -475,16 +417,6 @@ CREATE POLICY "perfis_delete_policy"
 
         {/* Botões de Ação do Topo */}
         <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setShowSqlModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-            title="Ver Script SQL para o Supabase"
-          >
-            <Terminal className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>SQL Supabase</span>
-          </button>
-
           <button
             type="button"
             onClick={handleOpenCreate}
@@ -714,7 +646,6 @@ CREATE POLICY "perfis_delete_policy"
             {filteredUsers.map(user => {
               const isAdmin = user.role === 'administrador';
               const isAnalista = user.role === 'analista';
-              const isVisualizador = user.role === 'visualizador';
               const isActive = user.status === 'ativo';
               const isPending = user.status === 'pendente';
               const isReproved = user.status === 'reprovado';
@@ -817,7 +748,7 @@ CREATE POLICY "perfis_delete_policy"
                           type="button"
                           onClick={() => handleResetPassword(user)}
                           className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                          title="Redefinir senha para o padrão institucional"
+                          title="Gerar nova senha temporária criptográfica"
                         >
                           <KeyRound className="w-4 h-4" />
                         </button>
@@ -993,7 +924,7 @@ CREATE POLICY "perfis_delete_policy"
                     Novo Usuário do Sistema
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    CSB / SEMA-MT · Atribuição de Perfil e Senha Padrão
+                    CSB / SEMA-MT · Atribuição de Perfil e Senha Temporária Segura
                   </p>
                 </div>
               </div>
@@ -1328,62 +1259,46 @@ CREATE POLICY "perfis_delete_policy"
       )}
 
       {/* ===================================================================== */}
-      {/* MODAL: SCRIPT SQL PARA SUPABASE */}
+      {/* MODAL DE CONFIRMAÇÃO DE AÇÃO ADMINISTRATIVA                           */}
       {/* ===================================================================== */}
-      {showSqlModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in duration-200">
-            <div className="bg-slate-900 text-white p-5 sm:p-6 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 flex items-center justify-center">
-                  <Terminal className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white">
-                    Script SQL Seguro para o Supabase
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Tabela de perfis RBAC e políticas RLS estritas para contas autenticadas
-                  </p>
-                </div>
-              </div>
+      {pendingConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md shadow-2xl p-5 sm:p-6 space-y-4">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              {pendingConfirm.title}
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              {pendingConfirm.message}
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setShowSqlModal(false)}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800"
+                disabled={isConfirmingAction}
+                onClick={() => setPendingConfirm(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                Cancelar
               </button>
-            </div>
-
-            <div className="p-5 sm:p-6 space-y-4">
-              <p className="text-xs text-slate-600 dark:text-slate-300">
-                Copie o script abaixo e execute no <strong>SQL Editor</strong> do seu painel Supabase. Ele configura a tabela de perfis e as políticas RLS sem exposição de acesso anônimo:
-              </p>
-
-              <div className="relative">
-                <pre className="p-4 rounded-2xl bg-slate-950 text-slate-200 text-[11px] font-mono overflow-x-auto max-h-72 border border-slate-800 leading-relaxed selection:bg-purple-600 selection:text-white">
-                  {sqlToConfigureAuth}
-                </pre>
-                <button
-                  type="button"
-                  onClick={copySqlToClipboard}
-                  className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-md transition cursor-pointer"
-                >
-                  {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedSql ? 'Copiado!' : 'Copiar SQL'}</span>
-                </button>
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSqlModal(false)}
-                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-slate-800 text-white hover:bg-slate-700 transition"
-                >
-                  Fechar
-                </button>
-              </div>
+              <button
+                type="button"
+                disabled={isConfirmingAction}
+                onClick={async () => {
+                  setIsConfirmingAction(true);
+                  try {
+                    await pendingConfirm.onConfirm();
+                  } finally {
+                    setIsConfirmingAction(false);
+                    setPendingConfirm(null);
+                  }
+                }}
+                className={`px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs cursor-pointer disabled:opacity-50 ${
+                  pendingConfirm.danger
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-purple-600 hover:bg-purple-700'
+                }`}
+              >
+                {isConfirmingAction ? 'Processando...' : pendingConfirm.confirmLabel}
+              </button>
             </div>
           </div>
         </div>
@@ -1551,7 +1466,8 @@ CREATE POLICY "perfis_delete_policy"
                   onClick={() => {
                     navigator.clipboard.writeText(emailModalData.payload.body);
                     setCopiedEmailText(true);
-                    setTimeout(() => setCopiedEmailText(false), 2500);
+                    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+                    copyTimerRef.current = setTimeout(() => setCopiedEmailText(false), 2500);
                   }}
                   className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer flex items-center gap-1.5"
                 >
@@ -1606,7 +1522,8 @@ CREATE POLICY "perfis_delete_policy"
                 onClick={() => {
                   navigator.clipboard.writeText(oneTimePwdModal.tempPwd);
                   setCopiedTempPwd(true);
-                  setTimeout(() => setCopiedTempPwd(false), 2500);
+                  if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+                  copyTimerRef.current = setTimeout(() => setCopiedTempPwd(false), 2500);
                 }}
                 className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-sans font-bold flex items-center gap-1 cursor-pointer"
               >
