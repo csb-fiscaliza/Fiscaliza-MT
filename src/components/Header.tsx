@@ -134,11 +134,11 @@ export const Header: React.FC<HeaderProps> = ({
       {/* ===================================================================== */}
       {/* 1. NÍVEL SUPERIOR: IDENTIDADE INSTITUCIONAL + SESSÃO E CONTA          */}
       {/* ===================================================================== */}
-      <div className="max-w-7xl 2xl:max-w-[1440px] mx-auto px-2.5 xs:px-3 sm:px-5 lg:px-6 pl-[max(0.625rem,env(safe-area-inset-left))] pr-[max(0.625rem,env(safe-area-inset-right))] py-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 lg:gap-4">
+      <div className="max-w-7xl 2xl:max-w-[1440px] mx-auto px-2.5 xs:px-3 sm:px-5 lg:px-6 pl-[max(0.625rem,env(safe-area-inset-left))] pr-[max(0.625rem,env(safe-area-inset-right))] py-2 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2 xl:gap-4">
         {/* Esquerda: Logo + Identidade Institucional (blindada contra colapso/sobreposição) */}
         <div
           onClick={() => setActiveStep(0)}
-          className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group min-w-0 flex-1 overflow-hidden"
+          className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group w-full xl:w-auto min-w-0 xl:flex-1 overflow-hidden"
         >
           <div className="shrink-0">
             <FiscalizaLogo
@@ -169,10 +169,10 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Direita: Saudação ao Usuário e Controles de Conta / Exibição */}
-        <div className="flex items-center justify-between sm:justify-end flex-wrap gap-1.5 sm:gap-2 shrink-0 max-w-full">
+        {/* Direita (ou abaixo alinhada à esquerda com a logo): Saudação ao Usuário e Controles de Conta / Exibição */}
+        <div className="flex items-center justify-start xl:justify-end flex-wrap gap-1.5 sm:gap-2 w-full xl:w-auto shrink-0 max-w-full">
           {/* Caixa de Saudação ao Usuário conforme o horário */}
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 shadow-2xs min-w-0">
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 shadow-2xs min-w-0 max-w-full">
             <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-emerald-700 dark:bg-emerald-600 text-white flex items-center justify-center font-black text-[11px] sm:text-xs shadow-2xs uppercase shrink-0">
               {rawName.charAt(0)}
             </div>
@@ -189,7 +189,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center flex-wrap gap-1.5 shrink-0 max-w-full">
             {/* Conexão Online/Offline */}
             <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 whitespace-nowrap">
               {isOnline ? (
