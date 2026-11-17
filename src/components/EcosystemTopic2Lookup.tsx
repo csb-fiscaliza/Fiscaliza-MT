@@ -25,9 +25,11 @@ import {
 } from '../services/ecosystemConfig';
 import { searchEcosystemEntrepreneursAndDams } from '../services/administraEcosystemService';
 import { lookupCarMtByCode, SemaCarImovelResult } from '../services/semaCarPublicService';
+import { getInspectorSession } from '../services/supabase';
 
 interface EcosystemTopic2LookupProps {
   initialQuery?: string;
+  currentUser?: { email?: string; fullName?: string; role?: string } | null;
   onExportSelection: (payload: {
     empreendedor: EmpreendedorEntity;
     barragem?: BarragemEntity | null;
@@ -36,11 +38,26 @@ interface EcosystemTopic2LookupProps {
   onApplyCarOnly?: (car: SemaCarImovelResult) => void;
 }
 
+function maskCpfCnpj(value?: string | null): string {
+  if (!value) return 'Não informado';
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 11) {
+    return `***.${digits.slice(3, 6)}.${digits.slice(6, 9)}-**`;
+  }
+  if (digits.length === 14) {
+    return `**.${digits.slice(2, 5)}.${digits.slice(5, 8)}/****-**`;
+  }
+  if (value.length <= 4) return '***';
+  return `***${value.slice(2, -2)}**`;
+}
+
 export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
   initialQuery = '',
+  currentUser,
   onExportSelection,
   onApplyCarOnly
 }) => {
+  const [resolvedUser, setResolvedUser] = useState<{ role?: string } | null>(currentUser ?? null);
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState(initialQuery);
   const [isSearching, setIsSearching] = useState(false);
@@ -78,6 +95,31 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
   useEffect(() => {
     runServerCheck();
   }, []);
+
+  useEffect(() => {
+    if (currentUser !== undefined) {
+      setResolvedUser(currentUser);
+      return;
+    }
+    let active = true;
+    getInspectorSession()
+      .then(session => {
+        if (active) {
+          setResolvedUser(session.authenticated ? { role: session.role } : null);
+        }
+      })
+      .catch(() => {
+        if (active) setResolvedUser(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentUser]);
+
+  const effectiveRole = ((currentUser !== undefined ? currentUser?.role : resolvedUser?.role) || '')
+    .trim()
+    .toLowerCase();
+  const canViewFullCpfCnpj = effectiveRole === 'administrador' || effectiveRole === 'analista';
 
   const handleSearch = async (customQuery?: string) => {
     const q = customQuery !== undefined ? customQuery : query;
@@ -304,7 +346,7 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-600 mt-0.5">
-                          CPF/CNPJ: <strong>{emp.cpfCnpj || 'Não informado'}</strong> · Barragens vinculadas:{' '}
+                          CPF/CNPJ: <strong>{canViewFullCpfCnpj ? (emp.cpfCnpj || 'Não informado') : maskCpfCnpj(emp.cpfCnpj)}</strong> · Barragens vinculadas:{' '}
                           <strong>{damsForThisEmp.length}</strong>
                           {emp.criadoPorEmail ? ` · Analista: ${emp.criadoPorEmail}` : ''}
                         </p>

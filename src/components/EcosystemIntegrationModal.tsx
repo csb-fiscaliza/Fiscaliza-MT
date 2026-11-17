@@ -89,6 +89,19 @@ const ORIGIN_BADGE_STYLES: Record<SistemaOrigem, string> = {
   notifica: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-200 dark:border-amber-800'
 };
 
+function maskCpfCnpj(value?: string | null): string {
+  if (!value) return 'Não informado';
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 11) {
+    return `***.${digits.slice(3, 6)}.${digits.slice(6, 9)}-**`;
+  }
+  if (digits.length === 14) {
+    return `**.${digits.slice(2, 5)}.${digits.slice(5, 8)}/****-**`;
+  }
+  if (value.length <= 4) return '***';
+  return `***${value.slice(2, -2)}**`;
+}
+
 export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps> = ({
   isOpen,
   onClose,
@@ -98,6 +111,8 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
   initialTab = 'catalogo',
   initialRequestTarget = null
 }) => {
+  const normalizedRole = (currentUser?.role || '').trim().toLowerCase();
+  const canViewFullCpfCnpj = normalizedRole === 'administrador' || normalizedRole === 'analista';
   const [activeTab, setActiveTab] = useState<'status' | 'catalogo' | 'solicitacoes' | 'notificacoes'>(initialTab);
   const [catalog, setCatalog] = useState<AdministraMasterCatalog>({
     empreendedores: [],
@@ -704,7 +719,7 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
                                 </span>
                               </div>
                               <p className="text-xs text-slate-600 dark:text-slate-400">
-                                CPF/CNPJ: <strong>{emp.cpfCnpj || 'Não informado'}</strong>
+                                CPF/CNPJ: <strong>{canViewFullCpfCnpj ? (emp.cpfCnpj || 'Não informado') : maskCpfCnpj(emp.cpfCnpj)}</strong>
                                 {emp.telefone ? ` · Tel: ${emp.telefone}` : ''}
                                 {emp.carNumero ? ` · CAR: ${emp.carNumero}` : ''}
                               </p>

@@ -759,43 +759,80 @@ export async function getInspectorSession(): Promise<{
   fullName?: string;
   role?: string;
 }> {
-  let sessionEmail = '';
-  let sessionFullName = '';
-  let sessionRole = '';
+  let hasRemoteSession = false;
 
   if (fiscalizaSupabase) {
     try {
       const {
         data: { session }
       } = await fiscalizaSupabase.auth.getSession();
+
       if (session?.user) {
-        sessionEmail = session.user.email || '';
-        sessionFullName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || '';
-        sessionRole = session.user.user_metadata?.perfil || session.user.user_metadata?.role || '';
+        hasRemoteSession = true;
+        const remoteEmail = (session.user.email || '').trim().toLowerCase();
+        if (!remoteEmail) {
+          return { authenticated: false };
+        }
+
+        const { data: profileData, error: profileError } = await fiscalizaSupabase
+          .from('perfis_usuarios')
+          .select('perfil, status, nome')
+          .eq('email', remoteEmail)
+          .maybeSingle();
+
+        if (
+          profileError ||
+          !profileData ||
+          String(profileData.status || '').trim().toLowerCase() !== 'ativo' ||
+          !profileData.perfil
+        ) {
+          return { authenticated: false };
+        }
+
         ensureEcosystemClientsSession().catch(() => {});
+
+        return {
+          authenticated: true,
+          email: session.user.email || remoteEmail,
+          fullName:
+            profileData.nome ||
+            session.user.user_metadata?.full_name ||
+            session.user.user_metadata?.name ||
+            remoteEmail.split('@')[0],
+          role: profileData.perfil
+        };
       }
     } catch {
-      // Fallback para sessão local válida dentro do TTL
+      if (hasRemoteSession) {
+        return { authenticated: false };
+      }
+      // Fallback para sessão local válida dentro do TTL apenas sem sessão remota ativa
     }
   }
 
-  if (!sessionEmail) {
-    try {
-      const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.authenticated && parsed.email) {
-          if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
-            localStorage.removeItem(SESSION_STORAGE_KEY);
-            return { authenticated: false };
-          }
-          sessionEmail = parsed.email;
-          sessionFullName = parsed.fullName || '';
-          sessionRole = parsed.role || '';
-        }
-      }
-    } catch {}
+  if (hasRemoteSession) {
+    return { authenticated: false };
   }
+
+  let sessionEmail = '';
+  let sessionFullName = '';
+  let sessionRole = '';
+
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.authenticated && parsed.email) {
+        if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+          localStorage.removeItem(SESSION_STORAGE_KEY);
+          return { authenticated: false };
+        }
+        sessionEmail = parsed.email;
+        sessionFullName = parsed.fullName || '';
+        sessionRole = parsed.role || '';
+      }
+    }
+  } catch {}
 
   if (!sessionEmail) {
     return { authenticated: false };
@@ -862,18 +899,9 @@ export async function syncVistoriaToSupabase(
   const barRegistered = isInspection ? isEntityRegisteredInAdministra(input as InspectionData, 'barragem') : true;
   const rtRegistered = isInspection ? isEntityRegisteredInAdministra(input as InspectionData, 'responsavel_tecnico') : false;
 
-  // Etapa 1: Sincronização de Entidades Mestres no Administra (somente as já cadastradas/vinculadas)
-  let skippedReadOnlyEntities: string[] = [];
-  if (isInspection) {
-    const masterSync = await upsertMasterEntitiesFromInspection(input as InspectionData);
-    skippedReadOnlyEntities = masterSync.skippedReadOnlyEntities;
-    await registerFiscalizaProductsFromInspection(input as InspectionData);
-  }
-
   if (!fiscalizaSupabase) {
     return {
       success: false,
-      skippedReadOnlyEntities,
       error:
         'Serviço remoto indisponível no momento. Seus dados e produtos estão salvos com segurança localmente neste dispositivo.'
     };
@@ -888,6 +916,14 @@ export async function syncVistoriaToSupabase(
       error:
         'Autenticação obrigatória para transmissão ao banco de dados institucional. Entre com sua conta para sincronizar.'
     };
+  }
+
+  // Etapa 1: Sincronização de Entidades Mestres no Administra (somente as já cadastradas/vinculadas)
+  let skippedReadOnlyEntities: string[] = [];
+  if (isInspection) {
+    const masterSync = await upsertMasterEntitiesFromInspection(input as InspectionData);
+    skippedReadOnlyEntities = masterSync.skippedReadOnlyEntities;
+    await registerFiscalizaProductsFromInspection(input as InspectionData);
   }
 
   const handleDbError = (err: any, tableName: string) => {
