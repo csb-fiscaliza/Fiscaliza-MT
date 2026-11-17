@@ -24,6 +24,7 @@ import { EcosystemIntegrationModal, MasterSelectionPayload } from './components/
 import { FiscalizaLogo } from './components/FiscalizaLogo';
 import { OfficialFooter } from './components/OfficialFooter';
 import { InspectionProgressBar } from './components/InspectionProgressBar';
+import { FichaNavMenu } from './components/FichaNavMenu';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { EntidadeMestreTipo, InspectionData, SistemaOrigem } from './types/inspection';
 import {
@@ -950,6 +951,15 @@ function AppContent() {
         }}
         pendingAlterationCount={pendingAlterationCount}
       />
+
+      {/* Menu Interno Congelado da Ficha (Ficha, Estruturas, Fotos, Conclusão e Minutas) */}
+      {activeStep >= 1 && activeStep <= 5 && (
+        <FichaNavMenu
+          activeStep={activeStep}
+          setActiveStep={setActiveStep}
+          currentInspection={currentInspection}
+        />
+      )}
 
       {/* Barra de Progresso Visual de Preenchimento da Inspeção de Campo (visível apenas na Nova Ficha) */}
       {activeStep >= 1 && activeStep <= 5 && (

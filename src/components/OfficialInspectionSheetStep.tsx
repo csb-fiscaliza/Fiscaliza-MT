@@ -371,14 +371,17 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
 
   useEffect(() => {
     const headerEl = document.querySelector('header');
-    if (!headerEl) return;
+    const fichaMenuEl = document.querySelector('[data-ficha-frozen-menu]');
+    if (!headerEl && !fichaMenuEl) return;
     const updateOffset = () => {
-      const rect = headerEl.getBoundingClientRect();
-      setStickyTopOffset(Math.max(0, Math.round(rect.height)));
+      const headerHeight = headerEl ? Math.round(headerEl.getBoundingClientRect().height) : 0;
+      const fichaMenuHeight = fichaMenuEl ? Math.round(fichaMenuEl.getBoundingClientRect().height) : 0;
+      setStickyTopOffset(Math.max(0, headerHeight + fichaMenuHeight));
     };
     updateOffset();
     const ro = new ResizeObserver(updateOffset);
-    ro.observe(headerEl);
+    if (headerEl) ro.observe(headerEl);
+    if (fichaMenuEl) ro.observe(fichaMenuEl);
     window.addEventListener('resize', updateOffset);
     return () => {
       ro.disconnect();

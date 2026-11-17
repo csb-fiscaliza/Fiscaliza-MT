@@ -8,15 +8,12 @@ import React from 'react';
 import { 
   LayoutDashboard, 
   FileSpreadsheet, 
-  Layers, 
-  Camera, 
-  ClipboardCheck, 
-  FileText, 
   Database,
   Save,
   CheckCircle2,
   RefreshCw,
   Compass,
+  Camera,
   Users
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
@@ -70,50 +67,29 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     };
   }, []);
 
-  const photosCount = currentInspection.photos?.length || 0;
+  const isFichaActive = activeStep >= 1 && activeStep <= 5;
 
   const navItems = [
     {
       step: 0,
       label: 'Painel',
       icon: LayoutDashboard,
-      badge: null
+      badge: null as string | number | null,
+      isActive: activeStep === 0
     },
     {
       step: 1,
       label: 'Ficha',
       icon: FileSpreadsheet,
-      badge: null
-    },
-    {
-      step: 2,
-      label: 'Estruturas',
-      icon: Layers,
-      badge: null
-    },
-    {
-      step: 3,
-      label: 'Fotos',
-      icon: Camera,
-      badge: photoQueuePending > 0 ? `${photoQueuePending}!` : (photosCount > 0 ? photosCount : null)
-    },
-    {
-      step: 4,
-      label: 'Conclusão',
-      icon: ClipboardCheck,
-      badge: null
-    },
-    {
-      step: 5,
-      label: 'Minutas',
-      icon: FileText,
-      badge: null
+      badge: photoQueuePending > 0 ? `${photoQueuePending}!` : null,
+      isActive: isFichaActive
     },
     {
       step: 6,
       label: 'Banco',
       icon: Database,
-      badge: null
+      badge: null as string | number | null,
+      isActive: activeStep === 6
     }
   ];
 
@@ -125,7 +101,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       step: 7,
       label: 'Usuários',
       icon: Users,
-      badge: 'Admin'
+      badge: 'Admin',
+      isActive: activeStep === 7
     });
   }
 
@@ -195,9 +172,9 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       </div>
 
       {/* Grid de Ícones de Navegação das Etapas */}
-      <nav className={`grid ${isAdmin ? 'grid-cols-8' : 'grid-cols-7'} gap-0.5 sm:gap-1 px-1 sm:px-3 py-1 max-w-2xl mx-auto`}>
+      <nav className={`grid ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} gap-1 sm:gap-2 px-2 sm:px-4 py-1 max-w-2xl mx-auto`}>
         {navItems.map(item => {
-          const isActive = activeStep === item.step;
+          const isActive = item.isActive;
           const Icon = item.icon;
 
           return (

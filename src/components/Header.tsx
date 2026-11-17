@@ -257,7 +257,21 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Painel</span>
             </button>
 
-            {/* Link 2: Nova Ficha */}
+            {/* Link 2: Ficha (inclui Ficha, Estruturas, Fotos, Conclusão e Minutas) */}
+            <button
+              type="button"
+              onClick={() => setActiveStep(1)}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap ${
+                isSheetActive
+                  ? 'bg-emerald-700 text-white shadow-emerald-700/25 ring-2 ring-emerald-700/20'
+                  : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-slate-700'
+              }`}
+            >
+              <FileSpreadsheet className={`w-3.5 h-3.5 shrink-0 ${isSheetActive ? 'text-white' : 'text-emerald-600 dark:text-emerald-400'}`} />
+              <span>Ficha</span>
+            </button>
+
+            {/* Link 3: Nova Ficha */}
             {!isVisualizador && (
               <button
                 type="button"
@@ -269,7 +283,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Link 3: Salvar Vistoria */}
+            {/* Link 4: Salvar Vistoria */}
             {!isVisualizador && (
               <button
                 type="button"
@@ -281,7 +295,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Link 4: Banco de Dados */}
+            {/* Link 5: Banco de Dados */}
             <button
               type="button"
               onClick={() => setActiveStep(6)}
@@ -304,7 +318,7 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            {/* Link 5: Usuários (Admin) */}
+            {/* Link 6: Usuários (Admin) */}
             {isAdmin && (
               <button
                 type="button"
@@ -324,18 +338,6 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}>
                   Admin
                 </span>
-              </button>
-            )}
-
-            {/* Link 6: Ficha em Edição */}
-            {isSheetActive && (
-              <button
-                type="button"
-                onClick={() => setActiveStep(1)}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-100/90 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 shadow-2xs cursor-pointer whitespace-nowrap"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span>Ficha em Edição</span>
               </button>
             )}
           </nav>
