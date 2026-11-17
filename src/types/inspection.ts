@@ -26,6 +26,7 @@ export type WeatherCondition =
   | 'nublado';
 
 export type DamType =
+  | ''
   | 'terra_homogenea'
   | 'terra_zoneada'
   | 'terra_enrocamento'
@@ -37,6 +38,7 @@ export type DamType =
   | 'outro';
 
 export type SpillwayType =
+  | ''
   | 'soleira_livre_concreto'
   | 'canal_lateral_escavado'
   | 'tulipa_morning_glory'
@@ -271,7 +273,7 @@ export interface EmpreendedorEntity {
   criadoPorEmail?: string | null;
   nomeRazaoSocial: string;
   cpfCnpj?: string | null;
-  figuraJuridica: 'empresa_privada' | 'pessoa_fisica' | 'orgao_publico' | 'cooperativa' | 'outra';
+  figuraJuridica: '' | 'empresa_privada' | 'pessoa_fisica' | 'orgao_publico' | 'cooperativa' | 'outra';
   processoNumero?: string | null;
   endereco: string;
   municipio?: string | null;
@@ -584,7 +586,7 @@ export interface InspectionData {
     damName: string;
     propertyOrBusinessName: string;
     ownerCpfCnpj?: string;
-    ownerLegalType?: 'empresa_privada' | 'pessoa_fisica' | 'orgao_publico' | 'cooperativa' | 'outra';
+    ownerLegalType?: '' | 'empresa_privada' | 'pessoa_fisica' | 'orgao_publico' | 'cooperativa' | 'outra';
     ownerPhone?: string;
     ownerAddress?: string;
     damsCountOnProperty?: string;

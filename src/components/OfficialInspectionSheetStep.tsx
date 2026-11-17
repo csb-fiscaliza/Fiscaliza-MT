@@ -2130,7 +2130,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               <EcosystemImportedField
                 label="Figura Jurídica"
                 meta={importedOriginMap.ownerLegalType}
-                currentValue={data.damIdentification.ownerLegalType || 'empresa_privada'}
+                currentValue={data.damIdentification.ownerLegalType || ''}
                 isUnlocked={!!unlockedImportedFields.ownerLegalType}
                 onUnlock={() => unlockImportedField('ownerLegalType')}
               >
@@ -2139,7 +2139,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                     disabled={readOnlyByImport}
                     title={titleTooltip}
                     onClick={onFocusOrClick}
-                    value={data.damIdentification.ownerLegalType || 'empresa_privada'}
+                    value={data.damIdentification.ownerLegalType || ''}
                     onChange={e => onChange(p => ({
                       ...p,
                       damIdentification: {
@@ -2149,6 +2149,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                     }))}
                     className={className}
                   >
+                    <option value="">Selecione...</option>
                     <option value="empresa_privada">Empresa Privada</option>
                     <option value="pessoa_fisica">Pessoa Física</option>
                     <option value="orgao_publico">Órgão Público</option>
@@ -2313,7 +2314,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
               <EcosystemImportedField
                 label="Quantidade de Barragens no Imóvel"
                 meta={importedOriginMap.damsCountOnProperty}
-                currentValue={data.damIdentification.damsCountOnProperty || '1'}
+                currentValue={data.damIdentification.damsCountOnProperty || ''}
                 isUnlocked={!!unlockedImportedFields.damsCountOnProperty}
                 onUnlock={() => unlockImportedField('damsCountOnProperty')}
               >
@@ -2323,7 +2324,8 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                     readOnly={readOnlyByImport}
                     title={titleTooltip}
                     onClick={onFocusOrClick}
-                    value={data.damIdentification.damsCountOnProperty || '1'}
+                    placeholder="Informe a quantidade"
+                    value={data.damIdentification.damsCountOnProperty || ''}
                     min="1"
                     onChange={e => onChange(p => ({
                       ...p,

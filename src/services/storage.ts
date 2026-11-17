@@ -21,6 +21,7 @@ import {
 const STORAGE_KEY = 'fiscaliza_csb_sema_inspections_v1';
 const CURRENT_ACTIVE_KEY = 'fiscaliza_csb_sema_active_id';
 const INTEGRITY_SEAL_KEY = 'fiscaliza_csb_integrity_seal_v1';
+const ZERO_STATE_RESET_KEY = 'fiscaliza_csb_zero_state_v2';
 
 function generateUUID(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -219,9 +220,9 @@ export function createEmptyInspection(creatorUser?: {
         {
           id: generateUUID(),
           name: creatorUser?.fullName || '',
-          role: creatorUser?.cargo || 'Analista de Meio Ambiente / Fiscal',
+          role: creatorUser?.cargo || '',
           registrationNumber: creatorUser?.matricula || '',
-          sector: creatorUser?.sector || 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
+          sector: creatorUser?.sector || ''
         }
       ],
       accompaniedBy: {
@@ -229,7 +230,7 @@ export function createEmptyInspection(creatorUser?: {
         hasAccompaniment: false,
         name: '',
         document: '',
-        relationship: 'Proprietário',
+        relationship: '',
         phone: ''
       }
     },
@@ -237,10 +238,10 @@ export function createEmptyInspection(creatorUser?: {
       damName: '',
       propertyOrBusinessName: '',
       ownerCpfCnpj: '',
-      ownerLegalType: 'empresa_privada',
+      ownerLegalType: '',
       ownerPhone: '',
       ownerAddress: '',
-      damsCountOnProperty: '1',
+      damsCountOnProperty: '',
       workStartYear: '',
       workEndYear: '',
       municipality: '',
@@ -253,7 +254,7 @@ export function createEmptyInspection(creatorUser?: {
       },
       mainWaterUse: '',
       secondaryWaterUses: [],
-      damType: 'terra_homogenea',
+      damType: '',
       estimatedDimensions: {
         heightMeters: '',
         crestLengthMeters: '',
@@ -262,7 +263,7 @@ export function createEmptyInspection(creatorUser?: {
         reservoirVolumeM3: '',
         freeboardMeters: ''
       },
-      spillwayType: 'canal_lateral_escavado',
+      spillwayType: '',
       regulatoryStatus: {
         hasWaterPermit: 'nao_informado',
         permitNumber: '',
@@ -293,13 +294,13 @@ export function createEmptyInspection(creatorUser?: {
       requiresNotification: false,
       notificationDetails: {
         modelType: 'modelo_1_cadastro_classificacao',
-        modelTitle: 'Modelo 1: Novo Cadastro e Classificação de Barragem (DPA e CRI)',
+        modelTitle: '',
         numeroNotificacao: '',
-        dataEmissao: new Date().toISOString().split('T')[0],
+        dataEmissao: '',
         processoNumero: '',
         vinculoAutoInspecaoNumero: '',
-        prazoDias: '', // Não preencher automaticamente para exigir revisão explícita
-        objetivo: 'Notificação para novo cadastro e classificação do Dano Potencial Associado e Categoria de Risco para barragem.',
+        prazoDias: '',
+        objetivo: '',
         solicitacoesTexto: '',
         observacoesGeraisTexto: '',
         incluirAdvertenciaDesobediencia: true,
@@ -311,17 +312,17 @@ export function createEmptyInspection(creatorUser?: {
           complemento: '',
           bairro: '',
           municipio: '',
-          uf: 'MT',
+          uf: '',
           cep: '',
           telefone: '',
           email: ''
         },
         localOcorrencia: {
           nomeFantasia: '',
-          atividade: 'Barragem de acumulação de água',
+          atividade: '',
           enderecoEmpreendimento: '',
           municipio: '',
-          uf: 'MT',
+          uf: '',
           cep: '',
           telefone: '',
           areaEmpreendimento: ''
@@ -360,7 +361,7 @@ export function createEmptyInspection(creatorUser?: {
         ],
         modoConfirmacaoRecebimento: 'presencial',
         deadlineDays: '',
-        notificationSubject: 'Novo Cadastro e Classificação de DPA e CRI',
+        notificationSubject: '',
         demandedActions: ''
       }
     },
@@ -448,13 +449,29 @@ function containsLegacyExampleMarker(raw: string): boolean {
     raw.includes('(Exemplo)') ||
     raw.includes('fazendaalvorada') ||
     raw.includes('00.000.000/0001-99') ||
+    raw.includes('00.000.000/0001-00') ||
+    raw.includes('12.345.678/0001-') ||
     raw.includes('Córrego das Araras') ||
-    raw.includes('PROC-2026/04812-SEMA')
+    raw.includes('PROC-2026/04812-SEMA') ||
+    raw.includes('Empreendedor Exemplo') ||
+    raw.includes('Barragem Exemplo') ||
+    raw.includes('Empreendedor sem nome') ||
+    raw.includes('Empreendedor não informado') ||
+    raw.includes('Barramento sem nome')
   );
 }
 
 export async function purgeAllMockData(): Promise<void> {
   try {
+    // 0. Zera uma única vez caches legados de ecossistema/exemplos para iniciar o sistema zerado para os usuários
+    if (!localStorage.getItem(ZERO_STATE_RESET_KEY)) {
+      localStorage.removeItem('fiscaliza_csb_administra_cache_v1');
+      localStorage.removeItem('fiscaliza_csb_ecosystem_products_v1');
+      localStorage.removeItem('fiscaliza_csb_alteration_requests_v1');
+      localStorage.removeItem('fiscaliza_csb_analyst_inbox_v1');
+      localStorage.setItem(ZERO_STATE_RESET_KEY, new Date().toISOString());
+    }
+
     // 1. Limpa localStorage de qualquer resquício de dados de exemplo
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -525,7 +542,7 @@ export async function purgeAllMockData(): Promise<void> {
     // 4. Limpa IndexedDB
     const idbList = await getAllInspectionsFromIndexedDb();
     for (const item of idbList) {
-      if (isSampleInspection(item)) {
+      if (isSampleInspection(item) || isInspectionEmpty(item)) {
         await deleteInspectionFromIndexedDb(item.id);
       }
     }

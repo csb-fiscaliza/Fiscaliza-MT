@@ -500,10 +500,10 @@ function AppContent() {
 
     const fresh = createEmptyInspection({
       email: session?.email,
-      fullName: session?.fullName || (session?.email ? session.email.split('@')[0] : 'Fiscal Técnico'),
+      fullName: session?.fullName || '',
       id: (session as any)?.id,
-      cargo: (session as any)?.cargo || 'Fiscal Técnico CSB',
-      sector: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
+      cargo: (session as any)?.cargo || '',
+      sector: (session as any)?.sector || ''
     });
     // NÃO salva automaticamente no storage quando o preenchimento for zero (0%)
     setCurrentInspection(fresh);

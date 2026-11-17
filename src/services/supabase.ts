@@ -103,21 +103,18 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     administraId: empId,
     sistemaOrigem: empOrigin,
     criadoPorEmail: data.createdByEmail || null,
-    nomeRazaoSocial:
-      data.damIdentification.propertyOrBusinessName ||
-      data.damIdentification.damName ||
-      'Empreendedor não informado',
+    nomeRazaoSocial: data.damIdentification.propertyOrBusinessName || '',
     cpfCnpj:
       data.damIdentification.ownerCpfCnpj ||
       data.conclusions.notificationDetails?.destinatario?.cpfCnpj ||
       data.generalInfo.accompaniedBy?.document ||
       null,
-    figuraJuridica: data.damIdentification.ownerLegalType || ('empresa_privada' as const),
+    figuraJuridica: data.damIdentification.ownerLegalType || ('' as const),
     processoNumero: data.generalInfo.recordNumber || null,
     endereco:
       data.damIdentification.ownerAddress ||
       data.conclusions.notificationDetails?.destinatario?.enderecoCorrespondencia ||
-      'Mato Grosso / MT',
+      '',
     telefone:
       data.damIdentification.ownerPhone ||
       data.conclusions.notificationDetails?.destinatario?.telefone ||
@@ -127,7 +124,7 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     documentosPessoais: null,
     carNumero: data.damIdentification.regulatoryStatus.carNumber || null,
     declaracaoUsoOutorga: data.damIdentification.regulatoryStatus.permitNumber || null,
-    quantidadeBarragens: toNullableNumber(data.damIdentification.damsCountOnProperty) ?? 1,
+    quantidadeBarragens: toNullableNumber(data.damIdentification.damsCountOnProperty),
     comentarios: null,
     createdAt: data.createdAt || now,
     updatedAt: data.updatedAt || now
@@ -141,8 +138,8 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     sistemaOrigem: barOrigin,
     criadoPorEmail: data.createdByEmail || null,
     empreendedorId: empId,
-    nome: data.damIdentification.damName || 'Barramento sem nome',
-    municipio: data.damIdentification.municipality || 'Cuiabá',
+    nome: data.damIdentification.damName || '',
+    municipio: data.damIdentification.municipality || '',
     baciaHidrografica: data.damIdentification.hydrographicBasin || null,
     cursoDagua: data.damIdentification.waterCourse || null,
     coordenadas: {
@@ -158,8 +155,8 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     anoInicioObra: toNullableNumber(data.damIdentification.workStartYear),
     anoFinalObra: toNullableNumber(data.damIdentification.workEndYear),
     idadeBarragemAnos: null,
-    tipoMaterial: data.damIdentification.damType || 'terra_homogenea',
-    usoPrincipal: data.damIdentification.mainWaterUse || 'Irrigação',
+    tipoMaterial: data.damIdentification.damType || ('' as const),
+    usoPrincipal: data.damIdentification.mainWaterUse || '',
     usosSecundarios: data.damIdentification.secondaryWaterUses || [],
     createdAt: data.createdAt || now,
     updatedAt: data.updatedAt || now
@@ -223,10 +220,10 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
     equipe: (data.generalInfo.inspectors || []).map((insp: any, idx: number) => ({
       id: insp.id || `${data.id}_insp_${idx}`,
       vistoriaId: data.id,
-      nome: insp.name,
-      cargo: insp.role || 'Fiscal Técnico',
+      nome: insp.name || '',
+      cargo: insp.role || '',
       matricula: insp.registrationNumber || '',
-      setor: insp.sector || 'CSB/SEMA-MT'
+      setor: insp.sector || ''
     })),
     acompanhantes: data.generalInfo.accompaniedBy?.hasAccompaniment
       ? [
@@ -235,7 +232,7 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
             vistoriaId: data.id,
             nome: data.generalInfo.accompaniedBy.name,
             cpf: data.generalInfo.accompaniedBy.document || null,
-            vinculo: data.generalInfo.accompaniedBy.relationship || 'Representante',
+            vinculo: data.generalInfo.accompaniedBy.relationship || '',
             telefone: data.generalInfo.accompaniedBy.phone || null
           }
         ]
@@ -927,11 +924,11 @@ export async function syncVistoriaToSupabase(
             criado_por_email: vistoria.empreendedor.criadoPorEmail || inspObj?.createdByEmail || null,
             nome_razao_social: vistoria.empreendedor.nomeRazaoSocial,
             cpf_cnpj: toNullableString(vistoria.empreendedor.cpfCnpj),
-            figura_juridica: vistoria.empreendedor.figuraJuridica,
+            figura_juridica: toNullableString(vistoria.empreendedor.figuraJuridica),
             processo_numero: toNullableString(vistoria.empreendedor.processoNumero),
             endereco: toNullableString(vistoria.empreendedor.endereco),
             municipio: toNullableString(vistoria.empreendedor.municipio),
-            uf: vistoria.empreendedor.uf || 'MT',
+            uf: toNullableString(vistoria.empreendedor.uf),
             telefone: toNullableString(vistoria.empreendedor.telefone),
             email: toNullableString(vistoria.empreendedor.email),
             documentos_pessoais: toNullableString(vistoria.empreendedor.documentosPessoais),
@@ -969,10 +966,10 @@ export async function syncVistoriaToSupabase(
             cota_coroamento_metros: toNullableNumber(vistoria.barragem.cotaCoroamentoMetros),
             ano_inicio_obra: toNullableNumber(vistoria.barragem.anoInicioObra),
             ano_final_obra: toNullableNumber(vistoria.barragem.anoFinalObra),
-            tipo_barragem_material: vistoria.barragem.tipoMaterial,
-            uso_principal: vistoria.barragem.usoPrincipal,
+            tipo_barragem_material: toNullableString(vistoria.barragem.tipoMaterial),
+            uso_principal: toNullableString(vistoria.barragem.usoPrincipal),
             usos_secundarios: vistoria.barragem.usosSecundarios || [],
-            vertedouro_tipo: inspObj?.damIdentification?.spillwayType || 'canal_lateral_escavado',
+            vertedouro_tipo: toNullableString(inspObj?.damIdentification?.spillwayType),
             outorga_possui: inspObj?.damIdentification?.regulatoryStatus?.hasWaterPermit || 'nao_informado',
             outorga_numero: toNullableString(inspObj?.damIdentification?.regulatoryStatus?.permitNumber),
             licenca_ambiental_possui:
@@ -1004,7 +1001,7 @@ export async function syncVistoriaToSupabase(
               nome: inspObj.responsavelTecnico.nome.trim(),
               cpf: toNullableString(inspObj.responsavelTecnico.cpf),
               registro_profissional: toNullableString(inspObj.responsavelTecnico.registroProfissional),
-              uf_registro: 'MT',
+              uf_registro: null,
               art_numero: toNullableString(inspObj.responsavelTecnico.artNumero),
               especialidade: toNullableString(inspObj.responsavelTecnico.especialidade),
               telefone: toNullableString(inspObj.responsavelTecnico.telefone),

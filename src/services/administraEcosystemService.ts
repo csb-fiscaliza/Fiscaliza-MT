@@ -133,8 +133,16 @@ function isLegacySampleEntity(obj: unknown): boolean {
       s.includes('(Exemplo)') ||
       s.includes('fazendaalvorada') ||
       s.includes('00.000.000/0001-99') ||
+      s.includes('00.000.000/0001-00') ||
+      s.includes('12.345.678/0001-') ||
       s.includes('Córrego das Araras') ||
-      s.includes('PROC-2026/04812-SEMA')
+      s.includes('PROC-2026/04812-SEMA') ||
+      s.includes('Empreendedor Exemplo') ||
+      s.includes('Barragem Exemplo') ||
+      s.includes('Empreendedor sem nome') ||
+      s.includes('Empreendedor não informado') ||
+      s.includes('Empreendedor vinculado') ||
+      s.includes('Barramento sem nome')
     );
   } catch {
     return false;
@@ -252,20 +260,20 @@ function mapRawEmpreendedor(row: Record<string, any>, defaultOrigin: SistemaOrig
     administraId: pickFirstString(row, ['administra_id']) || resolvedId,
     sistemaOrigem: (pickFirstString(row, ['sistema_origem']) || defaultOrigin) as SistemaOrigem,
     criadoPorEmail: pickFirstString(row, ['criado_por_email', 'email_analista', 'usuario_email', 'created_by']),
-    nomeRazaoSocial: nome || 'Empreendedor sem nome',
+    nomeRazaoSocial: nome || '',
     cpfCnpj: doc,
     figuraJuridica: (pickFirstString(row, ['figura_juridica', 'tipo_pessoa', 'natureza_juridica']) ||
-      'empresa_privada') as EmpreendedorEntity['figuraJuridica'],
+      '') as EmpreendedorEntity['figuraJuridica'],
     processoNumero: pickFirstString(row, ['processo_numero', 'processo_sema', 'numero_processo']),
     endereco: pickFirstString(row, ['endereco', 'logradouro', 'endereco_correspondencia', 'localizacao']) || '',
     municipio: pickFirstString(row, ['municipio', 'cidade']),
-    uf: pickFirstString(row, ['uf', 'estado']) || 'MT',
+    uf: pickFirstString(row, ['uf', 'estado']),
     telefone: pickFirstString(row, ['telefone', 'celular', 'whatsapp', 'fone']),
     email: pickFirstString(row, ['email', 'e_mail']),
     documentosPessoais: pickFirstString(row, ['documentos_pessoais']),
     carNumero: car,
     declaracaoUsoOutorga: pickFirstString(row, ['declaracao_uso', 'outorga', 'declaracao_uso_outorga']),
-    quantidadeBarragens: pickFirstNumber(row, ['quantidade_barragens_propriedade', 'quantidade_barragens', 'qtd_barragens']) ?? 1,
+    quantidadeBarragens: pickFirstNumber(row, ['quantidade_barragens_propriedade', 'quantidade_barragens', 'qtd_barragens']),
     comentarios: pickFirstString(row, ['comentarios', 'observacoes']),
     sincronizadoAdministraEm: row.updated_at || now,
     createdAt: row.created_at || now,
@@ -285,7 +293,7 @@ function mapRawBarragem(row: Record<string, any>, defaultOrigin: SistemaOrigem =
     sistemaOrigem: (pickFirstString(row, ['sistema_origem']) || defaultOrigin) as SistemaOrigem,
     criadoPorEmail: pickFirstString(row, ['criado_por_email', 'email_analista', 'usuario_email']),
     empreendedorId: pickFirstString(row, ['empreendedor_id', 'id_empreendedor', 'proprietario_id', 'owner_id']) || '',
-    nome: nome || 'Barragem',
+    nome: nome || '',
     municipio: pickFirstString(row, ['municipio', 'cidade']) || '',
     baciaHidrografica: pickFirstString(row, ['bacia_hidrografica', 'bacia']),
     cursoDagua: pickFirstString(row, ['curso_dagua', 'rio', 'corrego', 'curso_agua']),
@@ -303,7 +311,7 @@ function mapRawBarragem(row: Record<string, any>, defaultOrigin: SistemaOrigem =
     anoFinalObra: pickFirstNumber(row, ['ano_final_obra']),
     idadeBarragemAnos: null,
     tipoMaterial: (pickFirstString(row, ['tipo_barragem_material', 'tipo_material', 'material']) ||
-      'terra_homogenea') as BarragemEntity['tipoMaterial'],
+      '') as BarragemEntity['tipoMaterial'],
     usoPrincipal: pickFirstString(row, ['uso_principal', 'finalidade', 'uso']) || '',
     usosSecundarios: Array.isArray(row.usos_secundarios) ? row.usos_secundarios : [],
     sincronizadoAdministraEm: row.updated_at || now,
@@ -325,10 +333,10 @@ function mapRawRt(row: Record<string, any>, defaultOrigin: SistemaOrigem = 'admi
     criadoPorEmail: pickFirstString(row, ['criado_por_email', 'email_analista']),
     empreendedorId: pickFirstString(row, ['empreendedor_id', 'id_empreendedor']),
     barragemId: pickFirstString(row, ['barragem_id', 'id_barragem']),
-    nome: nome || 'Responsável Técnico',
+    nome: nome || '',
     cpf: pickFirstString(row, ['cpf', 'cpf_rt', 'documento']),
     registroProfissional: pickFirstString(row, ['registro_profissional', 'crea', 'registro']),
-    ufRegistro: pickFirstString(row, ['uf_registro']) || 'MT',
+    ufRegistro: pickFirstString(row, ['uf_registro']),
     artNumero: pickFirstString(row, ['art_numero', 'art']),
     especialidade: pickFirstString(row, ['especialidade', 'formacao']),
     telefone: pickFirstString(row, ['telefone', 'celular', 'fone']),
@@ -529,11 +537,11 @@ export async function fetchAdministraMasterCatalog(searchTerms: string[] = []): 
             const inlineCar = pickFirstString(row, ['car_numero', 'car', 'numero_car', 'codigo_car']);
             const inlineEmpName = pickFirstString(row, ['empreendedor_nome', 'proprietario', 'razao_social']);
             const inlineEmpDoc = pickFirstString(row, ['cpf_cnpj_empreendedor', 'cpf_empreendedor', 'cpf_cnpj']);
-            if ((inlineCar || inlineEmpName || inlineEmpDoc) && mapped.empreendedorId && !empMap.has(mapped.empreendedorId)) {
+            if (inlineEmpName && mapped.empreendedorId && !empMap.has(mapped.empreendedorId)) {
               const syntheticEmp = mapRawEmpreendedor(
                 {
                   id: mapped.empreendedorId,
-                  nome_razao_social: inlineEmpName || 'Empreendedor vinculado',
+                  nome_razao_social: inlineEmpName,
                   cpf_cnpj: inlineEmpDoc,
                   car_numero: inlineCar,
                   municipio: mapped.municipio,
@@ -820,7 +828,7 @@ function buildEmpreendedorFromInspection(
       existingEmp?.cpfCnpj ||
       null,
     figuraJuridica:
-      inspection.damIdentification?.ownerLegalType || existingEmp?.figuraJuridica || 'empresa_privada',
+      inspection.damIdentification?.ownerLegalType || existingEmp?.figuraJuridica || '',
     processoNumero: toNullableStr(inspection.generalInfo?.recordNumber) || existingEmp?.processoNumero || null,
     endereco:
       toNullableStr(inspection.damIdentification?.ownerAddress) ||
@@ -828,7 +836,7 @@ function buildEmpreendedorFromInspection(
       existingEmp?.endereco ||
       '',
     municipio: toNullableStr(inspection.damIdentification?.municipality) || existingEmp?.municipio || null,
-    uf: existingEmp?.uf || 'MT',
+    uf: existingEmp?.uf || null,
     telefone:
       toNullableStr(inspection.damIdentification?.ownerPhone) ||
       toNullableStr(inspection.conclusions?.notificationDetails?.destinatario?.telefone) ||
@@ -848,7 +856,7 @@ function buildEmpreendedorFromInspection(
     quantidadeBarragens:
       toNullableInt(inspection.damIdentification?.damsCountOnProperty) ??
       existingEmp?.quantidadeBarragens ??
-      1,
+      null,
     comentarios: toNullableStr(inspection.sectionComments?.sec2) || existingEmp?.comentarios || null,
     sincronizadoAdministraEm: now,
     createdAt: existingEmp?.createdAt || inspection.createdAt || now,
@@ -862,11 +870,11 @@ function buildEmpreendedorFromInspection(
     criado_por_email: empEntity.criadoPorEmail,
     nome_razao_social: empEntity.nomeRazaoSocial,
     cpf_cnpj: empEntity.cpfCnpj,
-    figura_juridica: empEntity.figuraJuridica,
+    figura_juridica: toNullableStr(empEntity.figuraJuridica),
     processo_numero: empEntity.processoNumero,
     endereco: toNullableStr(empEntity.endereco),
     municipio: empEntity.municipio,
-    uf: empEntity.uf || 'MT',
+    uf: toNullableStr(empEntity.uf),
     telefone: empEntity.telefone,
     email: empEntity.email,
     car_numero: empEntity.carNumero,
@@ -923,9 +931,9 @@ function buildBarragemFromInspection(
     anoInicioObra: startYr ?? existingBar?.anoInicioObra ?? null,
     anoFinalObra: endYr ?? existingBar?.anoFinalObra ?? null,
     idadeBarragemAnos: existingBar?.idadeBarragemAnos ?? null,
-    tipoMaterial: inspection.damIdentification?.damType || existingBar?.tipoMaterial || 'terra_homogenea',
+    tipoMaterial: inspection.damIdentification?.damType || existingBar?.tipoMaterial || '',
     usoPrincipal:
-      toNullableStr(inspection.damIdentification?.mainWaterUse) || existingBar?.usoPrincipal || 'Não informado',
+      toNullableStr(inspection.damIdentification?.mainWaterUse) || existingBar?.usoPrincipal || '',
     usosSecundarios: inspection.damIdentification?.secondaryWaterUses || existingBar?.usosSecundarios || [],
     sincronizadoAdministraEm: now,
     createdAt: existingBar?.createdAt || inspection.createdAt || now,
@@ -952,10 +960,10 @@ function buildBarragemFromInspection(
     cota_coroamento_metros: barEntity.cotaCoroamentoMetros,
     ano_inicio_obra: barEntity.anoInicioObra,
     ano_final_obra: barEntity.anoFinalObra,
-    tipo_barragem_material: barEntity.tipoMaterial,
-    uso_principal: barEntity.usoPrincipal,
+    tipo_barragem_material: toNullableStr(barEntity.tipoMaterial),
+    uso_principal: toNullableStr(barEntity.usoPrincipal),
     usos_secundarios: barEntity.usosSecundarios,
-    vertedouro_tipo: inspection.damIdentification?.spillwayType || 'canal_lateral_escavado',
+    vertedouro_tipo: toNullableStr(inspection.damIdentification?.spillwayType),
     outorga_possui: inspection.damIdentification?.regulatoryStatus?.hasWaterPermit || 'nao_informado',
     outorga_numero: toNullableStr(inspection.damIdentification?.regulatoryStatus?.permitNumber),
     licenca_ambiental_possui:
@@ -996,7 +1004,7 @@ function buildRtFromInspection(
       toNullableStr(inspection.responsavelTecnico?.registroProfissional) ||
       existingRt?.registroProfissional ||
       null,
-    ufRegistro: existingRt?.ufRegistro || 'MT',
+    ufRegistro: existingRt?.ufRegistro || null,
     artNumero: toNullableStr(inspection.responsavelTecnico?.artNumero) || existingRt?.artNumero || null,
     especialidade:
       toNullableStr(inspection.responsavelTecnico?.especialidade) || existingRt?.especialidade || null,
@@ -1511,9 +1519,9 @@ export async function registerFiscalizaProductsFromInspection(
       numeroDocumento: numVistoria,
       processoNumero: inspection.generalInfo?.recordNumber || null,
       barragemId,
-      barragemNome: barragemNome || 'Barragem sem nome',
+      barragemNome,
       empreendedorId,
-      empreendedorNome: empNome || 'Empreendedor não informado',
+      empreendedorNome: empNome,
       responsavelTecnicoId: rtId,
       origemRegistroId: inspection.id,
       statusProduto: isFutura ? 'futura_planejada' : inspection.isDraft ? 'em_andamento' : 'concluida',
@@ -1534,9 +1542,9 @@ export async function registerFiscalizaProductsFromInspection(
       numeroDocumento: numVistoria,
       processoNumero: inspection.generalInfo?.recordNumber || null,
       barragemId,
-      barragemNome: barragemNome || 'Barragem sem nome',
+      barragemNome,
       empreendedorId,
-      empreendedorNome: empNome || 'Empreendedor não informado',
+      empreendedorNome: empNome,
       responsavelTecnicoId: rtId,
       origemRegistroId: inspection.id,
       statusProduto: 'minuta_gerada',
@@ -1556,9 +1564,9 @@ export async function registerFiscalizaProductsFromInspection(
       numeroDocumento: numVistoria,
       processoNumero: inspection.generalInfo?.recordNumber || null,
       barragemId,
-      barragemNome: barragemNome || 'Barragem sem nome',
+      barragemNome,
       empreendedorId,
-      empreendedorNome: empNome || 'Empreendedor não informado',
+      empreendedorNome: empNome,
       responsavelTecnicoId: rtId,
       origemRegistroId: inspection.id,
       statusProduto: 'minuta_gerada',
@@ -1578,9 +1586,9 @@ export async function registerFiscalizaProductsFromInspection(
       numeroDocumento: inspection.conclusions?.notificationDetails?.numeroNotificacao || null,
       processoNumero: inspection.generalInfo?.recordNumber || null,
       barragemId,
-      barragemNome: barragemNome || 'Barragem sem nome',
+      barragemNome,
       empreendedorId,
-      empreendedorNome: empNome || 'Empreendedor não informado',
+      empreendedorNome: empNome,
       responsavelTecnicoId: rtId,
       origemRegistroId: inspection.id,
       statusProduto: inspection.drafts?.notificationLetter?.trim() ? 'minuta_gerada' : 'requerida',
@@ -2352,7 +2360,7 @@ export async function applyVistoriaSuperiorityUpdates(
           const empUpdateData = {
             nome_razao_social: empTarget?.nomeRazaoSocial ?? inspection.damIdentification.propertyOrBusinessName,
             cpf_cnpj: empTarget?.cpfCnpj ?? inspection.damIdentification.ownerCpfCnpj ?? null,
-            figura_juridica: empTarget?.figuraJuridica ?? inspection.damIdentification.ownerLegalType ?? 'empresa_privada',
+            figura_juridica: toNullableStr(empTarget?.figuraJuridica ?? inspection.damIdentification.ownerLegalType),
             endereco: empTarget?.endereco ?? inspection.damIdentification.ownerAddress ?? '',
             telefone: empTarget?.telefone ?? inspection.damIdentification.ownerPhone ?? null,
             email: empTarget?.email ?? inspection.conclusions?.notificationDetails?.destinatario?.email ?? null,
@@ -2360,7 +2368,7 @@ export async function applyVistoriaSuperiorityUpdates(
             declaracao_uso: empTarget?.declaracaoUsoOutorga ?? inspection.damIdentification.regulatoryStatus?.permitNumber ?? null,
             quantidade_barragens_propriedade:
               empTarget?.quantidadeBarragens ??
-              (inspection.damIdentification.damsCountOnProperty ? Number(inspection.damIdentification.damsCountOnProperty) || 1 : 1),
+              toNullableInt(inspection.damIdentification.damsCountOnProperty),
             updated_at: now
           };
           const { error: rpcErr } = await remote.rpc('rpc_aplicar_edicao_vistoria', {
@@ -2386,8 +2394,8 @@ export async function applyVistoriaSuperiorityUpdates(
             ano_final_obra:
               barTarget?.anoFinalObra ??
               (inspection.damIdentification.workEndYear ? parseInt(inspection.damIdentification.workEndYear, 10) || null : null),
-            tipo_barragem_material: barTarget?.tipoMaterial ?? inspection.damIdentification.damType ?? 'terra_homogenea',
-            uso_principal: barTarget?.usoPrincipal ?? inspection.damIdentification.mainWaterUse ?? '',
+            tipo_barragem_material: toNullableStr(barTarget?.tipoMaterial ?? inspection.damIdentification.damType),
+            uso_principal: toNullableStr(barTarget?.usoPrincipal ?? inspection.damIdentification.mainWaterUse),
             updated_at: now
           };
           const { error: rpcErr } = await remote.rpc('rpc_aplicar_edicao_vistoria', {
@@ -2501,12 +2509,12 @@ export function applyMasterSelectionToInspection(
     };
     next.damIdentification.propertyOrBusinessName = emp.nomeRazaoSocial;
     next.damIdentification.ownerCpfCnpj = emp.cpfCnpj || '';
-    next.damIdentification.ownerLegalType = emp.figuraJuridica || 'empresa_privada';
+    next.damIdentification.ownerLegalType = emp.figuraJuridica || '';
     next.damIdentification.ownerPhone = emp.telefone || '';
     next.damIdentification.ownerAddress = emp.endereco || '';
     next.damIdentification.damsCountOnProperty = emp.quantidadeBarragens
       ? String(emp.quantidadeBarragens)
-      : '1';
+      : '';
 
     if (emp.carNumero) {
       next.damIdentification.regulatoryStatus.carNumber = emp.carNumero;
@@ -2605,7 +2613,7 @@ export function applyMasterSelectionToInspection(
       emp.id,
       emp.sistemaOrigem,
       emp.criadoPorEmail,
-      emp.quantidadeBarragens ? String(emp.quantidadeBarragens) : '1'
+      emp.quantidadeBarragens ? String(emp.quantidadeBarragens) : ''
     );
   }
 
