@@ -11,21 +11,13 @@ import {
   Mail,
   Eye,
   EyeOff,
-  UserCheck,
   AlertCircle,
   CheckCircle2,
   ArrowRight,
-  WifiOff,
-  ShieldPlus
+  WifiOff
 } from 'lucide-react';
 import { FiscalizaLogo } from './FiscalizaLogo';
 import { signInInspector } from '../services/supabase';
-import {
-  bootstrapFirstAdmin,
-  hasAnyAdminUser,
-  requestUserAccess
-} from '../services/userService';
-import { validatePasswordStrength } from '../utils/securityCrypto';
 
 interface LoginPageProps {
   onLoginSuccess: (session: { email?: string; fullName?: string; role?: string }) => void;
@@ -33,39 +25,18 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }) => {
-  const [mode, setMode] = useState<'login' | 'register' | 'bootstrap'>('login');
-  const [hasAdmin, setHasAdmin] = useState<boolean>(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [cargo, setCargo] = useState('');
-  const [matricula, setMatricula] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
   const actionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    hasAnyAdminUser()
-      .then(exists => {
-        setHasAdmin(exists);
-        if (!exists) {
-          setMode('bootstrap');
-        }
-      })
-      .catch(() => {});
     return () => {
       if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
     };
   }, []);
-
-  const handleSwitchMode = (newMode: 'login' | 'register' | 'bootstrap') => {
-    setMode(newMode);
-    setFeedback(null);
-    setPassword('');
-    setConfirmPassword('');
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,116 +45,31 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
       return;
     }
 
-    if (mode === 'login' && !password) {
+    if (!password) {
       setFeedback({ type: 'error', text: 'Por favor, informe sua senha de acesso.' });
       return;
-    }
-
-    if (mode === 'register' || mode === 'bootstrap') {
-      if (!fullName.trim()) {
-        setFeedback({ type: 'error', text: 'Por favor, preencha o seu nome completo.' });
-        return;
-      }
-      if (!cargo.trim()) {
-        setFeedback({ type: 'error', text: 'Por favor, informe o seu cargo ou função.' });
-        return;
-      }
-      if (!matricula.trim()) {
-        setFeedback({ type: 'error', text: 'Por favor, informe sua matrícula funcional.' });
-        return;
-      }
-      const pwdCheck = validatePasswordStrength(password);
-      if (!pwdCheck.valid) {
-        setFeedback({ type: 'error', text: pwdCheck.reason || 'Senha não atende à política de segurança.' });
-        return;
-      }
-      if (password !== confirmPassword) {
-        setFeedback({ type: 'error', text: 'As senhas informadas não coincidem.' });
-        return;
-      }
     }
 
     setIsLoading(true);
     setFeedback(null);
 
     try {
-      if (mode === 'login') {
-        const res = await signInInspector(email, password);
-        if (res.success) {
-          setFeedback({ type: 'success', text: 'Autenticação confirmada. Carregando sistema...' });
-          if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
-          actionTimerRef.current = setTimeout(() => {
-            onLoginSuccess({
-              email: res.email || email,
-              fullName: res.fullName,
-              role: res.role || 'analista'
-            });
-          }, 350);
-        } else {
-          setFeedback({
-            type: 'error',
-            text: res.error || 'Credenciais inválidas. Verifique seu e-mail e senha.'
+      const res = await signInInspector(email, password);
+      if (res.success && res.role) {
+        setFeedback({ type: 'success', text: 'Autenticação confirmada. Carregando sistema...' });
+        if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
+        actionTimerRef.current = setTimeout(() => {
+          onLoginSuccess({
+            email: res.email || email,
+            fullName: res.fullName,
+            role: res.role
           });
-        }
-      } else if (mode === 'bootstrap') {
-        const res = await bootstrapFirstAdmin({
-          name: fullName,
-          email,
-          cargo,
-          matricula,
-          password
-        });
-        if (res.success && res.user) {
-          const signInRes = await signInInspector(email, password);
-          if (!signInRes.success) {
-            setFeedback({
-              type: 'error',
-              text: signInRes.error || 'Administrador criado, mas falhou ao iniciar sessão automática. Tente entrar manualmente.'
-            });
-            setMode('login');
-            setPassword('');
-            setConfirmPassword('');
-            return;
-          }
-          setFeedback({ type: 'success', text: 'Administrador inicial configurado com segurança!' });
-          if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
-          actionTimerRef.current = setTimeout(() => {
-            onLoginSuccess({
-              email: signInRes.email || res.user!.email,
-              fullName: signInRes.fullName || res.user!.name,
-              role: signInRes.role || 'administrador'
-            });
-          }, 400);
-        } else {
-          setFeedback({ type: 'error', text: res.error || 'Falha na configuração do Administrador.' });
-        }
+        }, 350);
       } else {
-        const res = await requestUserAccess({
-          name: fullName.trim(),
-          email,
-          cargo: cargo.trim(),
-          matricula: matricula.trim(),
-          password
+        setFeedback({
+          type: 'error',
+          text: res.error || 'Credenciais inválidas. Verifique seu e-mail e senha.'
         });
-        if (res.success) {
-          setFeedback({
-            type: 'success',
-            text:
-              res.message ||
-              'Solicitação de acesso enviada com sucesso! Aguarde a aprovação de um Administrador.'
-          });
-          if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
-          actionTimerRef.current = setTimeout(() => {
-            setMode('login');
-            setPassword('');
-            setConfirmPassword('');
-          }, 3000);
-        } else {
-          setFeedback({
-            type: 'error',
-            text: res.error || 'Falha ao processar a solicitação de acesso.'
-          });
-        }
       }
     } catch (err: any) {
       setFeedback({
@@ -200,7 +86,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
       {!isOnline && (
         <div className="bg-amber-600/90 text-amber-50 px-3 sm:px-4 py-2 text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-2 border-b border-amber-500/50">
           <WifiOff className="w-4 h-4 shrink-0" />
-          <span>Dispositivo em modo campo (sem internet). A autenticação operará em contingência segura local (PBKDF2).</span>
+          <span>Dispositivo sem conexão com a internet. A autenticação institucional exige conexão ativa com o servidor.</span>
         </div>
       )}
 
@@ -228,49 +114,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
             </p>
           </div>
 
-          <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-1.5 gap-1 text-xs font-bold">
-            <button
-              type="button"
-              onClick={() => handleSwitchMode('login')}
-              className={`min-h-[42px] flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                mode === 'login'
-                  ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <Lock className="w-3.5 h-3.5" />
-              <span>Entrar</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleSwitchMode('register')}
-              className={`min-h-[42px] flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                mode === 'register'
-                  ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              <span>Solicitar Acesso</span>
-            </button>
-
-            {!hasAdmin && (
-              <button
-                type="button"
-                onClick={() => handleSwitchMode('bootstrap')}
-                className={`min-h-[42px] flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                  mode === 'bootstrap'
-                    ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <ShieldPlus className="w-3.5 h-3.5" />
-                <span>1º Admin</span>
-              </button>
-            )}
-          </div>
-
           <form onSubmit={handleSubmit} className="p-4 xs:p-6 sm:p-8 space-y-4">
             {feedback && (
               <div
@@ -291,45 +134,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
               </div>
             )}
 
-            {mode === 'bootstrap' && (
-              <div className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-800 dark:text-purple-300 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold">
-                  <ShieldPlus className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
-                  <span>Configuração Inicial do Administrador</span>
-                </div>
-                <p className="text-[11px] leading-relaxed">
-                  Nenhum administrador cadastrado neste dispositivo/ambiente ainda. Defina o administrador titular e uma senha forte para iniciar.
-                </p>
-              </div>
-            )}
-
-            {mode === 'register' && (
-              <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span>Cadastro Prévio de Fiscal de Campo</span>
-                </div>
-                <p className="text-[11px] leading-relaxed">
-                  Defina sua senha pessoal forte. Seu pedido aguardará homologação de um Administrador da CSB/SEMA-MT.
-                </p>
-              </div>
-            )}
-
-            {(mode === 'register' || mode === 'bootstrap') && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nome Completo *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={e => setFullName(e.target.value)}
-                  placeholder="Nome completo do servidor"
-                  className="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all"
-                />
-              </div>
-            )}
+            <div className="p-3 rounded-2xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-[11px] text-slate-600 dark:text-slate-300 flex items-start gap-2 leading-relaxed">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <span>
+                Acesso restrito a contas institucionais ativas. Solicitação de novo acesso e redefinição de senha pelo navegador estão bloqueadas por segurança; solicite o provisionamento por processo institucional seguro da CSB/SEMA-MT, fora do navegador.
+              </span>
+            </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -349,47 +159,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
               </div>
             </div>
 
-            {(mode === 'register' || mode === 'bootstrap') && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Cargo / Função *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={cargo}
-                    onChange={e => setCargo(e.target.value)}
-                    placeholder="ex: Coordenador(a) / Fiscal"
-                    className="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Matrícula Funcional *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={matricula}
-                    onChange={e => setMatricula(e.target.value)}
-                    placeholder="ex: CSB-001"
-                    className="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all"
-                  />
-                </div>
-              </div>
-            )}
-
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                {mode === 'login' ? 'Senha de Acesso *' : 'Definir Senha Forte *'}
+                Senha de Acesso *
               </label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
-                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  autoComplete="current-password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
@@ -406,32 +184,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              {mode !== 'login' && (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                  Mínimo 8 caracteres com maiúsculas, minúsculas e número ou símbolo.
-                </p>
-              )}
             </div>
-
-            {(mode === 'register' || mode === 'bootstrap') && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Confirmar Senha *
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    autoComplete="new-password"
-                    value={confirmPassword}
-                    onChange={e => setConfirmPassword(e.target.value)}
-                    placeholder="Repita a senha forte"
-                    className="w-full text-xs sm:text-sm pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all font-mono"
-                  />
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-            )}
 
             <button
               type="submit"
@@ -443,20 +196,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOnline }
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   <span>Processando...</span>
                 </>
-              ) : mode === 'login' ? (
+              ) : (
                 <>
                   <span>Entrar no Sistema</span>
                   <ArrowRight className="w-4 h-4" />
-                </>
-              ) : mode === 'bootstrap' ? (
-                <>
-                  <span>Criar Administrador e Entrar</span>
-                  <ShieldPlus className="w-4 h-4" />
-                </>
-              ) : (
-                <>
-                  <span>Enviar Solicitação de Acesso</span>
-                  <UserCheck className="w-4 h-4" />
                 </>
               )}
             </button>

@@ -36,9 +36,7 @@ import {
 } from './administraEcosystemService';
 import {
   hashPasswordSecure,
-  verifyPasswordSecure,
-  validatePasswordStrength,
-  maskEmail
+  validatePasswordStrength
 } from '../utils/securityCrypto';
 
 export const isSupabaseConfigured = isFiscalizaSupabaseConfigured;
@@ -48,10 +46,37 @@ const SESSION_STORAGE_KEY = 'fiscaliza_csb_active_session_v2';
 const LEGACY_SESSION_KEY = 'fiscaliza_csb_active_session_v1';
 const LEGACY_PWD_PREFIX = 'fiscaliza_csb_pwd_';
 const AUTH_HASH_PREFIX = 'fiscaliza_csb_auth_hash_v2_';
-const USERS_STORAGE_KEY = 'fiscaliza_csb_users_catalog_v1';
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 horas de validade da sessão
 
-const BOOTSTRAP_ADMIN_EMAIL = (import.meta.env.VITE_BOOTSTRAP_ADMIN_EMAIL || '').trim().toLowerCase();
+export type InstitutionalRole = 'administrador' | 'analista' | 'visualizador';
+
+const VALID_INSTITUTIONAL_ROLES = new Set<InstitutionalRole>([
+  'administrador',
+  'analista',
+  'visualizador'
+]);
+
+export interface SupabaseAuthDeps {
+  client?: SupabaseClient | null;
+  syncEcosystem?: (email: string, password: string) => Promise<void>;
+  ensureEcosystemSession?: () => Promise<void>;
+}
+
+function normalizeInstitutionalRole(raw: unknown): InstitutionalRole | null {
+  const value = String(raw ?? '').trim().toLowerCase();
+  return VALID_INSTITUTIONAL_ROLES.has(value as InstitutionalRole)
+    ? (value as InstitutionalRole)
+    : null;
+}
+
+function clearStoredSessionTokens(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_SESSION_KEY);
+  } catch {
+    // ignore storage access issues
+  }
+}
 
 /**
  * Remove imediatamente quaisquer resquícios legados de senha em texto plano do navegador
@@ -306,78 +331,131 @@ export interface SyncVistoriaResponse {
   skippedReadOnlyEntities?: string[];
 }
 
-/**
- * Verifica se há sessão autenticada válida no Supabase (SEM fallback anônimo!)
- */
-export async function ensureAuthenticatedSession(): Promise<{
+interface VerifiedRemoteProfile {
   authenticated: boolean;
   email?: string;
-  role?: string;
-}> {
-  if (!fiscalizaSupabase) return { authenticated: false };
+  fullName?: string;
+  role?: InstitutionalRole;
+  status?: string;
+  errorMessage?: string;
+}
+
+async function verifyRemoteSessionAndProfile(
+  client: SupabaseClient | null
+): Promise<VerifiedRemoteProfile> {
+  if (!client) {
+    return {
+      authenticated: false,
+      errorMessage: 'Serviço de autenticação institucional indisponível no momento.'
+    };
+  }
 
   try {
     const {
-      data: { session }
-    } = await fiscalizaSupabase.auth.getSession();
-    if (session?.user) {
-      return {
-        authenticated: true,
-        email: session.user.email,
-        role: session.user.user_metadata?.perfil || session.user.user_metadata?.role || 'analista'
-      };
+      data: { session },
+      error: sessionError
+    } = await client.auth.getSession();
+
+    if (sessionError || !session?.user) {
+      return { authenticated: false };
     }
-  } catch (err) {
-    console.warn('[Auth] Falha na verificação de sessão:', err);
-  }
 
-  return { authenticated: false };
-}
+    let verifiedUser = session.user;
+    if (typeof client.auth.getUser === 'function') {
+      const {
+        data: { user },
+        error: userError
+      } = session.access_token
+        ? await client.auth.getUser(session.access_token)
+        : await client.auth.getUser();
 
-export function getLocalUserProfile(
-  email: string
-): { role: string; name?: string; status?: string; cargo?: string } | null {
-  const cleanEmail = email.trim().toLowerCase();
-
-  try {
-    const raw = localStorage.getItem(USERS_STORAGE_KEY);
-    if (raw) {
-      const list = JSON.parse(raw);
-      if (Array.isArray(list)) {
-        const found = list.find((u: any) => u.email?.toLowerCase() === cleanEmail);
-        if (found) {
-          return {
-            role: found.role || 'analista',
-            name: found.name,
-            status: found.status || 'ativo',
-            cargo: found.cargo
-          };
-        }
+      if (userError || !user) {
+        return { authenticated: false };
       }
+      verifiedUser = user;
     }
-  } catch {
-    // ignore malformed storage
-  }
 
-  return null;
+    const remoteEmail = (verifiedUser.email || '').trim().toLowerCase();
+    if (!remoteEmail) {
+      return { authenticated: false };
+    }
+
+    const { data: profileData, error: profileError } = await client
+      .from('perfis_usuarios')
+      .select('perfil, status, nome')
+      .eq('email', remoteEmail)
+      .maybeSingle();
+
+    if (profileError || !profileData) {
+      return { authenticated: false };
+    }
+
+    const status = String(profileData.status || '').trim().toLowerCase();
+    if (status !== 'ativo') {
+      return { authenticated: false, status };
+    }
+
+    const role = normalizeInstitutionalRole(profileData.perfil);
+    if (!role) {
+      return { authenticated: false, status };
+    }
+
+    const fullName = String(profileData.nome || '').trim() || remoteEmail.split('@')[0];
+
+    return {
+      authenticated: true,
+      email: verifiedUser.email || remoteEmail,
+      fullName,
+      role,
+      status
+    };
+  } catch (err) {
+    console.warn('[Auth] Falha na verificação estrita de sessão/perfil:', err);
+    return { authenticated: false };
+  }
 }
 
 /**
- * Grava hash criptográfico PBKDF2-SHA256 para contingência offline (nunca senha pura)
+ * Verifica se há sessão autenticada válida e perfil institucional ativo no Supabase (SEM fallback offline ou user_metadata)
+ */
+export async function ensureAuthenticatedSession(
+  deps?: SupabaseAuthDeps
+): Promise<{
+  authenticated: boolean;
+  email?: string;
+  role?: InstitutionalRole;
+}> {
+  const client = deps?.client !== undefined ? deps.client : fiscalizaSupabase;
+  const verified = await verifyRemoteSessionAndProfile(client);
+  if (!verified.authenticated || !verified.role) {
+    return { authenticated: false };
+  }
+
+  return {
+    authenticated: true,
+    email: verified.email,
+    role: verified.role
+  };
+}
+
+/**
+ * Grava hash criptográfico PBKDF2-SHA256 (mantido para compatibilidade administrativa)
  */
 export async function storeSecureLocalPasswordHash(email: string, password: string): Promise<void> {
+  if (typeof window === 'undefined' || !window.localStorage) return;
   const cleanEmail = email.trim().toLowerCase();
   const pwdHash = await hashPasswordSecure(password);
-  localStorage.setItem(AUTH_HASH_PREFIX + cleanEmail, pwdHash);
+  window.localStorage.setItem(AUTH_HASH_PREFIX + cleanEmail, pwdHash);
 }
 
 /**
- * Autenticação Estrita do Fiscal de Barragens (Supabase Auth remoto ou PBKDF2 offline)
+ * Autenticação Estrita do Fiscal de Barragens (fail-closed: exige Supabase Auth + perfil ativo em perfis_usuarios)
  */
 export async function signInInspector(
   email: string,
-  password: string
-): Promise<{ success: boolean; error?: string; email?: string; fullName?: string; role?: string }> {
+  password: string,
+  deps?: SupabaseAuthDeps
+): Promise<{ success: boolean; error?: string; email?: string; fullName?: string; role?: InstitutionalRole }> {
   const cleanEmail = email.trim().toLowerCase();
 
   if (!cleanEmail || !cleanEmail.includes('@')) {
@@ -388,362 +466,224 @@ export async function signInInspector(
   }
 
   purgeLegacyPlaintextCredentials();
+  clearStoredSessionTokens();
 
-  // 1. Consulta perfil remoto quando Supabase estiver configurado
-  let remoteProfile: any = null;
-  if (fiscalizaSupabase) {
-    try {
-      const { data, error } = await fiscalizaSupabase
-        .from('perfis_usuarios')
-        .select('*')
-        .eq('email', cleanEmail)
-        .maybeSingle();
-
-      if (!error && data) {
-        remoteProfile = data;
-        try {
-          const raw = localStorage.getItem(USERS_STORAGE_KEY);
-          const list = raw ? JSON.parse(raw) : [];
-          if (Array.isArray(list)) {
-            const idx = list.findIndex((u: any) => u.email?.toLowerCase() === cleanEmail);
-            if (idx !== -1) {
-              list[idx] = {
-                ...list[idx],
-                status: data.status,
-                role: data.perfil || list[idx].role,
-                name: data.nome || list[idx].name,
-                cargo: data.cargo || list[idx].cargo,
-                matricula: data.matricula || list[idx].matricula,
-                updatedAt: data.updated_at || new Date().toISOString()
-              };
-            } else {
-              list.push({
-                id: data.id,
-                email: cleanEmail,
-                name: data.nome || cleanEmail.split('@')[0],
-                role: data.perfil || 'analista',
-                status: data.status || 'ativo',
-                cargo: data.cargo || 'Fiscal Técnico CSB',
-                matricula: data.matricula || '',
-                setor: data.setor || 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT',
-                createdAt: data.created_at || new Date().toISOString(),
-                updatedAt: data.updated_at || new Date().toISOString()
-              });
-            }
-            localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(list));
-          }
-        } catch {
-          // ignore cache update error
-        }
-      }
-    } catch (e) {
-      console.warn(`[Auth] Falha ao consultar perfil remoto para ${maskEmail(cleanEmail)}:`, e);
-    }
-  }
-
-  const profile = getLocalUserProfile(cleanEmail);
-  const effectiveStatus = remoteProfile?.status || profile?.status;
-
-  if (!remoteProfile && !profile) {
-    // Sem cadastro conhecido
-    if (!fiscalizaSupabase) {
-      return {
-        success: false,
-        error: 'Usuário não cadastrado neste dispositivo. Utilize "Novo Fiscal (Solicitar Acesso)" ou configure o Administrador inicial.'
-      };
-    }
-  }
-
-  const effectiveRole =
-    remoteProfile?.perfil ||
-    profile?.role ||
-    (BOOTSTRAP_ADMIN_EMAIL && cleanEmail === BOOTSTRAP_ADMIN_EMAIL ? 'administrador' : 'analista');
-  const effectiveName = remoteProfile?.nome || profile?.name || cleanEmail.split('@')[0];
-  const effectiveCargo =
-    remoteProfile?.cargo ||
-    profile?.cargo ||
-    (effectiveRole === 'administrador' ? 'Coordenador(a) de Segurança de Barragens' : 'Fiscal Técnico CSB');
-
-  // 2. Validação de status
-  if (effectiveStatus === 'inativo') {
-    return {
-      success: false,
-      error: 'Usuário inativo. Seu acesso foi suspenso pela administração da CSB/SEMA-MT.'
-    };
-  }
-  if (effectiveStatus === 'reprovado') {
-    return {
-      success: false,
-      error: 'Solicitação de acesso indeferida pela administração da CSB/SEMA-MT.'
-    };
-  }
-  if (effectiveStatus === 'pendente') {
-    return {
-      success: false,
-      error: 'Solicitação de acesso em análise. Aguarde homologação de um Administrador da CSB/SEMA-MT.'
-    };
-  }
-
-  const createLocalSession = async () => {
-    try {
-      await storeSecureLocalPasswordHash(cleanEmail, password);
-    } catch {
-      // ignore if subtle unavailable
-    }
-
-    const nowMs = Date.now();
-    const localSession = {
-      authenticated: true,
-      email: cleanEmail,
-      fullName: effectiveName,
-      role: effectiveRole,
-      cargo: effectiveCargo,
-      loggedAt: new Date(nowMs).toISOString(),
-      expiresAt: nowMs + SESSION_TTL_MS
-    };
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(localSession));
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: localSession }));
-    }
-    return { success: true, email: cleanEmail, fullName: effectiveName, role: effectiveRole };
-  };
-
-  // 3. Autenticação remota obrigatória quando Supabase está configurado e dispositivo está online
-  if (fiscalizaSupabase) {
-    try {
-      const { data, error } = await fiscalizaSupabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password
-      });
-      if (!error && data?.user) {
-        syncEcosystemAuthSession(cleanEmail, password).catch(() => {});
-        return createLocalSession();
-      }
-      if (error && navigator.onLine) {
-        // Permite fallback por hash apenas se conta local ainda aguarda provisionamento no Supabase Auth,
-        // mas NUNCA aceita senha vazia ou hardcoded
-        const storedHash = localStorage.getItem(AUTH_HASH_PREFIX + cleanEmail);
-        if (storedHash && effectiveStatus === 'ativo' && (await verifyPasswordSecure(password, storedHash))) {
-          return createLocalSession();
-        }
-        return {
-          success: false,
-          error: 'E-mail ou senha incorretos. Verifique suas credenciais institucionais.'
-        };
-      }
-    } catch {
-      // Em falha de rede (campo sem internet), segue para validação por hash offline
-    }
-  }
-
-  // 4. Modo local / contingência offline com verificação PBKDF2-SHA256
-  const storedHash = localStorage.getItem(AUTH_HASH_PREFIX + cleanEmail);
-  if (!storedHash) {
+  const client = deps?.client !== undefined ? deps.client : fiscalizaSupabase;
+  if (!client) {
     return {
       success: false,
       error:
-        'Credencial local não encontrada para este dispositivo. Conecte-se à internet para o primeiro acesso ou solicite redefinição ao Administrador.'
+        'Serviço de autenticação institucional indisponível no momento. Acesso bloqueado por segurança.'
     };
   }
 
-  const isValidHash = await verifyPasswordSecure(password, storedHash);
-  if (isValidHash) {
-    return createLocalSession();
-  }
-
-  return {
-    success: false,
-    error: 'Credenciais inválidas. Verifique seu e-mail e senha.'
-  };
-}
-
-/**
- * Solicitação prévia de acesso de novo Fiscal de Campo (exige senha forte definida pelo usuário)
- */
-export async function signUpInspector(
-  email: string,
-  password: string,
-  fullName?: string,
-  cargo?: string,
-  matricula?: string
-): Promise<{ success: boolean; error?: string; message?: string }> {
-  const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail || !cleanEmail.includes('@')) {
-    return { success: false, error: 'Informe um e-mail institucional válido.' };
-  }
-
-  const strength = validatePasswordStrength(password);
-  if (!strength.valid) {
-    return { success: false, error: strength.reason };
-  }
-
-  const finalName = fullName?.trim() || cleanEmail.split('@')[0];
-  const finalCargo = cargo?.trim() || 'Fiscal Técnico CSB';
-  const finalMatricula = matricula?.trim() || 'CSB-' + Math.floor(100 + Math.random() * 900);
-
-  await storeSecureLocalPasswordHash(cleanEmail, password);
-
-  const validId =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-          const r = (Math.random() * 16) | 0;
-          return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-        });
-
-  try {
-    const raw = localStorage.getItem(USERS_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    const list = Array.isArray(parsed) ? parsed : [];
-
-    const exists = list.find((u: any) => u.email?.toLowerCase() === cleanEmail);
-    if (exists) {
-      if (exists.status === 'pendente') {
-        return {
-          success: false,
-          error: 'Já existe uma solicitação de acesso em análise para este e-mail.'
-        };
-      }
-      if (exists.status === 'ativo') {
-        return {
-          success: false,
-          error: 'Este e-mail já possui cadastro ativo no sistema. Faça login diretamente.'
-        };
-      }
-    }
-
-    const now = new Date().toISOString();
-    const newEntry = {
-      id: validId,
-      email: cleanEmail,
-      name: finalName,
-      role: 'analista',
-      status: 'pendente',
-      cargo: finalCargo,
-      matricula: finalMatricula,
-      setor: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT',
-      createdAt: now,
-      updatedAt: now,
-      requestedAt: now
-    };
-
-    const updatedList = [newEntry, ...list.filter((u: any) => u.email?.toLowerCase() !== cleanEmail)];
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updatedList));
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('csb:users_updated'));
-    }
-  } catch (e) {
-    console.warn('[Auth] Erro ao atualizar catálogo local de usuários:', e);
-  }
-
-  if (fiscalizaSupabase) {
+  const abortSignIn = async (errorMsg: string) => {
     try {
-      await fiscalizaSupabase.auth.signUp({
-        email: cleanEmail,
-        password,
-        options: {
-          data: {
-            full_name: finalName,
-            cargo: finalCargo,
-            matricula: finalMatricula,
-            perfil: 'analista'
-          }
-        }
-      });
-
-      const { error: insErr } = await fiscalizaSupabase.from('perfis_usuarios').insert({
-        id: validId,
-        email: cleanEmail,
-        nome: finalName,
-        perfil: 'analista',
-        status: 'pendente',
-        cargo: finalCargo,
-        matricula: finalMatricula,
-        setor: 'Coordenadoria de Segurança de Barragens - CSB/SEMA-MT'
-      });
-
-      if (insErr && (insErr.code === '23505' || insErr.message?.includes('duplicate'))) {
-        await fiscalizaSupabase
-          .from('perfis_usuarios')
-          .update({
-            nome: finalName,
-            status: 'pendente',
-            cargo: finalCargo,
-            matricula: finalMatricula,
-            updated_at: new Date().toISOString()
-          })
-          .eq('email', cleanEmail);
-      }
-    } catch (e) {
-      console.warn('[Auth] Falha ao enviar solicitação para o Supabase:', e);
+      await client.auth.signOut();
+    } catch {
+      // ignore signOut failure while failing closed
     }
+    clearStoredSessionTokens();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: { authenticated: false } }));
+    }
+    return { success: false, error: errorMsg };
+  };
+
+  let authUserEmail = cleanEmail;
+  try {
+    const { data, error } = await client.auth.signInWithPassword({
+      email: cleanEmail,
+      password
+    });
+
+    if (error || !data?.user) {
+      const msg = String(error?.message || '');
+      const status = (error as any)?.status;
+      if (
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        /fetch|network|timeout|unavailable|failed to fetch/i.test(msg)
+      ) {
+        return {
+          success: false,
+          error:
+            'Serviço de autenticação institucional temporariamente indisponível. Verifique sua conexão e tente novamente.'
+        };
+      }
+      return {
+        success: false,
+        error: 'E-mail ou senha incorretos. Verifique suas credenciais institucionais.'
+      };
+    }
+
+    authUserEmail = (data.user.email || cleanEmail).trim().toLowerCase();
+    if (!authUserEmail) {
+      return abortSignIn('Identidade da sessão inválida. Acesso bloqueado por segurança.');
+    }
+  } catch {
+    return {
+      success: false,
+      error:
+        'Falha ao conectar ao serviço de autenticação institucional. Verifique sua conexão e tente novamente.'
+    };
+  }
+
+  let profileData: any = null;
+  let profileError: any = null;
+  try {
+    const profileRes = await client
+      .from('perfis_usuarios')
+      .select('id, email, nome, perfil, status, cargo, matricula')
+      .eq('email', authUserEmail)
+      .maybeSingle();
+    profileData = profileRes.data;
+    profileError = profileRes.error;
+  } catch (err) {
+    profileError = err;
+  }
+
+  if (profileError) {
+    return abortSignIn(
+      'Não foi possível validar seu perfil institucional no servidor. Acesso bloqueado por segurança.'
+    );
+  }
+
+  if (!profileData) {
+    return abortSignIn(
+      'Perfil institucional não encontrado na base oficial. O acesso permanece bloqueado até o provisionamento ou habilitação por processo institucional seguro da CSB/SEMA-MT, fora do navegador.'
+    );
+  }
+
+  const effectiveStatus = String(profileData.status || '').trim().toLowerCase();
+  if (effectiveStatus === 'inativo') {
+    return abortSignIn('Usuário inativo. Seu acesso foi suspenso pela administração da CSB/SEMA-MT.');
+  }
+  if (effectiveStatus === 'reprovado') {
+    return abortSignIn('Solicitação de acesso indeferida pela administração da CSB/SEMA-MT.');
+  }
+  if (effectiveStatus === 'pendente') {
+    return abortSignIn(
+      'Solicitação de acesso em análise. Aguarde homologação de um Administrador da CSB/SEMA-MT.'
+    );
+  }
+  if (effectiveStatus !== 'ativo') {
+    return abortSignIn('Perfil institucional sem status ativo. Acesso bloqueado por segurança.');
+  }
+
+  const effectiveRole = normalizeInstitutionalRole(profileData.perfil);
+  if (!effectiveRole) {
+    return abortSignIn(
+      'Perfil institucional inválido ou não atribuído no servidor. Acesso bloqueado por segurança.'
+    );
+  }
+
+  const effectiveName = String(profileData.nome || '').trim() || authUserEmail.split('@')[0];
+  const effectiveCargo =
+    String(profileData.cargo || '').trim() ||
+    (effectiveRole === 'administrador'
+      ? 'Coordenador(a) de Segurança de Barragens'
+      : 'Fiscal Técnico CSB');
+
+  const syncFn = deps?.syncEcosystem ?? syncEcosystemAuthSession;
+  syncFn(cleanEmail, password).catch(() => {});
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('csb:auth_state_changed', {
+        detail: {
+          authenticated: true,
+          email: authUserEmail,
+          fullName: effectiveName,
+          role: effectiveRole,
+          cargo: effectiveCargo
+        }
+      })
+    );
   }
 
   return {
     success: true,
-    message:
-      'Solicitação de acesso enviada com sucesso! O cadastro foi encaminhado para análise de um Administrador da CSB/SEMA-MT.'
+    email: authUserEmail,
+    fullName: effectiveName,
+    role: effectiveRole
   };
 }
 
 /**
- * Atualiza a senha do Fiscal logado (exige política de força)
+ * Cadastro e solicitação de acesso pelo navegador bloqueados por segurança
+ * (exige provisionamento institucional no servidor, fora do navegador)
+ */
+export async function signUpInspector(
+  _email: string,
+  _password: string,
+  _fullName?: string,
+  _cargo?: string,
+  _matricula?: string,
+  _deps?: SupabaseAuthDeps
+): Promise<{ success: boolean; error?: string; message?: string }> {
+  return {
+    success: false,
+    error:
+      'Cadastro e solicitação de acesso pelo navegador estão bloqueados por segurança: não há endpoint administrativo nem política RLS verificada para gravação em perfis_usuarios. Solicite o provisionamento da conta por processo institucional seguro da CSB/SEMA-MT, fora do navegador.'
+  };
+}
+
+/**
+ * Atualiza a senha do Fiscal logado (exige política de força e sessão verificada no servidor)
  */
 export async function updateInspectorPassword(
-  newPassword: string
+  newPassword: string,
+  deps?: SupabaseAuthDeps
 ): Promise<{ success: boolean; error?: string }> {
   const strength = validatePasswordStrength(newPassword);
   if (!strength.valid) {
     return { success: false, error: strength.reason };
   }
 
-  let sessionEmail = '';
+  const client = deps?.client !== undefined ? deps.client : fiscalizaSupabase;
+  if (!client) {
+    return {
+      success: false,
+      error: 'Serviço de autenticação institucional indisponível para alteração de senha.'
+    };
+  }
+
+  const verified = await verifyRemoteSessionAndProfile(client);
+  if (!verified.authenticated) {
+    return {
+      success: false,
+      error: 'Sessão institucional ativa e verificada é obrigatória para alterar a senha.'
+    };
+  }
+
   try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      sessionEmail = parsed.email || '';
+    const { error } = await client.auth.updateUser({
+      password: newPassword
+    });
+    if (error) {
+      return { success: false, error: error.message || 'Falha ao alterar senha no servidor.' };
     }
-  } catch {}
-
-  if (sessionEmail) {
-    await storeSecureLocalPasswordHash(sessionEmail, newPassword);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Falha ao alterar senha no servidor.' };
   }
-
-  if (fiscalizaSupabase) {
-    try {
-      const {
-        data: { session }
-      } = await fiscalizaSupabase.auth.getSession();
-      if (session?.user) {
-        const { error } = await fiscalizaSupabase.auth.updateUser({
-          password: newPassword
-        });
-        if (error) throw error;
-      }
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Falha ao alterar senha no servidor.' };
-    }
-  }
-
-  return { success: true };
 }
 
 /**
  * Encerra a sessão do Fiscal e limpa tokens locais
  */
-export async function signOutInspector(): Promise<void> {
+export async function signOutInspector(deps?: SupabaseAuthDeps): Promise<void> {
+  const client = deps?.client !== undefined ? deps.client : fiscalizaSupabase;
   try {
-    if (fiscalizaSupabase) {
-      await fiscalizaSupabase.auth.signOut();
+    if (client) {
+      await client.auth.signOut();
     }
   } catch (e) {
     console.error('[Auth] Erro ao encerrar sessão:', e);
   } finally {
-    localStorage.removeItem(SESSION_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_SESSION_KEY);
+    clearStoredSessionTokens();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('csb:auth_state_changed', { detail: { authenticated: false } }));
     }
@@ -751,113 +691,32 @@ export async function signOutInspector(): Promise<void> {
 }
 
 /**
- * Retorna o estado atual da sessão do Fiscal (verificando expiração TTL)
+ * Retorna o estado atual da sessão do Fiscal (fail-closed: sem fallback offline e sem user_metadata)
  */
-export async function getInspectorSession(): Promise<{
+export async function getInspectorSession(
+  deps?: SupabaseAuthDeps
+): Promise<{
   authenticated: boolean;
   email?: string;
   fullName?: string;
-  role?: string;
+  role?: InstitutionalRole;
 }> {
-  let hasRemoteSession = false;
+  const client = deps?.client !== undefined ? deps.client : fiscalizaSupabase;
+  const verified = await verifyRemoteSessionAndProfile(client);
 
-  if (fiscalizaSupabase) {
-    try {
-      const {
-        data: { session }
-      } = await fiscalizaSupabase.auth.getSession();
-
-      if (session?.user) {
-        hasRemoteSession = true;
-        const remoteEmail = (session.user.email || '').trim().toLowerCase();
-        if (!remoteEmail) {
-          return { authenticated: false };
-        }
-
-        const { data: profileData, error: profileError } = await fiscalizaSupabase
-          .from('perfis_usuarios')
-          .select('perfil, status, nome')
-          .eq('email', remoteEmail)
-          .maybeSingle();
-
-        if (
-          profileError ||
-          !profileData ||
-          String(profileData.status || '').trim().toLowerCase() !== 'ativo' ||
-          !profileData.perfil
-        ) {
-          return { authenticated: false };
-        }
-
-        ensureEcosystemClientsSession().catch(() => {});
-
-        return {
-          authenticated: true,
-          email: session.user.email || remoteEmail,
-          fullName:
-            profileData.nome ||
-            session.user.user_metadata?.full_name ||
-            session.user.user_metadata?.name ||
-            remoteEmail.split('@')[0],
-          role: profileData.perfil
-        };
-      }
-    } catch {
-      if (hasRemoteSession) {
-        return { authenticated: false };
-      }
-      // Fallback para sessão local válida dentro do TTL apenas sem sessão remota ativa
-    }
-  }
-
-  if (hasRemoteSession) {
+  if (!verified.authenticated || !verified.role) {
+    clearStoredSessionTokens();
     return { authenticated: false };
   }
 
-  let sessionEmail = '';
-  let sessionFullName = '';
-  let sessionRole = '';
-
-  try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.authenticated && parsed.email) {
-        if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
-          localStorage.removeItem(SESSION_STORAGE_KEY);
-          return { authenticated: false };
-        }
-        sessionEmail = parsed.email;
-        sessionFullName = parsed.fullName || '';
-        sessionRole = parsed.role || '';
-      }
-    }
-  } catch {}
-
-  if (!sessionEmail) {
-    return { authenticated: false };
-  }
-
-  const profile = getLocalUserProfile(sessionEmail);
-  if (profile && profile.status === 'inativo') {
-    await signOutInspector();
-    return { authenticated: false };
-  }
-
-  const isEnvBootstrapAdmin =
-    BOOTSTRAP_ADMIN_EMAIL.length > 0 && sessionEmail.trim().toLowerCase() === BOOTSTRAP_ADMIN_EMAIL;
-
-  const finalRole = isEnvBootstrapAdmin
-    ? 'administrador'
-    : profile?.role || sessionRole || 'analista';
-
-  const finalName = profile?.name || sessionFullName || sessionEmail.split('@')[0];
+  const ensureEcoFn = deps?.ensureEcosystemSession ?? ensureEcosystemClientsSession;
+  ensureEcoFn().catch(() => {});
 
   return {
     authenticated: true,
-    email: sessionEmail,
-    fullName: finalName,
-    role: finalRole
+    email: verified.email,
+    fullName: verified.fullName,
+    role: verified.role
   };
 }
 
@@ -1222,7 +1081,9 @@ export async function uploadFotoToSupabaseStorage(
   }
 }
 
-export async function getSupabaseSecurityDiagnostics(): Promise<{
+export async function getSupabaseSecurityDiagnostics(
+  deps?: SupabaseAuthDeps
+): Promise<{
   configured: boolean;
   authenticated: boolean;
   userEmail?: string;
@@ -1241,7 +1102,8 @@ export async function getSupabaseSecurityDiagnostics(): Promise<{
     }
   });
 
-  if (!fiscalizaSupabase) {
+  const client = deps?.client !== undefined ? deps.client : fiscalizaSupabase;
+  if (!client) {
     return {
       configured: false,
       authenticated: false,
@@ -1250,37 +1112,22 @@ export async function getSupabaseSecurityDiagnostics(): Promise<{
       ecosystemNodes,
       warnings: [
         ...warnings,
-        'Operação em modo local seguro neste dispositivo.',
-        'Autenticação protegida com criptografia de credenciais.',
-        'Base local operando em espelho seguro pronto para sincronização.'
+        'Serviço de autenticação institucional indisponível ou não configurado.',
+        'Autenticação fail-closed ativa: acesso offline bloqueado por segurança.'
       ]
     };
   }
 
-  let userEmail: string | undefined;
-  let role: string | undefined;
-  let authenticated = false;
-
-  try {
-    const {
-      data: { session }
-    } = await fiscalizaSupabase.auth.getSession();
-    if (session?.user) {
-      authenticated = true;
-      userEmail = session.user.email;
-      role = session.user.user_metadata?.perfil || session.user.role || 'authenticated';
-    } else {
-      warnings.push('Sessão institucional autenticada requerida para sincronização remota.');
-    }
-  } catch (e: any) {
-    warnings.push(`Status da checagem de sessão: ${e.message}`);
+  const verified = await verifyRemoteSessionAndProfile(client);
+  if (!verified.authenticated) {
+    warnings.push('Sessão institucional autenticada e perfil ativo requeridos para sincronização remota.');
   }
 
   return {
     configured: true,
-    authenticated,
-    userEmail,
-    role,
+    authenticated: verified.authenticated,
+    userEmail: verified.authenticated ? verified.email : undefined,
+    role: verified.authenticated ? verified.role : undefined,
     rlsEnforced: true,
     privateStorageEnforced: true,
     ecosystemNodes,

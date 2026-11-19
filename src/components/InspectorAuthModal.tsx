@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { 
   signInInspector, 
-  signUpInspector, 
   signOutInspector, 
   getInspectorSession
 } from '../services/supabase';
@@ -31,8 +30,6 @@ export const InspectorAuthModal: React.FC<InspectorAuthModalProps> = ({
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [currentSession, setCurrentSession] = useState<{ authenticated: boolean; email?: string; role?: string }>({
@@ -57,7 +54,7 @@ export const InspectorAuthModal: React.FC<InspectorAuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleLoginOrRegister = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       setStatusMsg({ type: 'error', text: 'Preencha o e-mail e a senha do fiscal.' });
@@ -68,30 +65,19 @@ export const InspectorAuthModal: React.FC<InspectorAuthModalProps> = ({
     setStatusMsg(null);
 
     try {
-      if (isSignUp) {
-        const res = await signUpInspector(email, password, fullName);
-        if (res.success) {
-          setStatusMsg({ type: 'success', text: res.message || 'Cadastro realizado com sucesso!' });
-          await checkSession();
-          if (onAuthSuccess) onAuthSuccess();
-        } else {
-          setStatusMsg({ type: 'error', text: res.error || 'Falha no cadastro institucional.' });
+      const res = await signInInspector(email, password);
+      if (res.success) {
+        setStatusMsg({ type: 'success', text: 'Fiscal autenticado com sucesso! Sincronização liberada.' });
+        await checkSession();
+        if (onAuthSuccess) {
+          if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+          closeTimerRef.current = setTimeout(() => {
+            onAuthSuccess();
+            onClose();
+          }, 800);
         }
       } else {
-        const res = await signInInspector(email, password);
-        if (res.success) {
-          setStatusMsg({ type: 'success', text: 'Fiscal autenticado com sucesso! Sincronização liberada.' });
-          await checkSession();
-          if (onAuthSuccess) {
-            if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-            closeTimerRef.current = setTimeout(() => {
-              onAuthSuccess();
-              onClose();
-            }, 800);
-          }
-        } else {
-          setStatusMsg({ type: 'error', text: res.error || 'Credenciais inválidas.' });
-        }
+        setStatusMsg({ type: 'error', text: res.error || 'Credenciais inválidas.' });
       }
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: err.message || 'Erro inesperado na autenticação.' });
@@ -215,28 +201,10 @@ export const InspectorAuthModal: React.FC<InspectorAuthModalProps> = ({
                   </div>
                 </div>
               ) : (
-                <form onSubmit={handleLoginOrRegister} className="space-y-3.5">
+                <form onSubmit={handleLogin} className="space-y-3.5">
                   <p className="text-xs text-slate-600 dark:text-slate-400">
                     O banco de dados centralizado possui controle estrito de acesso. Faça login para transmitir suas vistorias de forma oficial:
                   </p>
-
-                  {isSignUp && (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                        Nome Completo do Fiscal
-                      </label>
-                      <div className="relative">
-                        <UserCheck className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                        <input
-                          type="text"
-                          value={fullName}
-                          onChange={(e) => setFullName(e.target.value)}
-                          placeholder="Ex: Carlos Silva"
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-emerald-500"
-                        />
-                      </div>
-                    </div>
-                  )}
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -286,25 +254,20 @@ export const InspectorAuthModal: React.FC<InspectorAuthModalProps> = ({
                       ) : (
                         <>
                           <Lock className="w-3.5 h-3.5" />
-                          <span>{isSignUp ? 'Cadastrar e Conectar' : 'Acessar como Fiscal'}</span>
+                          <span>Acessar como Fiscal</span>
                         </>
                       )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsSignUp(!isSignUp)}
-                      className="px-3 py-2.5 text-xs text-slate-600 dark:text-slate-400 hover:text-emerald-700 font-semibold cursor-pointer underline"
-                    >
-                      {isSignUp ? 'Já tenho conta' : 'Criar acesso'}
                     </button>
                   </div>
 
                   {/* Aviso de acesso autenticado obrigatório */}
-                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 text-center">
+                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 text-center space-y-1">
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1.5">
                       <Server className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Sincronização remota protegida exclusivamente para contas autenticadas.</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      Provisionamento de novas contas deve ser solicitado por processo institucional seguro da CSB/SEMA-MT, fora do navegador.
                     </p>
                   </div>
                 </form>

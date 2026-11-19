@@ -84,26 +84,26 @@ function buildSafeClient(
 }
 
 const fiscalizaInit = buildSafeClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  import.meta.env ? import.meta.env.VITE_SUPABASE_URL : undefined,
+  import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : undefined,
   'sb-fiscaliza-auth-v1'
 );
 
 const administraInit = buildSafeClient(
-  import.meta.env.VITE_ADMINISTRA_SUPABASE_URL,
-  import.meta.env.VITE_ADMINISTRA_SUPABASE_ANON_KEY,
+  import.meta.env ? import.meta.env.VITE_ADMINISTRA_SUPABASE_URL : undefined,
+  import.meta.env ? import.meta.env.VITE_ADMINISTRA_SUPABASE_ANON_KEY : undefined,
   'sb-administra-auth-v1'
 );
 
 const classificaInit = buildSafeClient(
-  import.meta.env.VITE_CLASSIFICA_SUPABASE_URL,
-  import.meta.env.VITE_CLASSIFICA_SUPABASE_ANON_KEY,
+  import.meta.env ? import.meta.env.VITE_CLASSIFICA_SUPABASE_URL : undefined,
+  import.meta.env ? import.meta.env.VITE_CLASSIFICA_SUPABASE_ANON_KEY : undefined,
   'sb-classifica-ro-v1'
 );
 
 const notificaInit = buildSafeClient(
-  import.meta.env.VITE_NOTIFICA_SUPABASE_URL,
-  import.meta.env.VITE_NOTIFICA_SUPABASE_ANON_KEY,
+  import.meta.env ? import.meta.env.VITE_NOTIFICA_SUPABASE_URL : undefined,
+  import.meta.env ? import.meta.env.VITE_NOTIFICA_SUPABASE_ANON_KEY : undefined,
   'sb-notifica-ro-v1'
 );
 
