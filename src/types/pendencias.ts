@@ -20,9 +20,11 @@ export type PendenciaHistoricoAcao =
   | 'edicao'
   | 'resolucao';
 
+export type PendenciasTab = 'minhas' | 'geral' | 'direcionado';
+
 export interface PendenciaRecord {
   id: string;
-  origem: string;
+  origem: 'fiscaliza' | string;
   origem_ref_id: string | null;
   tipo: string;
   titulo: string;
@@ -52,6 +54,55 @@ export interface PendenciaHistoricoRecord {
   usuario_id: string | null;
   motivo: string | null;
   created_at: string;
+}
+
+export interface PendenciaUsuarioResumo {
+  id: string;
+  nome: string;
+  perfil?: string;
+  email?: string;
+}
+
+export interface PendenciasActorSummary {
+  id: string;
+  nome: string;
+  perfil: 'administrador' | 'analista' | 'visualizador';
+  isAdmin: boolean;
+  canMutate: boolean;
+  readOnlyMode: true;
+  email?: string;
+}
+
+export interface PendenciasTabCounts {
+  minhas: number;
+  geral: number;
+  direcionado?: number;
+}
+
+export interface PendenciasListPayload {
+  pendencias: PendenciaRecord[];
+  counts: PendenciasTabCounts;
+  currentUser: PendenciasActorSummary;
+  usuariosResumo: Record<string, PendenciaUsuarioResumo>;
+  readOnlyMode: true;
+  writeBlockReason: string;
+}
+
+export interface PendenciaDetailPayload {
+  pendencia: PendenciaRecord;
+  currentUser: PendenciasActorSummary;
+  usuariosResumo: Record<string, PendenciaUsuarioResumo>;
+  readOnlyMode: true;
+  writeBlockReason: string;
+}
+
+export interface PendenciaHistoricoPayload {
+  pendencia: PendenciaRecord;
+  historico: PendenciaHistoricoRecord[];
+  currentUser: PendenciasActorSummary;
+  usuariosResumo: Record<string, PendenciaUsuarioResumo>;
+  readOnlyMode: true;
+  writeBlockReason: string;
 }
 
 export interface CreatePendenciaInput {
