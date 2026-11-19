@@ -24,7 +24,8 @@ import {
   Sun,
   Moon,
   Sunset,
-  Network
+  Network,
+  ClipboardList
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { getPhotoQueueSummary, subscribePhotoQueue } from '../services/photoSyncQueueService';
@@ -97,6 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
   const isPanelActive = activeStep === 0;
   const isDatabaseActive = activeStep === 6;
   const isUsersActive = activeStep === 7;
+  const isPendenciasActive = activeStep === 8;
   const isSheetActive = activeStep >= 1 && activeStep <= 5;
 
   const userRole = (currentUser?.role || '').toLowerCase();
@@ -316,6 +318,20 @@ export const Header: React.FC<HeaderProps> = ({
                   {allInspections.length}
                 </span>
               )}
+            </button>
+
+            {/* Link 6: Pendências */}
+            <button
+              type="button"
+              onClick={() => setActiveStep(8)}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap ${
+                isPendenciasActive
+                  ? 'bg-emerald-700 text-white shadow-emerald-700/25 ring-2 ring-emerald-700/20'
+                  : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-slate-700'
+              }`}
+            >
+              <ClipboardList className={`w-3.5 h-3.5 shrink-0 ${isPendenciasActive ? 'text-white' : 'text-emerald-600 dark:text-emerald-400'}`} />
+              <span>Pendências</span>
             </button>
 
             {/* Link 6: Usuários (Admin) */}

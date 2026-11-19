@@ -14,7 +14,8 @@ import {
   RefreshCw,
   Compass,
   Camera,
-  Users
+  Users,
+  ClipboardList
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 
@@ -90,6 +91,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       icon: Database,
       badge: null as string | number | null,
       isActive: activeStep === 6
+    },
+    {
+      step: 8,
+      label: 'Pendências',
+      icon: ClipboardList,
+      badge: null as string | number | null,
+      isActive: activeStep === 8
     }
   ];
 
@@ -172,7 +180,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       </div>
 
       {/* Grid de Ícones de Navegação das Etapas */}
-      <nav className={`grid ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} gap-1 sm:gap-2 px-2 sm:px-4 py-1 max-w-2xl mx-auto`}>
+      <nav className={`grid ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'} gap-1 sm:gap-2 px-2 sm:px-4 py-1 max-w-2xl mx-auto`}>
         {navItems.map(item => {
           const isActive = item.isActive;
           const Icon = item.icon;

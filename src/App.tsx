@@ -20,6 +20,7 @@ import { PhotoSyncQueueModal } from './components/PhotoSyncQueueModal';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UsersManagementStep } from './components/UsersManagementStep';
+import { PendenciasStep } from './components/PendenciasStep';
 import { EcosystemIntegrationModal, MasterSelectionPayload } from './components/EcosystemIntegrationModal';
 import { FiscalizaLogo } from './components/FiscalizaLogo';
 import { OfficialFooter } from './components/OfficialFooter';
@@ -1166,6 +1167,15 @@ function AppContent() {
             {activeStep === 7 && isAdminUser && (
               <UsersManagementStep
                 currentUser={session}
+                onGoToDashboard={() => setActiveStep(0)}
+              />
+            )}
+
+            {/* PASSO 8: MÓDULO DE PENDÊNCIAS */}
+            {activeStep === 8 && (
+              <PendenciasStep
+                currentInspection={currentInspection}
+                allInspections={inspections}
                 onGoToDashboard={() => setActiveStep(0)}
               />
             )}
