@@ -12,8 +12,20 @@ export interface EcosystemNodeStatus {
   modoOperacao: 'remoto_ativo' | 'modo_local' | 'bloqueado_seguranca';
 }
 
+function stripOuterQuotes(raw?: string): string {
+  const trimmed = (raw || '').trim();
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
 function normalizeUrl(raw?: string): string {
-  return (raw || '').trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
+  return stripOuterQuotes(raw).replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
 }
 
 function isPlaceholderUrl(url: string): boolean {
@@ -22,6 +34,7 @@ function isPlaceholderUrl(url: string): boolean {
     !url.startsWith('https://') ||
     url.includes('COLE_AQUI') ||
     url.includes('your-project') ||
+    url.includes('seu-projeto') ||
     url.includes('sua-url')
   );
 }
@@ -37,7 +50,7 @@ function buildSafeClient(
   securityError?: string;
 } {
   const url = normalizeUrl(urlRaw);
-  const key = (keyRaw || '').trim();
+  const key = stripOuterQuotes(keyRaw);
 
   if (isPlaceholderUrl(url) || !key) {
     return {

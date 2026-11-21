@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/((?!api(?:/|$)|assets/|data/|manifest\\.json$|sw\\.js$|fiscaliza_logo\\.png$).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

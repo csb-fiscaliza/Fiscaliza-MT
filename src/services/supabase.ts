@@ -354,6 +354,35 @@ function isMissingPerfisUsuariosTableError(err: unknown): boolean {
   );
 }
 
+async function fetchProfileByEmail(
+  client: SupabaseClient,
+  selectColumns: string,
+  normalizedEmail: string
+): Promise<{ data: any; error: any }> {
+  const tableQuery: any = client.from('perfis_usuarios').select(selectColumns);
+  const exactRes = await tableQuery.eq('email', normalizedEmail).maybeSingle();
+  if (exactRes.error || exactRes.data) {
+    return exactRes;
+  }
+
+  if (typeof tableQuery.ilike === 'function') {
+    const escapedEmail = normalizedEmail.replace(/[%_\\]/g, ch => `\\${ch}`);
+    const ilikeRes = await client
+      .from('perfis_usuarios')
+      .select(selectColumns)
+      .ilike('email', escapedEmail)
+      .maybeSingle();
+    if (!ilikeRes.error && ilikeRes.data) {
+      const rowEmail = String((ilikeRes.data as any).email || '').trim().toLowerCase();
+      if (!rowEmail || rowEmail === normalizedEmail) {
+        return ilikeRes;
+      }
+    }
+  }
+
+  return exactRes;
+}
+
 async function verifyRemoteSessionAndProfile(
   client: SupabaseClient | null
 ): Promise<VerifiedRemoteProfile> {
@@ -394,11 +423,11 @@ async function verifyRemoteSessionAndProfile(
       return { authenticated: false };
     }
 
-    const { data: profileData, error: profileError } = await client
-      .from('perfis_usuarios')
-      .select('perfil, status, nome')
-      .eq('email', remoteEmail)
-      .maybeSingle();
+    const { data: profileData, error: profileError } = await fetchProfileByEmail(
+      client,
+      'email, perfil, status, nome',
+      remoteEmail
+    );
 
     if (profileError) {
       if (isMissingPerfisUsuariosTableError(profileError)) {
@@ -430,8 +459,11 @@ async function verifyRemoteSessionAndProfile(
       role,
       status
     };
-  } catch (err) {
-    console.warn('[Auth] Falha na verificação estrita de sessão/perfil:', err);
+  } catch (err: any) {
+    const rawStatus = err?.status;
+    const status = typeof rawStatus === 'number' ? rawStatus : Number(rawStatus) || null;
+    const code = String(err?.code || '').trim().toLowerCase() || null;
+    console.warn('[Auth] Falha na verificação estrita de sessão/perfil:', { status, code });
     return { authenticated: false };
   }
 }
@@ -481,6 +513,14 @@ export async function signInInspector(
 
   const client = deps?.client !== undefined ? deps.client : fiscalizaSupabase;
   if (!client) {
+    if (deps?.client === undefined) {
+      console.warn('[Auth] Falha na autenticação:', { status: 401, code: 'client_not_configured' });
+      return {
+        success: false,
+        error:
+          'Chave de acesso do serviço inválida ou não configurada neste ambiente. Serviço de autenticação institucional indisponível; acesso bloqueado por segurança.'
+      };
+    }
     return {
       success: false,
       error:
@@ -509,13 +549,45 @@ export async function signInInspector(
     });
 
     if (error || !data?.user) {
+      const rawStatus = (error as any)?.status;
+      const status = typeof rawStatus === 'number' ? rawStatus : Number(rawStatus) || undefined;
+      const code = String((error as any)?.code || '').trim().toLowerCase();
       const msg = String(error?.message || '');
-      const status = (error as any)?.status;
+
+      console.warn('[Auth] Falha na autenticação:', {
+        status: status ?? null,
+        code: code || null
+      });
+
+      const isInvalidApiKey =
+        code === 'unauthorized_invalid_api_key' ||
+        code === 'invalid_api_key' ||
+        code === 'bad_jwt' ||
+        code === 'no_authorization' ||
+        (status === 401 && code !== 'invalid_credentials') ||
+        /unauthorized_invalid_api_key|invalid api key|no api key/i.test(msg);
+
+      if (isInvalidApiKey) {
+        return {
+          success: false,
+          error: 'Chave de acesso do serviço inválida ou não configurada neste ambiente.'
+        };
+      }
+
+      if (code === 'email_not_confirmed' || /email not confirmed/i.test(msg)) {
+        return {
+          success: false,
+          error: 'E-mail ainda não confirmado. Conclua a confirmação do e-mail institucional antes de acessar.'
+        };
+      }
+
       if (
+        status === 0 ||
         status === 502 ||
         status === 503 ||
         status === 504 ||
-        /fetch|network|timeout|unavailable|failed to fetch/i.test(msg)
+        code === 'request_timeout' ||
+        /fetch|network|timeout|unavailable|failed to fetch|econnrefused|enotfound/i.test(msg)
       ) {
         return {
           success: false,
@@ -523,6 +595,14 @@ export async function signInInspector(
             'Serviço de autenticação institucional temporariamente indisponível. Verifique sua conexão e tente novamente.'
         };
       }
+
+      if (code === 'invalid_credentials' || /invalid login credentials|invalid credentials/i.test(msg)) {
+        return {
+          success: false,
+          error: 'E-mail ou senha incorretos. Verifique suas credenciais institucionais.'
+        };
+      }
+
       return {
         success: false,
         error: 'E-mail ou senha incorretos. Verifique suas credenciais institucionais.'
@@ -533,7 +613,26 @@ export async function signInInspector(
     if (!authUserEmail) {
       return abortSignIn('Identidade da sessão inválida. Acesso bloqueado por segurança.');
     }
-  } catch {
+  } catch (err: any) {
+    const rawStatus = err?.status;
+    const status = typeof rawStatus === 'number' ? rawStatus : Number(rawStatus) || undefined;
+    const code = String(err?.code || '').trim().toLowerCase();
+    console.warn('[Auth] Falha na autenticação:', {
+      status: status ?? null,
+      code: code || null
+    });
+
+    if (
+      status === 401 ||
+      code === 'unauthorized_invalid_api_key' ||
+      code === 'invalid_api_key'
+    ) {
+      return {
+        success: false,
+        error: 'Chave de acesso do serviço inválida ou não configurada neste ambiente.'
+      };
+    }
+
     return {
       success: false,
       error:
@@ -544,11 +643,11 @@ export async function signInInspector(
   let profileData: any = null;
   let profileError: any = null;
   try {
-    const profileRes = await client
-      .from('perfis_usuarios')
-      .select('id, email, nome, perfil, status, cargo, matricula')
-      .eq('email', authUserEmail)
-      .maybeSingle();
+    const profileRes = await fetchProfileByEmail(
+      client,
+      'id, email, nome, perfil, status, cargo, matricula',
+      authUserEmail
+    );
     profileData = profileRes.data;
     profileError = profileRes.error;
   } catch (err) {
@@ -558,7 +657,7 @@ export async function signInInspector(
   if (profileError) {
     if (isMissingPerfisUsuariosTableError(profileError)) {
       return abortSignIn(
-        'Credenciais aceitas pelo Supabase Auth, porém a tabela institucional "perfis_usuarios" não está provisionada ou acessível neste projeto. O acesso permanece bloqueado até a criação da tabela e habilitação do perfil pela CSB/SEMA-MT.'
+        'Credenciais aceitas pelo servidor de autenticação, porém a tabela institucional "perfis_usuarios" não está provisionada ou acessível neste projeto. O acesso permanece bloqueado até a criação da tabela e habilitação do perfil pela CSB/SEMA-MT.'
       );
     }
     return abortSignIn(
@@ -568,7 +667,7 @@ export async function signInInspector(
 
   if (!profileData) {
     return abortSignIn(
-      'Conta autenticada no Supabase Auth, porém sem perfil institucional provisionado na tabela perfis_usuarios. O acesso permanece bloqueado até o provisionamento ou habilitação por processo institucional seguro da CSB/SEMA-MT, fora do navegador.'
+      'Conta autenticada no servidor, porém sem perfil institucional provisionado na tabela perfis_usuarios. O acesso permanece bloqueado até o provisionamento ou habilitação por processo institucional seguro da CSB/SEMA-MT, fora do navegador.'
     );
   }
 

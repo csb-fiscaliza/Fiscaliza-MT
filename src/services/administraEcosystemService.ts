@@ -178,14 +178,16 @@ export function loadLocalAdministraCatalog(): AdministraMasterCatalog {
   };
 }
 
-function saveLocalAdministraCatalog(catalog: AdministraMasterCatalog): void {
+function saveLocalAdministraCatalog(catalog: AdministraMasterCatalog, silent: boolean = false): void {
   try {
     const sanitized = sanitizeDeepObject({
       ...catalog,
       updatedAt: new Date().toISOString()
     });
     localStorage.setItem(ADMINISTRA_CACHE_KEY, JSON.stringify(sanitized));
-    emitEcosystemUpdate();
+    if (!silent) {
+      emitEcosystemUpdate();
+    }
   } catch (err) {
     console.warn('[Ecossistema] Falha ao salvar cache local do Administra:', err);
   }
@@ -348,6 +350,20 @@ function mapRawRt(row: Record<string, any>, defaultOrigin: SistemaOrigem = 'admi
 }
 
 const MISSING_TABLE_CACHE = new Set<string>();
+
+function isMissingRemoteTableError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = String((err as any).code || '').trim().toUpperCase();
+  const status = Number((err as any).status || 0);
+  const msg = String((err as any).message || '').toLowerCase();
+  return (
+    status === 404 ||
+    code === 'PGRST205' ||
+    code === '42P01' ||
+    msg.includes('does not exist') ||
+    msg.includes('could not find the table')
+  );
+}
 
 async function queryTableWithOptionalFilter(
   client: NonNullable<typeof administraSupabase>,
@@ -568,7 +584,7 @@ export async function fetchAdministraMasterCatalog(searchTerms: string[] = []): 
       updatedAt: new Date().toISOString(),
       authBlocked: anyAuthBlocked
     };
-    saveLocalAdministraCatalog(merged);
+    saveLocalAdministraCatalog(merged, true);
     return merged;
   } catch (err) {
     console.warn('[Ecossistema] Usando cache local:', err);
@@ -1607,7 +1623,8 @@ export async function registerFiscalizaProductsFromInspection(
 
   // Sincroniza índice remoto quando ativo
   const remoteClient = administraSupabase || fiscalizaSupabase;
-  if (remoteClient) {
+  const prodNodeKey = administraSupabase ? 'administra' : 'fiscaliza';
+  if (remoteClient && !MISSING_TABLE_CACHE.has(`${prodNodeKey}:produtos_ecossistema`)) {
     try {
       const payload = productsToRegister.map(p => ({
         id: p.id,
@@ -1630,7 +1647,10 @@ export async function registerFiscalizaProductsFromInspection(
         resumo: p.resumo,
         atualizado_em: p.atualizadoEm
       }));
-      await remoteClient.from('produtos_ecossistema').upsert(payload);
+      const { error } = await remoteClient.from('produtos_ecossistema').upsert(payload);
+      if (isMissingRemoteTableError(error)) {
+        MISSING_TABLE_CACHE.add(`${prodNodeKey}:produtos_ecossistema`);
+      }
     } catch {
       // Silencioso se estrutura remota estiver pendente
     }
@@ -1673,12 +1693,20 @@ export async function findProductsByDamOrOwner(params: {
   await Promise.all(
     clientsToQuery.map(async ({ client, source }) => {
       if (!client) return;
+      const cacheKey = `${source}:produtos_ecossistema`;
+      if (MISSING_TABLE_CACHE.has(cacheKey)) return;
       try {
         const { data, error } = await client
           .from('produtos_ecossistema')
           .select('*')
           .limit(200);
-        if (!error && Array.isArray(data)) {
+        if (error) {
+          if (isMissingRemoteTableError(error)) {
+            MISSING_TABLE_CACHE.add(cacheKey);
+          }
+          return;
+        }
+        if (Array.isArray(data)) {
           data.forEach((row: any) => {
             const prod: ProdutoEcossistema = {
               id: row.id,
@@ -1731,10 +1759,12 @@ export function loadLocalAlterationRequests(): SolicitacaoAlteracaoEcossistema[]
   return [];
 }
 
-function saveLocalAlterationRequests(list: SolicitacaoAlteracaoEcossistema[]): void {
+function saveLocalAlterationRequests(list: SolicitacaoAlteracaoEcossistema[], silent: boolean = false): void {
   try {
     localStorage.setItem(ALTERATION_REQUESTS_KEY, JSON.stringify(sanitizeDeepObject(list)));
-    emitEcosystemUpdate();
+    if (!silent) {
+      emitEcosystemUpdate();
+    }
   } catch {}
 }
 
@@ -1743,37 +1773,47 @@ export async function listAlterationRequests(): Promise<SolicitacaoAlteracaoEcos
   loadLocalAlterationRequests().forEach(r => map.set(r.id, r));
 
   const remoteClient = administraSupabase || fiscalizaSupabase;
-  if (remoteClient) {
-    try {
-      const { data, error } = await remoteClient
-        .from('solicitacoes_alteracao_ecossistema')
-        .select('*')
-        .order('criado_em', { ascending: false })
-        .limit(200);
+  const nodeKey = administraSupabase ? 'administra' : 'fiscaliza';
+  const cacheKey = `${nodeKey}:solicitacoes_alteracao_ecossistema`;
 
-      if (!error && Array.isArray(data)) {
-        data.forEach((row: any) => {
-          map.set(row.id, {
-            id: row.id,
-            entidadeTipo: row.entidade_tipo as EntidadeMestreTipo,
-            entidadeId: row.entidade_id,
-            entidadeNome: row.entidade_nome,
-            sistemaSolicitante: (row.sistema_solicitante || 'fiscaliza') as SistemaOrigem,
-            sistemaDetentor: (row.sistema_detentor || 'administra') as SistemaOrigem,
-            solicitanteEmail: row.solicitante_email,
-            solicitanteNome: row.solicitante_nome,
-            aprovadorDesignadoEmail: row.aprovador_designado_email || null,
-            camposAlterados: row.campos_alterados || {},
-            justificativa: row.justificativa || '',
-            status: (row.status || 'pendente') as SolicitacaoAlteracaoStatus,
-            respostaMotivo: row.resposta_motivo || null,
-            analisadoPorEmail: row.analisado_por_email || null,
-            analisadoPorNome: row.analisado_por_nome || null,
-            analisadoEm: row.analisado_em || null,
-            criadoEm: row.criado_em || new Date().toISOString(),
-            atualizadoEm: row.atualizado_em || new Date().toISOString()
+  if (remoteClient && !MISSING_TABLE_CACHE.has(cacheKey)) {
+    try {
+      const { data: sessData } = await remoteClient.auth.getSession();
+      if (sessData?.session) {
+        const { data, error } = await remoteClient
+          .from('solicitacoes_alteracao_ecossistema')
+          .select('*')
+          .order('criado_em', { ascending: false })
+          .limit(200);
+
+        if (error) {
+          if (isMissingRemoteTableError(error)) {
+            MISSING_TABLE_CACHE.add(cacheKey);
+          }
+        } else if (Array.isArray(data)) {
+          data.forEach((row: any) => {
+            map.set(row.id, {
+              id: row.id,
+              entidadeTipo: row.entidade_tipo as EntidadeMestreTipo,
+              entidadeId: row.entidade_id,
+              entidadeNome: row.entidade_nome,
+              sistemaSolicitante: (row.sistema_solicitante || 'fiscaliza') as SistemaOrigem,
+              sistemaDetentor: (row.sistema_detentor || 'administra') as SistemaOrigem,
+              solicitanteEmail: row.solicitante_email,
+              solicitanteNome: row.solicitante_nome,
+              aprovadorDesignadoEmail: row.aprovador_designado_email || null,
+              camposAlterados: row.campos_alterados || {},
+              justificativa: row.justificativa || '',
+              status: (row.status || 'pendente') as SolicitacaoAlteracaoStatus,
+              respostaMotivo: row.resposta_motivo || null,
+              analisadoPorEmail: row.analisado_por_email || null,
+              analisadoPorNome: row.analisado_por_nome || null,
+              analisadoEm: row.analisado_em || null,
+              criadoEm: row.criado_em || new Date().toISOString(),
+              atualizadoEm: row.atualizado_em || new Date().toISOString()
+            });
           });
-        });
+        }
       }
     } catch {
       // Fallback para lista local
@@ -1783,7 +1823,7 @@ export async function listAlterationRequests(): Promise<SolicitacaoAlteracaoEcos
   const merged = Array.from(map.values()).sort(
     (a, b) => new Date(b.criadoEm).getTime() - new Date(a.criadoEm).getTime()
   );
-  saveLocalAlterationRequests(merged);
+  saveLocalAlterationRequests(merged, true);
   return merged;
 }
 
@@ -2030,10 +2070,12 @@ export function loadLocalAnalystInbox(): NotificacaoAnalistaEcossistema[] {
   return [];
 }
 
-function saveLocalAnalystInbox(list: NotificacaoAnalistaEcossistema[]): void {
+function saveLocalAnalystInbox(list: NotificacaoAnalistaEcossistema[], silent: boolean = false): void {
   try {
     localStorage.setItem(NOTIFICACOES_ANALISTA_KEY, JSON.stringify(sanitizeDeepObject(list)));
-    emitEcosystemUpdate();
+    if (!silent) {
+      emitEcosystemUpdate();
+    }
   } catch {}
 }
 
@@ -2041,17 +2083,30 @@ export async function listAnalystInboxNotifications(): Promise<NotificacaoAnalis
   const map = new Map<string, NotificacaoAnalistaEcossistema>();
   loadLocalAnalystInbox().forEach(n => map.set(n.id, n));
 
-  const clients = [administraSupabase, fiscalizaSupabase, classificaSupabase, notificaSupabase].filter(Boolean);
+  const clientEntries = [
+    { key: 'administra', client: administraSupabase },
+    { key: 'fiscaliza', client: fiscalizaSupabase },
+    { key: 'classifica', client: classificaSupabase },
+    { key: 'notifica', client: notificaSupabase }
+  ].filter((item): item is { key: string; client: NonNullable<typeof administraSupabase> } => item.client !== null);
+
   await Promise.all(
-    clients.map(async client => {
-      if (!client) return;
+    clientEntries.map(async ({ key, client }) => {
+      const cacheKey = `${key}:notificacoes_analista_ecossistema`;
+      if (MISSING_TABLE_CACHE.has(cacheKey)) return;
       try {
         const { data, error } = await client
           .from('notificacoes_analista_ecossistema')
           .select('*')
           .order('criada_em', { ascending: false })
           .limit(200);
-        if (!error && Array.isArray(data)) {
+        if (error) {
+          if (isMissingRemoteTableError(error)) {
+            MISSING_TABLE_CACHE.add(cacheKey);
+          }
+          return;
+        }
+        if (Array.isArray(data)) {
           data.forEach((row: any) => {
             map.set(row.id, {
               id: row.id,
@@ -2082,7 +2137,7 @@ export async function listAnalystInboxNotifications(): Promise<NotificacaoAnalis
   const merged = Array.from(map.values()).sort(
     (a, b) => new Date(b.criadaEm).getTime() - new Date(a.criadaEm).getTime()
   );
-  saveLocalAnalystInbox(merged);
+  saveLocalAnalystInbox(merged, true);
   return merged;
 }
 

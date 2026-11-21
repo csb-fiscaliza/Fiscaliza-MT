@@ -194,6 +194,11 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    if (!session?.authenticated) {
+      setPendingAlterationCount(0);
+      return;
+    }
+
     let active = true;
     const refreshPending = async () => {
       try {
@@ -209,7 +214,7 @@ function AppContent() {
       active = false;
       unsub();
     };
-  }, []);
+  }, [session?.authenticated]);
 
   // Monitora sessão ativa do Fiscal e mudanças de autenticação
   useEffect(() => {

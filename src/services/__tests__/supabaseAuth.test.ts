@@ -101,7 +101,7 @@ function createMockSupabaseAuthClient(options: {
   getUserError?: { message: string } | null;
   profileQueryError?: { message: string; code?: string } | null;
   signInThrows?: Error | null;
-  signInServiceError?: { message: string; status: number } | null;
+  signInServiceError?: { message: string; status: number; code?: string } | null;
 }) {
   let currentSession = options.activeSession ?? null;
   let signOutCount = 0;
@@ -947,4 +947,178 @@ test('Parte A: distingue conta Auth sem perfil ou tabela perfis_usuarios ausente
     cleanupMockBrowserStorage();
   }
 });
+
+test('diferencia 401/invalid api key, email_not_confirmed, invalid_credentials e falha de rede em signInInspector sem vazar senha/chave/token nos logs', async () => {
+  installMockBrowserStorage();
+  const capturedWarns: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    capturedWarns.push(args);
+  };
+
+  try {
+    const secretPassword = 'SenhaUltraSecreta#2026';
+
+    // 1. 401 / UNAUTHORIZED_INVALID_API_KEY
+    const invalidKeyMock = createMockSupabaseAuthClient({
+      signInServiceError: {
+        message: 'Invalid API key',
+        status: 401,
+        code: 'UNAUTHORIZED_INVALID_API_KEY'
+      }
+    });
+    const invalidKeyRes = await signInInspector('coord.csb@sema.mt.gov.br', secretPassword, {
+      client: invalidKeyMock.client,
+      syncEcosystem: async () => {}
+    });
+    assert.equal(invalidKeyRes.success, false);
+    assert.match(invalidKeyRes.error || '', /Chave de acesso do serviço inválida ou não configurada neste ambiente/i);
+
+    // 2. email_not_confirmed
+    const unconfirmedMock = createMockSupabaseAuthClient({
+      signInServiceError: {
+        message: 'Email not confirmed',
+        status: 400,
+        code: 'email_not_confirmed'
+      }
+    });
+    const unconfirmedRes = await signInInspector('coord.csb@sema.mt.gov.br', secretPassword, {
+      client: unconfirmedMock.client,
+      syncEcosystem: async () => {}
+    });
+    assert.equal(unconfirmedRes.success, false);
+    assert.match(unconfirmedRes.error || '', /E-mail ainda não confirmado/i);
+
+    // 3. invalid_credentials explícito
+    const invalidCredMock = createMockSupabaseAuthClient({
+      signInServiceError: {
+        message: 'Invalid login credentials',
+        status: 400,
+        code: 'invalid_credentials'
+      }
+    });
+    const invalidCredRes = await signInInspector('coord.csb@sema.mt.gov.br', secretPassword, {
+      client: invalidCredMock.client,
+      syncEcosystem: async () => {}
+    });
+    assert.equal(invalidCredRes.success, false);
+    assert.match(invalidCredRes.error || '', /E-mail ou senha incorretos/i);
+
+    // 4. Logs registram apenas status e code, nunca senha, chave, token ou cabeçalhos
+    assert.equal(capturedWarns.length >= 3, true);
+    const serializedWarns = JSON.stringify(capturedWarns);
+    assert.equal(serializedWarns.includes(secretPassword), false);
+    assert.equal(/authorization|apikey|headers|bearer|eyJ/i.test(serializedWarns), false);
+    for (const args of capturedWarns) {
+      const meta = args[1] as Record<string, unknown>;
+      assert.deepEqual(Object.keys(meta).sort(), ['code', 'status']);
+    }
+  } finally {
+    console.warn = originalWarn;
+    cleanupMockBrowserStorage();
+  }
+});
+
+test('consulta perfis_usuarios tolera e-mail em caixa mista via fallback seguro sem enfraquecer fail-closed', async () => {
+  installMockBrowserStorage();
+
+  try {
+    const mixedCaseClient = {
+      auth: {
+        async signInWithPassword() {
+          return {
+            data: {
+              user: { id: 'u-mixed', email: 'coord.csb@sema.mt.gov.br' },
+              session: { access_token: 'tok-mixed', user: { id: 'u-mixed', email: 'coord.csb@sema.mt.gov.br' } }
+            },
+            error: null
+          };
+        },
+        async signOut() {
+          return { error: null };
+        }
+      },
+      from(table: string) {
+        assert.equal(table, 'perfis_usuarios');
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  async maybeSingle() {
+                    return { data: null, error: null };
+                  }
+                };
+              },
+              ilike(_col: string, pattern: string) {
+                return {
+                  async maybeSingle() {
+                    if (pattern === 'coord.csb@sema.mt.gov.br') {
+                      return {
+                        data: {
+                          id: '11111111-1111-4111-8111-111111111111',
+                          email: 'Coord.CSB@sema.mt.gov.br',
+                          nome: 'Coord CSB',
+                          perfil: 'administrador',
+                          status: 'ativo'
+                        },
+                        error: null
+                      };
+                    }
+                    return { data: null, error: null };
+                  }
+                };
+              }
+            };
+          }
+        };
+      }
+    } as unknown as SupabaseClient;
+
+    const res = await signInInspector('coord.csb@sema.mt.gov.br', 'SenhaForte@2026', {
+      client: mixedCaseClient,
+      syncEcosystem: async () => {}
+    });
+    assert.deepEqual(res, {
+      success: true,
+      email: 'coord.csb@sema.mt.gov.br',
+      fullName: 'Coord CSB',
+      role: 'administrador'
+    });
+  } finally {
+    cleanupMockBrowserStorage();
+  }
+});
+
+test('valida configuração de vercel.json, variáveis VITE_SUPABASE_* e ausência de loop 404 antes do login', () => {
+  const vercelPath = path.resolve(process.cwd(), 'vercel.json');
+  assert.equal(fs.existsSync(vercelPath), true);
+  const vercelConfig = JSON.parse(fs.readFileSync(vercelPath, 'utf8'));
+  assert.equal(Array.isArray(vercelConfig.rewrites), true);
+  assert.equal(
+    vercelConfig.rewrites.some(
+      (r: { source?: string; destination?: string }) =>
+        typeof r.source === 'string' && r.source.includes('api') && r.destination === '/index.html'
+    ),
+    true
+  );
+
+  const ecosystemConfigSource = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/services/ecosystemConfig.ts'),
+    'utf8'
+  );
+  assert.match(ecosystemConfigSource, /import\.meta\.env\.VITE_SUPABASE_URL/);
+  assert.match(ecosystemConfigSource, /import\.meta\.env\.VITE_SUPABASE_ANON_KEY/);
+
+  const appSource = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+  assert.match(appSource, /if\s*\(!session\?\.authenticated\)/);
+
+  const ecosystemServiceSource = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/services/administraEcosystemService.ts'),
+    'utf8'
+  );
+  assert.match(ecosystemServiceSource, /saveLocalAlterationRequests\(merged,\s*true\)/);
+  assert.match(ecosystemServiceSource, /MISSING_TABLE_CACHE/);
+});
+
 
