@@ -12,7 +12,6 @@ import {
   signInInspector,
   signOutInspector,
   signUpInspector,
-  storeSecureLocalPasswordHash,
   updateInspectorPassword
 } from '../supabase.ts';
 import * as userService from '../userService.ts';
@@ -217,8 +216,6 @@ test('bloqueia fallback offline e sessão forjada em localStorage quando Supabas
   });
 
   try {
-    await storeSecureLocalPasswordHash('admin.local@sema.mt.gov.br', 'SenhaForte@2026');
-
     const signInRes = await signInInspector('admin.local@sema.mt.gov.br', 'SenhaForte@2026', {
       client: null
     });
@@ -243,7 +240,7 @@ test('bloqueia fallback offline e sessão forjada em localStorage quando Supabas
   }
 });
 
-test('falha fechado quando serviço remoto lança erro de rede ou HTTP 503 durante signInInspector mesmo com hash local', async () => {
+test('falha fechado quando serviço remoto lança erro de rede ou HTTP 503 durante signInInspector', async () => {
   installMockBrowserStorage({
     fiscaliza_csb_users_catalog_v1: JSON.stringify([
       {
@@ -257,8 +254,6 @@ test('falha fechado quando serviço remoto lança erro de rede ou HTTP 503 duran
   });
 
   try {
-    await storeSecureLocalPasswordHash('fiscal@sema.mt.gov.br', 'SenhaForte@2026');
-
     const networkMock = createMockSupabaseAuthClient({
       signInThrows: new Error('Failed to fetch')
     });

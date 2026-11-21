@@ -3,7 +3,7 @@
 // Camada de Autenticação Segura e Sincronização de Produtos do FISCALIZA (CSB/SEMA-MT)
 // Regras de Segurança Reforçadas:
 // - ZERO senhas padrão, ZERO e-mails pessoais hardcoded, ZERO login anônimo
-// - Contingência offline protegida com hash PBKDF2-SHA256 (nunca texto plano)
+// - Autenticação estrita fail-closed via Supabase Auth e perfis_usuarios ativo (sem contingência offline)
 // - Separação Ecossistema: Produtos no Fiscaliza + Mestres no Administra
 // ==============================================================================
 
@@ -34,10 +34,7 @@ import {
   registerFiscalizaProductsFromInspection,
   upsertMasterEntitiesFromInspection
 } from './administraEcosystemService';
-import {
-  hashPasswordSecure,
-  validatePasswordStrength
-} from '../utils/securityCrypto';
+import { validatePasswordStrength } from '../utils/securityCrypto';
 
 export const isSupabaseConfigured = isFiscalizaSupabaseConfigured;
 export const supabase: SupabaseClient | null = fiscalizaSupabase;
@@ -45,7 +42,6 @@ export const supabase: SupabaseClient | null = fiscalizaSupabase;
 const SESSION_STORAGE_KEY = 'fiscaliza_csb_active_session_v2';
 const LEGACY_SESSION_KEY = 'fiscaliza_csb_active_session_v1';
 const LEGACY_PWD_PREFIX = 'fiscaliza_csb_pwd_';
-const AUTH_HASH_PREFIX = 'fiscaliza_csb_auth_hash_v2_';
 
 export type InstitutionalRole = 'administrador' | 'analista' | 'visualizador';
 
@@ -436,16 +432,6 @@ export async function ensureAuthenticatedSession(
     email: verified.email,
     role: verified.role
   };
-}
-
-/**
- * Grava hash criptográfico PBKDF2-SHA256 (mantido para compatibilidade administrativa)
- */
-export async function storeSecureLocalPasswordHash(email: string, password: string): Promise<void> {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  const cleanEmail = email.trim().toLowerCase();
-  const pwdHash = await hashPasswordSecure(password);
-  window.localStorage.setItem(AUTH_HASH_PREFIX + cleanEmail, pwdHash);
 }
 
 /**
