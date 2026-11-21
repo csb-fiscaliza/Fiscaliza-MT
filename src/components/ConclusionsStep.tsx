@@ -23,6 +23,7 @@ interface Props {
   onPrev: () => void;
   onSaveDraft?: (updated?: InspectionData) => void;
   onGoToSheet?: () => void;
+  currentUser?: { id?: string; email?: string; fullName?: string; role?: string } | null;
 }
 
 export const ConclusionsStep: React.FC<Props> = ({
@@ -31,7 +32,8 @@ export const ConclusionsStep: React.FC<Props> = ({
   onNext,
   onPrev,
   onSaveDraft,
-  onGoToSheet
+  onGoToSheet,
+  currentUser
 }) => {
   const c = data.conclusions;
   const notif = c.notificationDetails;
@@ -376,6 +378,7 @@ export const ConclusionsStep: React.FC<Props> = ({
       <VistoriaConclusaoBar
         data={data}
         onChange={onChange}
+        currentUser={currentUser}
         onSaveDraft={onSaveDraft}
         onNavigateToEntityBlock={onGoToSheet ? () => onGoToSheet() : undefined}
       />

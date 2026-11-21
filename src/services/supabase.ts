@@ -336,6 +336,24 @@ interface VerifiedRemoteProfile {
   errorMessage?: string;
 }
 
+function isMissingPerfisUsuariosTableError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = String((err as any).code || '').trim().toUpperCase();
+  const message = String((err as any).message || '');
+  const details = String((err as any).details || '');
+  const hint = String((err as any).hint || '');
+  const combined = `${message} ${details} ${hint}`;
+
+  if (code === '42P01' || code === 'PGRST205') {
+    return true;
+  }
+
+  return (
+    /perfis_usuarios/i.test(combined) &&
+    /does not exist|not exist|could not find the table|schema cache|not found/i.test(combined)
+  );
+}
+
 async function verifyRemoteSessionAndProfile(
   client: SupabaseClient | null
 ): Promise<VerifiedRemoteProfile> {
@@ -382,7 +400,14 @@ async function verifyRemoteSessionAndProfile(
       .eq('email', remoteEmail)
       .maybeSingle();
 
-    if (profileError || !profileData) {
+    if (profileError) {
+      if (isMissingPerfisUsuariosTableError(profileError)) {
+        console.warn('[Auth] Tabela perfis_usuarios ausente ou indisponível no schema public; mantendo acesso bloqueado.');
+      }
+      return { authenticated: false };
+    }
+
+    if (!profileData) {
       return { authenticated: false };
     }
 
@@ -531,14 +556,19 @@ export async function signInInspector(
   }
 
   if (profileError) {
+    if (isMissingPerfisUsuariosTableError(profileError)) {
+      return abortSignIn(
+        'Credenciais aceitas pelo Supabase Auth, porém a tabela institucional "perfis_usuarios" não está provisionada ou acessível neste projeto. O acesso permanece bloqueado até a criação da tabela e habilitação do perfil pela CSB/SEMA-MT.'
+      );
+    }
     return abortSignIn(
-      'Não foi possível validar seu perfil institucional no servidor. Acesso bloqueado por segurança.'
+      'Credenciais autenticadas no servidor, porém não foi possível consultar seu perfil institucional na tabela perfis_usuarios. Acesso bloqueado por segurança.'
     );
   }
 
   if (!profileData) {
     return abortSignIn(
-      'Perfil institucional não encontrado na base oficial. O acesso permanece bloqueado até o provisionamento ou habilitação por processo institucional seguro da CSB/SEMA-MT, fora do navegador.'
+      'Conta autenticada no Supabase Auth, porém sem perfil institucional provisionado na tabela perfis_usuarios. O acesso permanece bloqueado até o provisionamento ou habilitação por processo institucional seguro da CSB/SEMA-MT, fora do navegador.'
     );
   }
 

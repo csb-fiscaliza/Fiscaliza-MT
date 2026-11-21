@@ -848,3 +848,103 @@ test('bloqueia listagem direta de perfis_usuarios pelo navegador para todos os p
     cleanupMockBrowserStorage();
   }
 });
+
+test('Parte A: distingue conta Auth sem perfil ou tabela perfis_usuarios ausente de erro de senha sem enfraquecer bloqueio nem sugerir reset', async () => {
+  installMockBrowserStorage();
+
+  try {
+    // 1. Senha incorreta (erro de credencial normal)
+    const wrongPassMock = createMockSupabaseAuthClient({
+      accounts: {
+        'fiscal.auth@sema.mt.gov.br': { password: 'SenhaCorreta@2026' }
+      },
+      profiles: []
+    });
+    const wrongPassRes = await signInInspector('fiscal.auth@sema.mt.gov.br', 'SenhaErrada@2026', {
+      client: wrongPassMock.client,
+      syncEcosystem: async () => {}
+    });
+    assert.equal(wrongPassRes.success, false);
+    assert.match(wrongPassRes.error || '', /e-mail ou senha incorretos/i);
+    assert.equal(/redefinir|esqueci a senha|reset/i.test(wrongPassRes.error || ''), false);
+
+    // 2. Auth válida, porém tabela perfis_usuarios ausente (PostgreSQL 42P01 / PostgREST PGRST205)
+    for (const tableErr of [
+      { code: '42P01', message: 'relation "public.perfis_usuarios" does not exist' },
+      { code: 'PGRST205', message: "Could not find the table 'public.perfis_usuarios' in the schema cache" }
+    ]) {
+      const missingTableMock = createMockSupabaseAuthClient({
+        accounts: {
+          'fiscal.auth@sema.mt.gov.br': {
+            password: 'SenhaCorreta@2026',
+            user_metadata: { perfil: 'administrador' }
+          }
+        },
+        profileQueryError: tableErr
+      });
+
+      const tableRes = await signInInspector('fiscal.auth@sema.mt.gov.br', 'SenhaCorreta@2026', {
+        client: missingTableMock.client,
+        syncEcosystem: async () => {}
+      });
+      assert.equal(tableRes.success, false);
+      assert.equal(missingTableMock.getSignOutCount(), 1);
+      assert.equal(missingTableMock.getCurrentSession(), null);
+      assert.match(tableRes.error || '', /perfis_usuarios/i);
+      assert.match(tableRes.error || '', /não está provisionada|bloqueado/i);
+      assert.equal(/e-mail ou senha incorretos|redefinir|reset|service_role|https:\/\//i.test(tableRes.error || ''), false);
+
+      // ensureAuthenticatedSession e getInspectorSession também falham fechados com tabela ausente
+      const activeJwtMissingTable = createMockSupabaseAuthClient({
+        activeSession: {
+          access_token: 'tok-valid',
+          user: { id: 'u-1', email: 'fiscal.auth@sema.mt.gov.br', user_metadata: { perfil: 'administrador' } }
+        },
+        profileQueryError: tableErr
+      });
+      assert.deepEqual(await getInspectorSession({ client: activeJwtMissingTable.client }), { authenticated: false });
+      assert.deepEqual(await ensureAuthenticatedSession({ client: activeJwtMissingTable.client }), {
+        authenticated: false
+      });
+    }
+
+    // 3. Auth válida, tabela existe, porém usuário não possui linha em perfis_usuarios
+    const missingRowMock = createMockSupabaseAuthClient({
+      accounts: {
+        'fiscal.auth@sema.mt.gov.br': {
+          password: 'SenhaCorreta@2026',
+          user_metadata: { perfil: 'administrador' }
+        }
+      },
+      profiles: []
+    });
+    const missingRowRes = await signInInspector('fiscal.auth@sema.mt.gov.br', 'SenhaCorreta@2026', {
+      client: missingRowMock.client,
+      syncEcosystem: async () => {}
+    });
+    assert.equal(missingRowRes.success, false);
+    assert.equal(missingRowMock.getSignOutCount(), 1);
+    assert.equal(missingRowMock.getCurrentSession(), null);
+    assert.match(missingRowRes.error || '', /sem perfil institucional provisionado/i);
+    assert.equal(/e-mail ou senha incorretos|redefinir|reset/i.test(missingRowRes.error || ''), false);
+
+    // 4. Verifica arquivo SQL preparado em docs/sql/fiscaliza_perfis_usuarios.sql
+    const sqlPath = path.resolve(process.cwd(), 'docs/sql/fiscaliza_perfis_usuarios.sql');
+    assert.equal(fs.existsSync(sqlPath), true);
+    const sqlContent = fs.readFileSync(sqlPath, 'utf8');
+    assert.match(sqlContent, /CREATE TABLE IF NOT EXISTS public\.perfis_usuarios/i);
+    assert.match(sqlContent, /ENABLE ROW LEVEL SECURITY/i);
+    assert.match(sqlContent, /perfis_usuarios_select_own/i);
+    assert.match(sqlContent, /WITH CHECK \(false\)/i);
+    // Sem comando ativo promovendo perfil a administrador e sem UUID real/segredo
+    const activeSqlLines = sqlContent
+      .split('\n')
+      .filter(line => !line.trim().startsWith('--'))
+      .join('\n');
+    assert.equal(/INSERT\s+INTO/i.test(activeSqlLines), false);
+    assert.equal(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(sqlContent), false);
+  } finally {
+    cleanupMockBrowserStorage();
+  }
+});
+

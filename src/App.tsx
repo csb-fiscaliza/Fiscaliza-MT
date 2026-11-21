@@ -21,6 +21,7 @@ import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UsersManagementStep } from './components/UsersManagementStep';
 import { PendenciasStep } from './components/PendenciasStep';
+import { SolicitacoesVistoriaStep } from './components/SolicitacoesVistoriaStep';
 import { EcosystemIntegrationModal, MasterSelectionPayload } from './components/EcosystemIntegrationModal';
 import { FiscalizaLogo } from './components/FiscalizaLogo';
 import { OfficialFooter } from './components/OfficialFooter';
@@ -34,6 +35,8 @@ import {
   subscribeEcosystemUpdates
 } from './services/administraEcosystemService';
 import { getInspectorSession, signOutInspector, fetchLatestNumeroVistoriaFromSupabase } from './services/supabase';
+import { buildFutureInspectionFromSolicitacao } from './services/solicitacoesVistoriaService';
+import type { SolicitacaoVistoriaActorSummary, SolicitacaoVistoriaRecord } from './types/solicitacoesVistoria';
 import { 
   canUserCreateInspection, 
   canUserEditInspection, 
@@ -832,6 +835,44 @@ function AppContent() {
     setActiveStep(3);
   };
 
+  const handleCreateFutureInspectionFromSolicitacao = (
+    solicitacao: SolicitacaoVistoriaRecord,
+    actor: SolicitacaoVistoriaActorSummary | null
+  ) => {
+    if (!canUserCreateInspection(session?.role)) {
+      setSyncFeedback({
+        message: 'Perfil Visualizador: Acesso apenas para consulta. Não é permitido criar vistorias futuras.',
+        type: 'error'
+      });
+      return;
+    }
+
+    if (currentInspection && !isInspectionEmpty(currentInspection) && canUserEditInspection(session, currentInspection).allowed) {
+      saveInspection(currentInspection);
+    }
+
+    const actorId = actor?.userId || (session as any)?.id;
+    const prepared = buildFutureInspectionFromSolicitacao(solicitacao, {
+      email: session?.email,
+      fullName: actor?.nome || session?.fullName || '',
+      id: actorId
+    });
+
+    if (actorId && session && !(session as any).id) {
+      setSession(prev => (prev ? { ...prev, id: actorId } as any : prev));
+    }
+
+    saveInspection(prepared);
+    setInspections(getAllInspections());
+    setActiveInspectionId(prepared.id);
+    setCurrentInspection(prepared);
+    setActiveStep(1);
+    setSyncFeedback({
+      message: `Vistoria Futura criada a partir da solicitação (${solicitacao.sistema_origem.toUpperCase()}). Complete a inspeção em campo quando executada.`,
+      type: 'info'
+    });
+  };
+
   const userRole = (session?.role || '').toLowerCase();
   const isAdminUser = userRole === 'administrador' || userRole === 'admin';
 
@@ -1070,6 +1111,7 @@ function AppContent() {
                 savedInspections={inspections}
                 onLoadSavedInspection={handleLoadSavedInspection}
                 onOpenAuthModal={() => setShowAuthModal(true)}
+                currentUser={session}
                 onOpenEcosystemModal={(opts) => {
                   setEcosystemModalTab(opts?.tab || 'catalogo');
                   setEcosystemRequestTarget(opts?.requestTarget || null);
@@ -1107,6 +1149,7 @@ function AppContent() {
                 onChange={setCurrentInspection}
                 onNext={() => setActiveStep(5)}
                 onPrev={() => setActiveStep(3)}
+                currentUser={session}
                 onSaveDraft={(updated) => {
                   const target = updated || currentInspection;
                   if (!isInspectionEmpty(target)) {
@@ -1124,6 +1167,7 @@ function AppContent() {
                 data={currentInspection}
                 onChange={setCurrentInspection}
                 onPrev={() => setActiveStep(4)}
+                currentUser={session}
                 onSaveDraft={(updated) => {
                   const target = updated || currentInspection;
                   if (!isInspectionEmpty(target)) {
@@ -1177,6 +1221,15 @@ function AppContent() {
                 currentInspection={currentInspection}
                 allInspections={inspections}
                 onGoToDashboard={() => setActiveStep(0)}
+              />
+            )}
+
+            {/* PASSO 9: SOLICITAÇÕES DE VISTORIA */}
+            {activeStep === 9 && (
+              <SolicitacoesVistoriaStep
+                currentUser={session}
+                onGoToDashboard={() => setActiveStep(0)}
+                onCreateFutureInspection={handleCreateFutureInspectionFromSolicitacao}
               />
             )}
           </motion.div>

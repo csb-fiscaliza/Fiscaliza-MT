@@ -98,6 +98,7 @@ interface Props {
       valorAtualSugerido?: string;
     };
   }) => void;
+  currentUser?: { id?: string; email?: string; fullName?: string; role?: string } | null;
 }
 
 export const OfficialInspectionSheetStep: React.FC<Props> = ({
@@ -112,7 +113,8 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
   savedInspections,
   onLoadSavedInspection,
   onOpenAuthModal,
-  onOpenEcosystemModal
+  onOpenEcosystemModal,
+  currentUser
 }) => {
   const [crossSystemProducts, setCrossSystemProducts] = useState<ProdutoEcossistema[]>([]);
   const [unlockedImportedFields, setUnlockedImportedFields] = useState<Record<string, boolean>>({});
@@ -4400,6 +4402,7 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
         <VistoriaConclusaoBar
           data={data}
           onChange={onChange}
+          currentUser={currentUser}
           onSaveDraft={(updated) => {
             if (updated && onPersistInspection) {
               onPersistInspection(updated);

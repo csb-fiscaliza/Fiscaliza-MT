@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -7,37 +7,81 @@ import {
   ShieldCheck,
   Database,
   ArrowUpRight,
-  RotateCcw
+  RotateCcw,
+  Calendar,
+  Edit3,
+  MessageSquareText
 } from 'lucide-react';
 import { EntidadeMestreTipo, InspectionData } from '../types/inspection';
 import { getAdministraConclusionValidation } from '../services/administraEcosystemService';
+import {
+  atualizarObservacaoSolicitacaoVistoria,
+  concluirSolicitacaoVistoria
+} from '../services/solicitacoesVistoriaService';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_OBSERVACAO_LENGTH = 1000;
 
 interface VistoriaConclusaoBarProps {
   data: InspectionData;
   onChange: (updater: (prev: InspectionData) => InspectionData) => void;
   onSaveDraft?: (updated?: InspectionData) => void;
   onNavigateToEntityBlock?: (tipo: EntidadeMestreTipo) => void;
+  currentUser?: { id?: string; email?: string; fullName?: string; role?: string } | null;
 }
 
 export const VistoriaConclusaoBar: React.FC<VistoriaConclusaoBarProps> = ({
   data,
   onChange,
   onSaveDraft,
-  onNavigateToEntityBlock
+  onNavigateToEntityBlock,
+  currentUser
 }) => {
   const [statusFeedback, setStatusFeedback] = useState<{
     type: 'success' | 'error' | 'info';
     message: string;
   } | null>(null);
+  const [obsCampo, setObsCampo] = useState<string>(
+    data.solicitacaoConclusao?.observacaoCampo || ''
+  );
+  const [isSubmittingSolicitacao, setIsSubmittingSolicitacao] = useState<boolean>(false);
+  const [isEditingPostConclusionObs, setIsEditingPostConclusionObs] = useState<boolean>(false);
+
+  useEffect(() => {
+    setObsCampo(data.solicitacaoConclusao?.observacaoCampo || '');
+    setIsEditingPostConclusionObs(false);
+  }, [data.id, data.solicitacaoVistoriaId, data.solicitacaoConclusao?.observacaoCampo]);
 
   const validation = getAdministraConclusionValidation(data);
   const isFutura = data.tipoPlanejamento === 'futura' || data.generalInfo?.tipoPlanejamento === 'futura';
   const isConcluded = !data.isDraft && !isFutura && validation.canConclude;
+  const hasLinkedSolicitacao = Boolean(data.solicitacaoVistoriaId);
+
+  const userRole = (currentUser?.role || '').toLowerCase();
+  const isVisualizador = userRole === 'visualizador';
+  const isAdmin = userRole === 'administrador' || userRole === 'admin';
+  const knownEquipeIds = data.solicitacaoConclusao?.equipeIds || [];
+  const currentActorId = currentUser?.id || data.createdByUserId;
+  const canAttemptEditPostObs =
+    !isVisualizador &&
+    (isAdmin ||
+      !currentActorId ||
+      knownEquipeIds.length === 0 ||
+      knownEquipeIds.some(id => id.toLowerCase() === currentActorId.toLowerCase()));
 
   const handleSaveTemporaryDraft = () => {
     const draftInspection: InspectionData = {
       ...data,
-      isDraft: true
+      isDraft: true,
+      ...(hasLinkedSolicitacao
+        ? {
+            solicitacaoConclusao: {
+              ...data.solicitacaoConclusao,
+              observacaoCampo: obsCampo
+            }
+          }
+        : {})
     };
     onChange(() => draftInspection);
     onSaveDraft?.(draftInspection);
@@ -49,7 +93,7 @@ export const VistoriaConclusaoBar: React.FC<VistoriaConclusaoBarProps> = ({
     });
   };
 
-  const handleConcludeInspection = () => {
+  const handleConcludeInspection = async () => {
     if (isFutura) {
       setStatusFeedback({
         type: 'error',
@@ -66,6 +110,81 @@ export const VistoriaConclusaoBar: React.FC<VistoriaConclusaoBarProps> = ({
       return;
     }
 
+    if (!hasLinkedSolicitacao || !data.solicitacaoVistoriaId) {
+      const concludedInspection: InspectionData = {
+        ...data,
+        isDraft: false,
+        tipoPlanejamento: 'atual',
+        generalInfo: {
+          ...data.generalInfo,
+          tipoPlanejamento: 'atual'
+        }
+      };
+      onChange(() => concludedInspection);
+      onSaveDraft?.(concludedInspection);
+      setStatusFeedback({
+        type: 'success',
+        message: 'Vistoria concluída! Todos os cadastros estão efetivamente registrados na base do Administra.'
+      });
+      return;
+    }
+
+    const trimmedObs = obsCampo.trim();
+    if (trimmedObs.length > MAX_OBSERVACAO_LENGTH) {
+      setStatusFeedback({
+        type: 'error',
+        message: `As informações e observações de campo não podem ultrapassar ${MAX_OBSERVACAO_LENGTH} caracteres.`
+      });
+      return;
+    }
+
+    const rawDate = (data.generalInfo?.inspectionDate || '').trim();
+    const dataRealizacao = ISO_DATE_REGEX.test(rawDate)
+      ? rawDate
+      : new Date().toISOString().split('T')[0];
+
+    const equipeMap = new Map<string, { usuario_id: string; nome?: string }>();
+    for (const insp of data.generalInfo?.inspectors || []) {
+      const uid = typeof insp.id === 'string' ? insp.id.trim() : '';
+      if (UUID_REGEX.test(uid) && !equipeMap.has(uid.toLowerCase())) {
+        equipeMap.set(uid.toLowerCase(), {
+          usuario_id: uid,
+          nome: insp.name?.trim() || undefined
+        });
+      }
+    }
+    if (currentActorId && UUID_REGEX.test(currentActorId) && !equipeMap.has(currentActorId.toLowerCase())) {
+      equipeMap.set(currentActorId.toLowerCase(), {
+        usuario_id: currentActorId,
+        nome: currentUser?.fullName?.trim() || undefined
+      });
+    }
+
+    setIsSubmittingSolicitacao(true);
+    setStatusFeedback(null);
+    const res = await concluirSolicitacaoVistoria(data.solicitacaoVistoriaId, {
+      vistoria_id: data.id,
+      data_realizacao: dataRealizacao,
+      equipe: Array.from(equipeMap.values()),
+      observacao_campo: trimmedObs
+    });
+    setIsSubmittingSolicitacao(false);
+
+    if (!res.success || !res.data?.solicitacao) {
+      setStatusFeedback({
+        type: 'error',
+        message:
+          res.error ||
+          'Não foi possível concluir a solicitação vinculada na API central do Administra. A vistoria permanece como rascunho.'
+      });
+      return;
+    }
+
+    const solAtualizada = res.data.solicitacao;
+    const savedObs = solAtualizada.observacao_campo ?? trimmedObs;
+    const savedDate = solAtualizada.data_realizacao || dataRealizacao;
+    const savedEquipeIds = (solAtualizada.equipe || []).map(m => m.usuario_id);
+
     const concludedInspection: InspectionData = {
       ...data,
       isDraft: false,
@@ -73,13 +192,65 @@ export const VistoriaConclusaoBar: React.FC<VistoriaConclusaoBarProps> = ({
       generalInfo: {
         ...data.generalInfo,
         tipoPlanejamento: 'atual'
+      },
+      solicitacaoConclusao: {
+        concluida: true,
+        dataRealizacao: savedDate,
+        observacaoCampo: savedObs,
+        observacaoAtualizadaEm: solAtualizada.updated_at || new Date().toISOString(),
+        equipeIds: savedEquipeIds
       }
     };
     onChange(() => concludedInspection);
     onSaveDraft?.(concludedInspection);
+    setObsCampo(savedObs);
     setStatusFeedback({
       type: 'success',
-      message: 'Vistoria concluída! Todos os cadastros estão efetivamente registrados na base do Administra.'
+      message: 'Vistoria concluída e retorno registrado na Solicitação de Vistoria do Administra!'
+    });
+  };
+
+  const handleSavePostConclusionObs = async () => {
+    if (!data.solicitacaoVistoriaId || isSubmittingSolicitacao) return;
+    const trimmedObs = obsCampo.trim();
+    if (trimmedObs.length > MAX_OBSERVACAO_LENGTH) {
+      setStatusFeedback({
+        type: 'error',
+        message: `As observações de campo não podem ultrapassar ${MAX_OBSERVACAO_LENGTH} caracteres.`
+      });
+      return;
+    }
+
+    setIsSubmittingSolicitacao(true);
+    setStatusFeedback(null);
+    const res = await atualizarObservacaoSolicitacaoVistoria(data.solicitacaoVistoriaId, trimmedObs);
+    setIsSubmittingSolicitacao(false);
+
+    if (!res.success || !res.data?.solicitacao) {
+      setStatusFeedback({
+        type: 'error',
+        message: res.error || 'Falha ao atualizar observação de campo da solicitação.'
+      });
+      return;
+    }
+
+    const updatedObs = res.data.solicitacao.observacao_campo ?? trimmedObs;
+    const updatedInspection: InspectionData = {
+      ...data,
+      solicitacaoConclusao: {
+        ...data.solicitacaoConclusao,
+        concluida: true,
+        observacaoCampo: updatedObs,
+        observacaoAtualizadaEm: res.data.solicitacao.updated_at || new Date().toISOString()
+      }
+    };
+    onChange(() => updatedInspection);
+    onSaveDraft?.(updatedInspection);
+    setObsCampo(updatedObs);
+    setIsEditingPostConclusionObs(false);
+    setStatusFeedback({
+      type: 'success',
+      message: 'Observação de campo atualizada com sucesso na solicitação.'
     });
   };
 
@@ -140,6 +311,11 @@ export const VistoriaConclusaoBar: React.FC<VistoriaConclusaoBarProps> = ({
                   ? 'Base Administra Validada'
                   : `${validation.missingEntities.length} Cadastro(s) Pendente(s) no Administra`}
               </span>
+              {hasLinkedSolicitacao && (
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase border bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-900/50 dark:text-indigo-200 dark:border-indigo-700">
+                  Solicitação Vinculada ({(data.solicitacaoOrigem || 'administra').toUpperCase()})
+                </span>
+              )}
             </div>
 
             <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 leading-relaxed">
@@ -166,10 +342,11 @@ export const VistoriaConclusaoBar: React.FC<VistoriaConclusaoBarProps> = ({
 
               <button
                 type="button"
-                onClick={handleConcludeInspection}
-                aria-disabled={!validation.canConclude || isFutura}
+                disabled={isSubmittingSolicitacao}
+                onClick={() => void handleConcludeInspection()}
+                aria-disabled={!validation.canConclude || isFutura || isSubmittingSolicitacao}
                 className={`min-h-[42px] px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-xs transition ${
-                  validation.canConclude && !isFutura
+                  validation.canConclude && !isFutura && !isSubmittingSolicitacao
                     ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-[0.99]'
                     : 'bg-amber-200/80 dark:bg-amber-900/40 text-amber-950 dark:text-amber-200 border border-amber-400 dark:border-amber-700 cursor-not-allowed'
                 }`}
@@ -184,21 +361,127 @@ export const VistoriaConclusaoBar: React.FC<VistoriaConclusaoBarProps> = ({
                 ) : (
                   <Lock className="w-4 h-4" />
                 )}
-                <span>Concluir Vistoria</span>
+                <span>{isSubmittingSolicitacao ? 'Concluindo...' : 'Concluir Vistoria'}</span>
               </button>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={handleReopenDraft}
-              className="min-h-[40px] px-3.5 py-2 rounded-xl border border-emerald-400 dark:border-emerald-700 bg-white dark:bg-slate-900 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100/70 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reabrir como Rascunho</span>
-            </button>
+            !hasLinkedSolicitacao && (
+              <button
+                type="button"
+                onClick={handleReopenDraft}
+                className="min-h-[40px] px-3.5 py-2 rounded-xl border border-emerald-400 dark:border-emerald-700 bg-white dark:bg-slate-900 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100/70 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reabrir como Rascunho</span>
+              </button>
+            )
           )}
         </div>
       </div>
+
+      {/* Campo opcional de Informações e observações de campo SOMENTE para vistorias vinculadas a Solicitação */}
+      {hasLinkedSolicitacao && (
+        <div className="mt-3 pt-3 border-t border-slate-300/60 dark:border-slate-700/70 space-y-2.5">
+          {!isConcluded || !data.solicitacaoConclusao?.concluida ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor={`solicitacao-obs-${data.id}`}
+                  className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5"
+                >
+                  <MessageSquareText className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Informações e observações de campo (opcional)</span>
+                </label>
+                <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                  {obsCampo.length}/{MAX_OBSERVACAO_LENGTH}
+                </span>
+              </div>
+              <textarea
+                id={`solicitacao-obs-${data.id}`}
+                rows={3}
+                maxLength={MAX_OBSERVACAO_LENGTH}
+                value={obsCampo}
+                onChange={e => setObsCampo(e.target.value)}
+                placeholder="Campo opcional: informe dados relevantes de campo para retorno ao solicitante (até 1000 caracteres)."
+                className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+              />
+            </div>
+          ) : (
+            <div className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-emerald-200 dark:border-emerald-800 space-y-2 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-900 dark:text-emerald-200">
+                  <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Data de realização (somente leitura):</span>
+                  <strong>{data.solicitacaoConclusao.dataRealizacao || '—'}</strong>
+                </span>
+
+                {canAttemptEditPostObs && !isEditingPostConclusionObs && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingPostConclusionObs(true)}
+                    className="px-2.5 py-1 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-800 dark:text-emerald-200 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    <span>Editar observação</span>
+                  </button>
+                )}
+              </div>
+
+              {isEditingPostConclusionObs ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label
+                      htmlFor={`solicitacao-obs-edit-${data.id}`}
+                      className="text-[11px] font-bold text-slate-800 dark:text-slate-200"
+                    >
+                      Editar apenas observações de campo
+                    </label>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {obsCampo.length}/{MAX_OBSERVACAO_LENGTH}
+                    </span>
+                  </div>
+                  <textarea
+                    id={`solicitacao-obs-edit-${data.id}`}
+                    rows={3}
+                    maxLength={MAX_OBSERVACAO_LENGTH}
+                    value={obsCampo}
+                    onChange={e => setObsCampo(e.target.value)}
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setObsCampo(data.solicitacaoConclusao?.observacaoCampo || '');
+                        setIsEditingPostConclusionObs(false);
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSubmittingSolicitacao}
+                      onClick={() => void handleSavePostConclusionObs()}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{isSubmittingSolicitacao ? 'Salvando...' : 'Salvar observação'}</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                  <span className="font-semibold">Informações e observações de campo: </span>
+                  {data.solicitacaoConclusao.observacaoCampo?.trim()
+                    ? data.solicitacaoConclusao.observacaoCampo
+                    : 'Sem observações de campo registradas.'}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Lista de Pendências do Administra */}
       {!validation.canConclude && (
@@ -254,3 +537,4 @@ export const VistoriaConclusaoBar: React.FC<VistoriaConclusaoBarProps> = ({
     </div>
   );
 };
+

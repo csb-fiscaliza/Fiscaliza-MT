@@ -556,6 +556,23 @@ export interface InspectionData {
   isDraft: boolean;
   tipoPlanejamento?: 'atual' | 'futura'; // 'atual': Vistoria Atual (em andamento) | 'futura': Vistoria Futura (pré-cadastro sem numeração)
   itensObservacaoFutura?: ItemObservacaoFutura[]; // Itens a serem observados / checklist de atenção especial em campo
+  solicitacaoVistoriaId?: string;
+  solicitacaoOrigem?: SistemaOrigem;
+  solicitacaoProtocolo?: string;
+  solicitacaoContexto?: {
+    relatoResumido?: string;
+    classificacaoResumo?: string;
+    processoNumero?: string;
+    solicitanteNome?: string;
+    solicitadoEm?: string;
+  };
+  solicitacaoConclusao?: {
+    concluida?: boolean;
+    dataRealizacao?: string;
+    observacaoCampo?: string;
+    observacaoAtualizadaEm?: string;
+    equipeIds?: string[];
+  };
 
   generalInfo: {
     tipoPlanejamento?: 'atual' | 'futura';

@@ -15,7 +15,8 @@ import {
   Compass,
   Camera,
   Users,
-  ClipboardList
+  ClipboardList,
+  ClipboardCheck
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 
@@ -98,6 +99,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       icon: ClipboardList,
       badge: null as string | number | null,
       isActive: activeStep === 8
+    },
+    {
+      step: 9,
+      label: 'Solicitações',
+      icon: ClipboardCheck,
+      badge: null as string | number | null,
+      isActive: activeStep === 9
     }
   ];
 
@@ -180,7 +188,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       </div>
 
       {/* Grid de Ícones de Navegação das Etapas */}
-      <nav className={`grid ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'} gap-1 sm:gap-2 px-2 sm:px-4 py-1 max-w-2xl mx-auto`}>
+      <nav className={`grid ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'} gap-1 sm:gap-2 px-2 sm:px-4 py-1 max-w-2xl mx-auto`}>
         {navItems.map(item => {
           const isActive = item.isActive;
           const Icon = item.icon;

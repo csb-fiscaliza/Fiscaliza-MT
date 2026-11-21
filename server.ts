@@ -7,6 +7,10 @@ import {
   createPendenciasRouter,
   type PendenciasServerDeps
 } from './src/server/pendenciasApi.ts';
+import {
+  createSolicitacoesVistoriaRouter,
+  type SolicitacoesVistoriaServerDeps
+} from './src/server/solicitacoesVistoriaApi.ts';
 
 const PORT = Number(process.env.PORT) || 3000;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -19,6 +23,7 @@ export interface ServerAppOptions {
   host?: string;
   distDir?: string;
   pendenciasDeps?: PendenciasServerDeps;
+  solicitacoesDeps?: SolicitacoesVistoriaServerDeps;
 }
 
 interface ServerRuntime {
@@ -32,6 +37,10 @@ async function createServerRuntime(options: ServerAppOptions = {}): Promise<Serv
   let closeVite: (() => Promise<void>) | null = null;
 
   app.use('/api/pendencias', createPendenciasRouter(options.pendenciasDeps));
+  app.use(
+    '/api/solicitacoes-vistoria',
+    createSolicitacoesVistoriaRouter(options.solicitacoesDeps)
+  );
 
   app.use('/api', (_req: Request, res: Response) => {
     res.status(404).json({ error: 'Rota de API não encontrada.' });
