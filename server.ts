@@ -36,6 +36,11 @@ async function createServerRuntime(options: ServerAppOptions = {}): Promise<Serv
   const app = express();
   let closeVite: (() => Promise<void>) | null = null;
 
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    next();
+  });
+
   app.use('/api/pendencias', createPendenciasRouter(options.pendenciasDeps));
   app.use(
     '/api/solicitacoes-vistoria',

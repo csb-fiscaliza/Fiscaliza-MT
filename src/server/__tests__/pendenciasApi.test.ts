@@ -834,8 +834,10 @@ test('startServer production path mounts real app routes, static datasets, SPA f
   try {
     const rootRes = await fetch(`${baseUrl}/`);
     assert.equal(rootRes.status, 200);
+    assert.equal(rootRes.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive');
     const rootHtml = await rootRes.text();
     assert.ok(rootHtml.includes('Fiscaliza'));
+    assert.ok(rootHtml.includes('<meta name="robots" content="noindex, nofollow, noarchive" />'));
 
     const manifestRes = await requestJson(baseUrl, 'GET', '/manifest.json');
     assert.equal(manifestRes.status, 200);
@@ -865,6 +867,14 @@ test('startServer production path mounts real app routes, static datasets, SPA f
     assert.equal(mtMunRes.status, 200);
     assert.equal(mtMunRes.json.type, 'FeatureCollection');
 
+    const unauthPendRes = await fetch(`${baseUrl}/api/pendencias?tab=minhas`);
+    assert.equal(unauthPendRes.status, 401);
+    assert.equal(unauthPendRes.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive');
+
+    const unauthSolRes = await fetch(`${baseUrl}/api/solicitacoes-vistoria`);
+    assert.equal(unauthSolRes.status, 503);
+    assert.equal(unauthSolRes.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive');
+
     const pendRes = await requestJson(baseUrl, 'GET', '/api/pendencias?tab=minhas', 'token-analista');
     assert.equal(pendRes.status, 200);
     assert.equal(pendRes.json.pendencias.length, 1);
@@ -875,12 +885,16 @@ test('startServer production path mounts real app routes, static datasets, SPA f
     });
     assert.equal(blockedCreateRes.status, 409);
 
-    const unknownApiRes = await requestJson(baseUrl, 'GET', '/api/inexistente');
+    const unknownApiRes = await fetch(`${baseUrl}/api/inexistente`);
     assert.equal(unknownApiRes.status, 404);
+    assert.equal(unknownApiRes.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive');
 
     const spaRes = await fetch(`${baseUrl}/rota-interna-spa`);
     assert.equal(spaRes.status, 200);
-    assert.ok((await spaRes.text()).includes('Fiscaliza'));
+    assert.equal(spaRes.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive');
+    const spaHtml = await spaRes.text();
+    assert.ok(spaHtml.includes('Fiscaliza'));
+    assert.ok(spaHtml.includes('<meta name="robots" content="noindex, nofollow, noarchive" />'));
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
@@ -904,19 +918,118 @@ test('startServer development path preserves Vite routes alongside /api/pendenci
   try {
     const rootRes = await fetch(`${baseUrl}/`);
     assert.equal(rootRes.status, 200);
-    assert.ok((await rootRes.text()).includes('Fiscaliza'));
+    assert.equal(rootRes.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive');
+    const rootHtml = await rootRes.text();
+    assert.ok(rootHtml.includes('Fiscaliza'));
+    assert.ok(rootHtml.includes('<meta name="robots" content="noindex, nofollow, noarchive" />'));
 
     const snisbRes = await fetch(`${baseUrl}/data/snisb.csv`);
     assert.equal(snisbRes.status, 200);
     assert.ok((await snisbRes.text()).length > 100);
 
+    const unauthPendRes = await fetch(`${baseUrl}/api/pendencias?tab=minhas`);
+    assert.equal(unauthPendRes.status, 401);
+    assert.equal(unauthPendRes.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive');
+
     const pendRes = await requestJson(baseUrl, 'GET', '/api/pendencias?tab=minhas', 'token-analista');
     assert.equal(pendRes.status, 200);
     assert.equal(pendRes.json.pendencias.length, 1);
 
-    const unknownApiRes = await requestJson(baseUrl, 'GET', '/api/inexistente');
+    const unknownApiRes = await fetch(`${baseUrl}/api/inexistente`);
     assert.equal(unknownApiRes.status, 404);
+    assert.equal(unknownApiRes.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive');
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+test('desindexação (noindex, X-Robots-Tag, sem robots.txt/sitemap) e limpeza sem remoção de recursos usados', () => {
+  const rootDir = process.cwd();
+
+  const indexHtml = fs.readFileSync(path.resolve(rootDir, 'index.html'), 'utf8');
+  assert.ok(
+    indexHtml.includes('<meta name="robots" content="noindex, nofollow, noarchive" />'),
+    'index.html deve declarar meta robots noindex, nofollow, noarchive'
+  );
+
+  const vercelConfig = JSON.parse(
+    fs.readFileSync(path.resolve(rootDir, 'vercel.json'), 'utf8')
+  ) as {
+    headers?: Array<{ source?: string; headers?: Array<{ key?: string; value?: string }> }>;
+    rewrites?: Array<{ source?: string; destination?: string }>;
+  };
+  assert.equal(Array.isArray(vercelConfig.headers), true);
+  assert.equal(
+    vercelConfig.headers?.some(
+      rule =>
+        rule.source === '/(.*)' &&
+        rule.headers?.some(
+          h => h.key === 'X-Robots-Tag' && h.value === 'noindex, nofollow, noarchive'
+        )
+    ),
+    true,
+    'vercel.json deve configurar X-Robots-Tag: noindex, nofollow, noarchive'
+  );
+  assert.equal(Array.isArray(vercelConfig.rewrites), true);
+
+  for (const forbiddenSeoFile of [
+    'public/robots.txt',
+    'dist/robots.txt',
+    'public/sitemap.xml',
+    'dist/sitemap.xml'
+  ]) {
+    assert.equal(
+      fs.existsSync(path.resolve(rootDir, forbiddenSeoFile)),
+      false,
+      `${forbiddenSeoFile} não deve existir para não expor sitemap nem bloquear rastreamento de noindex`
+    );
+  }
+
+  for (const removedDir of ['public/assets/aistudio', 'dist/assets/aistudio']) {
+    assert.equal(
+      fs.existsSync(path.resolve(rootDir, removedDir)),
+      false,
+      `Pasta temporária de capturas ${removedDir} deve ter sido removida`
+    );
+  }
+
+  const collectFiles = (dir: string): string[] => {
+    if (!fs.existsSync(dir)) return [];
+    const results: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...collectFiles(fullPath));
+      } else {
+        results.push(fullPath);
+      }
+    }
+    return results;
+  };
+
+  const tempScreenshotPattern = /image_[0-9a-f]+\.png$/i;
+  for (const dir of ['public', 'src', 'docs', 'dist']) {
+    const files = collectFiles(path.resolve(rootDir, dir));
+    const leftoverScreenshots = files.filter(file => tempScreenshotPattern.test(path.basename(file)));
+    assert.deepEqual(
+      leftoverScreenshots,
+      [],
+      `Nenhuma captura temporária deve permanecer em ${dir}`
+    );
+  }
+
+  for (const requiredFile of [
+    'public/fiscaliza_logo.png',
+    'src/assets/fiscaliza_logo.png',
+    'public/manifest.json',
+    'public/sw.js',
+    'public/data/snisb.csv',
+    'public/data/aneel.csv',
+    'public/data/notificacoes.xlsx',
+    'public/data/mt-mun.json'
+  ]) {
+    const fullPath = path.resolve(rootDir, requiredFile);
+    assert.equal(fs.existsSync(fullPath), true, `Recurso ativo ausente: ${requiredFile}`);
+    assert.ok(fs.statSync(fullPath).size > 0, `Recurso ativo vazio: ${requiredFile}`);
   }
 });
