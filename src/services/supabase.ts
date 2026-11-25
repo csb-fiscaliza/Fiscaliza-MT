@@ -21,11 +21,8 @@ import { parseGmsToDecimal } from '../utils/geoCoordinates';
 import {
   fiscalizaSupabase,
   isFiscalizaSupabaseConfigured,
-  isAdministraSupabaseConfigured,
   getEcosystemStatus,
-  EcosystemNodeStatus,
-  syncEcosystemAuthSession,
-  ensureEcosystemClientsSession
+  EcosystemNodeStatus
 } from './ecosystemConfig';
 import {
   canFiscalizaEditMasterEntity,
@@ -172,7 +169,7 @@ export function convertInspectionDataToAggregate(data: InspectionData): Vistoria
       editadoManualmente: !!data.damIdentification.coordinates.isManualEdit,
       datum: data.damIdentification.coordinates.datum || 'SIRGAS 2000'
     },
-    cotaCoroamentoMetros: toNullableNumber(data.damIdentification.estimatedDimensions?.heightMeters),
+    cotaCoroamentoMetros: null,
     anoInicioObra: toNullableNumber(data.damIdentification.workStartYear),
     anoFinalObra: toNullableNumber(data.damIdentification.workEndYear),
     idadeBarragemAnos: null,
@@ -701,8 +698,7 @@ export async function signInInspector(
       ? 'Coordenador(a) de Segurança de Barragens'
       : 'Fiscal Técnico CSB');
 
-  const syncFn = deps?.syncEcosystem ?? syncEcosystemAuthSession;
-  syncFn(cleanEmail, password).catch(() => {});
+  // Autenticação restrita exclusivamente ao projeto Supabase do Fiscaliza (sem reenvio de senha para outros nós).
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
@@ -824,8 +820,7 @@ export async function getInspectorSession(
     return { authenticated: false };
   }
 
-  const ensureEcoFn = deps?.ensureEcosystemSession ?? ensureEcosystemClientsSession;
-  ensureEcoFn().catch(() => {});
+  // Sessão verificada estritamente no Fiscaliza (sem replicação de tokens para clientes externos).
 
   return {
     authenticated: true,
@@ -892,12 +887,20 @@ export async function syncVistoriaToSupabase(
     };
   }
 
-  // Etapa 1: Sincronização de Entidades Mestres no Administra (somente as já cadastradas/vinculadas)
+  // Etapa 1: Atualização de entidades vinculadas e catálogo local somente em Vistoria Atual concluída
   let skippedReadOnlyEntities: string[] = [];
   if (isInspection) {
-    const masterSync = await upsertMasterEntitiesFromInspection(input as InspectionData);
-    skippedReadOnlyEntities = masterSync.skippedReadOnlyEntities;
-    await registerFiscalizaProductsFromInspection(input as InspectionData);
+    const insp = input as InspectionData;
+    const isFuturaInsp = insp.tipoPlanejamento === 'futura' || insp.generalInfo?.tipoPlanejamento === 'futura';
+    if (insp.isDraft === false && !isFuturaInsp) {
+      const masterSync = await upsertMasterEntitiesFromInspection(insp);
+      skippedReadOnlyEntities = masterSync.skippedReadOnlyEntities;
+    }
+    try {
+      await registerFiscalizaProductsFromInspection(insp);
+    } catch {
+      // Índice de produtos não deve interromper a gravação da vistoria no Fiscaliza
+    }
   }
 
   const handleDbError = (err: any, tableName: string) => {
@@ -920,10 +923,9 @@ export async function syncVistoriaToSupabase(
     const now = new Date().toISOString();
     const inspObj = isInspection ? (input as InspectionData) : null;
 
-    // Caso o Administra compartilhe schema de transição no mesmo projeto Fiscaliza,
-    // grava em empreendedores/barragens/responsaveis_tecnicos APENAS entidades já cadastradas
+    // Grava no próprio projeto Fiscaliza APENAS entidades já cadastradas
     // explicitamente (e cuja titularidade permita edição direta pelo Fiscaliza).
-    if (!isAdministraSupabaseConfigured()) {
+    if (true) {
       if (empRegistered) {
         const empPerm = canFiscalizaEditMasterEntity(vistoria.empreendedor.sistemaOrigem);
         if (empPerm.allowed) {
@@ -973,7 +975,9 @@ export async function syncVistoriaToSupabase(
             datum: vistoria.barragem.coordenadas.datum || 'SIRGAS 2000',
             acuracia_metros: toNullableNumber(vistoria.barragem.coordenadas.acuraciaMetros),
             altitude_metros: toNullableNumber(vistoria.barragem.coordenadas.altitudeEstimadaDispositivo),
-            cota_coroamento_metros: toNullableNumber(vistoria.barragem.cotaCoroamentoMetros),
+            ...(toNullableNumber(vistoria.barragem.cotaCoroamentoMetros) !== null
+              ? { cota_coroamento_metros: toNullableNumber(vistoria.barragem.cotaCoroamentoMetros) }
+              : {}),
             ano_inicio_obra: toNullableNumber(vistoria.barragem.anoInicioObra),
             ano_final_obra: toNullableNumber(vistoria.barragem.anoFinalObra),
             tipo_barragem_material: toNullableString(vistoria.barragem.tipoMaterial),

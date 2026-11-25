@@ -143,7 +143,7 @@ export const EcosystemImportedField: React.FC<EcosystemImportedFieldProps> = ({
           </p>
 
           <p className="leading-snug text-orange-200/95 text-[10px]">
-            <strong>Edição Livre + Superioridade da Vistoria:</strong> Você pode editar este campo diretamente. Ao salvar a vistoria, a versão editada será gravada no banco e notificará o analista no sistema <strong>{sourceLabel}</strong>.
+            <strong>Edição na Ficha de Vistoria:</strong> Você pode ajustar este campo na vistoria. Ao concluir, alterações autorizadas ficam registradas no Fiscaliza com alerta para conferência em <strong>{sourceLabel}</strong> (sem gravação automática no sistema externo).
           </p>
 
           <div className="flex items-center justify-between gap-2 pt-1 border-t border-orange-800/80">

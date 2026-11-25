@@ -216,7 +216,7 @@ test('bloqueia fallback offline e sessão forjada em localStorage quando Supabas
   });
 
   try {
-    const signInRes = await signInInspector('admin.local@sema.mt.gov.br', 'SenhaForte@2026', {
+    const signInRes = await signInInspector('admin.local@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
       client: null
     });
     assert.equal(signInRes.success, false);
@@ -233,7 +233,7 @@ test('bloqueia fallback offline e sessão forjada em localStorage quando Supabas
     assert.equal(diagRes.authenticated, false);
     assert.equal(diagRes.configured, false);
 
-    const pwdRes = await updateInspectorPassword('NovaSenha@2026', { client: null });
+    const pwdRes = await updateInspectorPassword('__TEST_DUMMY_NEW_PWD_Bb2@', { client: null });
     assert.equal(pwdRes.success, false);
   } finally {
     cleanupMockBrowserStorage();
@@ -257,7 +257,7 @@ test('falha fechado quando serviço remoto lança erro de rede ou HTTP 503 duran
     const networkMock = createMockSupabaseAuthClient({
       signInThrows: new Error('Failed to fetch')
     });
-    const resNetwork = await signInInspector('fiscal@sema.mt.gov.br', 'SenhaForte@2026', {
+    const resNetwork = await signInInspector('fiscal@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
       client: networkMock.client,
       syncEcosystem: async () => {}
     });
@@ -267,7 +267,7 @@ test('falha fechado quando serviço remoto lança erro de rede ou HTTP 503 duran
     const service503Mock = createMockSupabaseAuthClient({
       signInServiceError: { message: 'Service Unavailable', status: 503 }
     });
-    const res503 = await signInInspector('fiscal@sema.mt.gov.br', 'SenhaForte@2026', {
+    const res503 = await signInInspector('fiscal@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
       client: service503Mock.client,
       syncEcosystem: async () => {}
     });
@@ -288,7 +288,7 @@ test('ignora user_metadata e tentativa de promoção por variável de ambiente; 
     const mock = createMockSupabaseAuthClient({
       accounts: {
         'analista.spoof@sema.mt.gov.br': {
-          password: 'SenhaForte@2026',
+          password: '__TEST_DUMMY_PWD_Aa1!',
           user_metadata: {
             perfil: 'administrador',
             role: 'administrador',
@@ -307,7 +307,7 @@ test('ignora user_metadata e tentativa de promoção por variável de ambiente; 
       ]
     });
 
-    const loginRes = await signInInspector('analista.spoof@sema.mt.gov.br', 'SenhaForte@2026', {
+    const loginRes = await signInInspector('analista.spoof@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
       client: mock.client,
       syncEcosystem: async () => {}
     });
@@ -348,13 +348,13 @@ test('rejeita perfil ausente, inativo, pendente, reprovado ou com papel inválid
     const missingMock = createMockSupabaseAuthClient({
       accounts: {
         'sem.perfil@sema.mt.gov.br': {
-          password: 'SenhaForte@2026',
+          password: '__TEST_DUMMY_PWD_Aa1!',
           user_metadata: { perfil: 'administrador' }
         }
       },
       profiles: []
     });
-    const missingLogin = await signInInspector('sem.perfil@sema.mt.gov.br', 'SenhaForte@2026', {
+    const missingLogin = await signInInspector('sem.perfil@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
       client: missingMock.client,
       syncEcosystem: async () => {}
     });
@@ -372,7 +372,7 @@ test('rejeita perfil ausente, inativo, pendente, reprovado ou com papel inválid
       const mock = createMockSupabaseAuthClient({
         accounts: {
           [testCase.email]: {
-            password: 'SenhaForte@2026',
+            password: '__TEST_DUMMY_PWD_Aa1!',
             user_metadata: { perfil: 'administrador' }
           }
         },
@@ -387,7 +387,7 @@ test('rejeita perfil ausente, inativo, pendente, reprovado ou com papel inválid
         ]
       });
 
-      const res = await signInInspector(testCase.email, 'SenhaForte@2026', {
+      const res = await signInInspector(testCase.email, '__TEST_DUMMY_PWD_Aa1!', {
         client: mock.client,
         syncEcosystem: async () => {}
       });
@@ -453,7 +453,7 @@ test('mantém login legítimo e validação de sessão para perfis ativos (admin
   try {
     const adminMock = createMockSupabaseAuthClient({
       accounts: {
-        'coord.csb@sema.mt.gov.br': { password: 'SenhaForte@2026' }
+        'coord.csb@sema.mt.gov.br': { password: '__TEST_DUMMY_PWD_Aa1!' }
       },
       profiles: [
         {
@@ -467,7 +467,7 @@ test('mantém login legítimo e validação de sessão para perfis ativos (admin
       ]
     });
 
-    const loginRes = await signInInspector('coord.csb@sema.mt.gov.br', 'SenhaForte@2026', {
+    const loginRes = await signInInspector('coord.csb@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
       client: adminMock.client,
       syncEcosystem: async () => {}
     });
@@ -479,13 +479,13 @@ test('mantém login legítimo e validação de sessão para perfis ativos (admin
     });
     assert.equal(events.some(e => e.type === 'csb:auth_state_changed'), true);
 
-    const pwdRes = await updateInspectorPassword('NovaSenhaForte@2026', { client: adminMock.client });
+    const pwdRes = await updateInspectorPassword('__TEST_DUMMY_NEW_PWD_Bb2@', { client: adminMock.client });
     assert.equal(pwdRes.success, true);
-    assert.equal(adminMock.getPasswordUpdatedTo(), 'NovaSenhaForte@2026');
+    assert.equal(adminMock.getPasswordUpdatedTo(), '__TEST_DUMMY_NEW_PWD_Bb2@');
 
     const viewerMock = createMockSupabaseAuthClient({
       accounts: {
-        'consulta@sema.mt.gov.br': { password: 'SenhaForte@2026' }
+        'consulta@sema.mt.gov.br': { password: '__TEST_DUMMY_PWD_Aa1!' }
       },
       profiles: [
         {
@@ -498,7 +498,7 @@ test('mantém login legítimo e validação de sessão para perfis ativos (admin
       ]
     });
 
-    const viewerLogin = await signInInspector('consulta@sema.mt.gov.br', 'SenhaForte@2026', {
+    const viewerLogin = await signInInspector('consulta@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
       client: viewerMock.client,
       syncEcosystem: async () => {}
     });
@@ -747,7 +747,7 @@ test('bloqueia requestUserAccess e signUpInspector sem chamar auth.signUp, inser
         email: 'novo@sema.mt.gov.br',
         cargo: 'Fiscal Técnico',
         matricula: 'CSB-101',
-        password: 'SenhaForte@2026'
+        password: '__TEST_DUMMY_PWD_Aa1!'
       },
       { client: clientMock }
     );
@@ -756,7 +756,7 @@ test('bloqueia requestUserAccess e signUpInspector sem chamar auth.signUp, inser
 
     const signUpRes = await signUpInspector(
       'novo@sema.mt.gov.br',
-      'SenhaForte@2026',
+      '__TEST_DUMMY_PWD_Aa1!',
       'Novo Fiscal',
       'Fiscal Técnico',
       'CSB-101',
@@ -856,11 +856,11 @@ test('Parte A: distingue conta Auth sem perfil ou tabela perfis_usuarios ausente
     // 1. Senha incorreta (erro de credencial normal)
     const wrongPassMock = createMockSupabaseAuthClient({
       accounts: {
-        'fiscal.auth@sema.mt.gov.br': { password: 'SenhaCorreta@2026' }
+        'fiscal.auth@sema.mt.gov.br': { password: '__TEST_DUMMY_PWD_Aa1!' }
       },
       profiles: []
     });
-    const wrongPassRes = await signInInspector('fiscal.auth@sema.mt.gov.br', 'SenhaErrada@2026', {
+    const wrongPassRes = await signInInspector('fiscal.auth@sema.mt.gov.br', '__TEST_DUMMY_WRONG_PWD_Cc3#', {
       client: wrongPassMock.client,
       syncEcosystem: async () => {}
     });
@@ -876,14 +876,14 @@ test('Parte A: distingue conta Auth sem perfil ou tabela perfis_usuarios ausente
       const missingTableMock = createMockSupabaseAuthClient({
         accounts: {
           'fiscal.auth@sema.mt.gov.br': {
-            password: 'SenhaCorreta@2026',
+            password: '__TEST_DUMMY_PWD_Aa1!',
             user_metadata: { perfil: 'administrador' }
           }
         },
         profileQueryError: tableErr
       });
 
-      const tableRes = await signInInspector('fiscal.auth@sema.mt.gov.br', 'SenhaCorreta@2026', {
+      const tableRes = await signInInspector('fiscal.auth@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
         client: missingTableMock.client,
         syncEcosystem: async () => {}
       });
@@ -912,13 +912,13 @@ test('Parte A: distingue conta Auth sem perfil ou tabela perfis_usuarios ausente
     const missingRowMock = createMockSupabaseAuthClient({
       accounts: {
         'fiscal.auth@sema.mt.gov.br': {
-          password: 'SenhaCorreta@2026',
+          password: '__TEST_DUMMY_PWD_Aa1!',
           user_metadata: { perfil: 'administrador' }
         }
       },
       profiles: []
     });
-    const missingRowRes = await signInInspector('fiscal.auth@sema.mt.gov.br', 'SenhaCorreta@2026', {
+    const missingRowRes = await signInInspector('fiscal.auth@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
       client: missingRowMock.client,
       syncEcosystem: async () => {}
     });
@@ -957,7 +957,7 @@ test('diferencia 401/invalid api key, email_not_confirmed, invalid_credentials e
   };
 
   try {
-    const secretPassword = 'SenhaUltraSecreta#2026';
+    const secretPassword = '__TEST_DUMMY_PWD_Aa1!';
 
     // 1. 401 / UNAUTHORIZED_INVALID_API_KEY
     const invalidKeyMock = createMockSupabaseAuthClient({
@@ -1075,7 +1075,7 @@ test('consulta perfis_usuarios tolera e-mail em caixa mista via fallback seguro 
       }
     } as unknown as SupabaseClient;
 
-    const res = await signInInspector('coord.csb@sema.mt.gov.br', 'SenhaForte@2026', {
+    const res = await signInInspector('coord.csb@sema.mt.gov.br', '__TEST_DUMMY_PWD_Aa1!', {
       client: mixedCaseClient,
       syncEcosystem: async () => {}
     });

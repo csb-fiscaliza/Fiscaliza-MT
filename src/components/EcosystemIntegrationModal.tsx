@@ -984,7 +984,7 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
           {activeTab === 'notificacoes' && (
             <div className="space-y-3">
               <div className="p-3.5 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-300 dark:border-orange-800 text-xs text-orange-950 dark:text-orange-100">
-                <strong>Superioridade da Vistoria Presencial:</strong> Toda alteração feita pelo fiscal em dados importados de outro sistema atualiza automaticamente a base integrada e envia um alerta para a caixa do analista que inseriu o dado original no sistema de origem.
+                <strong>Registro de Campo (Vistoria Presencial):</strong> Alterações autorizadas feitas pelo fiscal em dados importados são registradas apenas na base do Fiscaliza e geram alerta para conferência pelo analista de referência (sem gravação automática no sistema de origem externo).
               </div>
               {analystInbox.length === 0 ? (
                 <div className="p-8 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-xs text-slate-500">

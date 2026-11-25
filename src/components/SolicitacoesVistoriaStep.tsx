@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -117,6 +117,9 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
   const [editingObsText, setEditingObsText] = useState<string>('');
   const [isSavingObs, setIsSavingObs] = useState<boolean>(false);
 
+  const solicitacoesCountRef = useRef<number>(0);
+  solicitacoesCountRef.current = solicitacoes.length;
+
   const loadList = useCallback(async () => {
     setIsLoading(true);
     setLoadError(null);
@@ -126,12 +129,20 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
     });
 
     if (!res.success || !res.data) {
-      setSolicitacoes([]);
-      setLoadError({
-        message: res.error || 'Não foi possível consultar solicitações de vistoria.',
-        status: res.status,
-        code: res.code
-      });
+      const errMsg = res.error || 'Não foi possível consultar solicitações de vistoria.';
+      if (solicitacoesCountRef.current > 0) {
+        setActionFeedback({
+          type: 'error',
+          message: errMsg
+        });
+      } else {
+        setSolicitacoes([]);
+        setLoadError({
+          message: errMsg,
+          status: res.status,
+          code: res.code
+        });
+      }
       setIsLoading(false);
       return;
     }

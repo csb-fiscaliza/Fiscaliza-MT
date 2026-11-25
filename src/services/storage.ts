@@ -1,10 +1,7 @@
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { ComponentInspectionData, InspectionData, HistoricoAlteracaoEntity } from '../types/inspection';
 import { syncVistoriaToSupabase } from './supabase';
-import {
-  registerFiscalizaProductsFromInspection,
-  upsertMasterEntitiesFromInspection
-} from './administraEcosystemService';
+import { registerFiscalizaProductsFromInspection } from './administraEcosystemService';
 import { 
   createAuthenticitySeal, 
   sanitizeDeepObject, 
@@ -677,9 +674,8 @@ export function saveInspection(inspection: InspectionData): void {
       }
     }
 
-    // Atualiza o catálogo central do Administra (cache local/remoto respeitando propriedade) e índice de produtos
-    upsertMasterEntitiesFromInspection(updated, updated.createdByEmail).catch(() => {});
-    registerFiscalizaProductsFromInspection(updated).catch(() => {});
+    // Atualiza apenas o índice local de produtos durante gravações locais (sem disparo de escrita remota em rascunhos/autosave)
+    registerFiscalizaProductsFromInspection(updated, { syncRemote: false }).catch(() => {});
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('csb:notificacao_changed', {

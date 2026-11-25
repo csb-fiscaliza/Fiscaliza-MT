@@ -11,6 +11,10 @@ import {
   createSolicitacoesVistoriaRouter,
   type SolicitacoesVistoriaServerDeps
 } from './src/server/solicitacoesVistoriaApi.ts';
+import {
+  createAdministraRouter,
+  type AdministraServerDeps
+} from './src/server/administraS2sApi.ts';
 
 const PORT = Number(process.env.PORT) || 3000;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -24,6 +28,7 @@ export interface ServerAppOptions {
   distDir?: string;
   pendenciasDeps?: PendenciasServerDeps;
   solicitacoesDeps?: SolicitacoesVistoriaServerDeps;
+  administraDeps?: AdministraServerDeps;
 }
 
 interface ServerRuntime {
@@ -46,6 +51,7 @@ async function createServerRuntime(options: ServerAppOptions = {}): Promise<Serv
     '/api/solicitacoes-vistoria',
     createSolicitacoesVistoriaRouter(options.solicitacoesDeps)
   );
+  app.use('/api/administra', createAdministraRouter(options.administraDeps));
 
   app.use('/api', (_req: Request, res: Response) => {
     res.status(404).json({ error: 'Rota de API não encontrada.' });

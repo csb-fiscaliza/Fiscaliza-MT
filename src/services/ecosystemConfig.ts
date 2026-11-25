@@ -102,12 +102,6 @@ const fiscalizaInit = buildSafeClient(
   'sb-fiscaliza-auth-v1'
 );
 
-const administraInit = buildSafeClient(
-  import.meta.env ? import.meta.env.VITE_ADMINISTRA_SUPABASE_URL : undefined,
-  import.meta.env ? import.meta.env.VITE_ADMINISTRA_SUPABASE_ANON_KEY : undefined,
-  'sb-administra-auth-v1'
-);
-
 const classificaInit = buildSafeClient(
   import.meta.env ? import.meta.env.VITE_CLASSIFICA_SUPABASE_URL : undefined,
   import.meta.env ? import.meta.env.VITE_CLASSIFICA_SUPABASE_ANON_KEY : undefined,
@@ -121,50 +115,24 @@ const notificaInit = buildSafeClient(
 );
 
 export const fiscalizaSupabase: SupabaseClient | null = fiscalizaInit.client;
-export const administraSupabase: SupabaseClient | null = administraInit.client;
 export const classificaSupabase: SupabaseClient | null = classificaInit.client;
 export const notificaSupabase: SupabaseClient | null = notificaInit.client;
 
 export const isFiscalizaSupabaseConfigured = (): boolean => fiscalizaInit.configured;
-export const isAdministraSupabaseConfigured = (): boolean => administraInit.configured;
 export const isClassificaSupabaseConfigured = (): boolean => classificaInit.configured;
 export const isNotificaSupabaseConfigured = (): boolean => notificaInit.configured;
 
-export async function syncEcosystemAuthSession(email: string, password: string): Promise<void> {
-  const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail || !password) return;
-  const externalClients = [administraSupabase, classificaSupabase, notificaSupabase].filter(
-    (c): c is SupabaseClient => c !== null
-  );
-  await Promise.all(
-    externalClients.map(async client => {
-      try {
-        const { data } = await client.auth.getSession();
-        if (data?.session?.user?.email?.toLowerCase() === cleanEmail) return;
-        await client.auth.signInWithPassword({ email: cleanEmail, password });
-      } catch {
-        // Silencioso caso o usuário não possua sessão neste nó específico
-      }
-    })
-  );
+export async function syncEcosystemAuthSession(
+  _email?: string,
+  _password?: string
+): Promise<void> {
+  // Desativado: credenciais de login do Fiscaliza não devem ser reenviadas a outros projetos Supabase.
+  return;
 }
 
 export async function ensureEcosystemClientsSession(): Promise<void> {
-  if (!fiscalizaSupabase || !administraSupabase) return;
-  try {
-    const [{ data: admSess }, { data: fiscSess }] = await Promise.all([
-      administraSupabase.auth.getSession(),
-      fiscalizaSupabase.auth.getSession()
-    ]);
-    if (!admSess?.session && fiscSess?.session?.access_token && fiscSess?.session?.refresh_token) {
-      await administraSupabase.auth.setSession({
-        access_token: fiscSess.session.access_token,
-        refresh_token: fiscSess.session.refresh_token
-      });
-    }
-  } catch {
-    // Silencioso se os nós utilizarem projetos independentes
-  }
+  // Desativado: tokens de sessão do Fiscaliza não devem ser replicados para clientes de outros projetos.
+  return;
 }
 
 export function getEcosystemStatus(): EcosystemNodeStatus[] {
@@ -188,12 +156,14 @@ export function getEcosystemStatus(): EcosystemNodeStatus[] {
   });
 
   return [
-    toNode(
-      'administra',
-      'Administra Barragens',
-      'Base Central (Empreendedores, Barragens e Responsáveis Técnicos)',
-      administraInit
-    ),
+    {
+      sistema: 'administra',
+      nomeExibicao: 'Administra Barragens',
+      papel: 'Base Central de Barragens (Leitura S2S API 2.0 via backend Fiscaliza + Catálogo Local)',
+      configured: false,
+      safeKey: true,
+      modoOperacao: 'modo_local'
+    },
     toNode(
       'fiscaliza',
       'FISCALIZA - Etapa de Campo',
@@ -239,6 +209,105 @@ export interface ServerConnectivityResult {
   statusText: string;
 }
 
+async function checkAdministraBackendHealth(online: boolean): Promise<ServerConnectivityResult> {
+  const nomeExibicao = 'Administra Barragens';
+  if (!online) {
+    return {
+      sistema: 'administra',
+      nomeExibicao,
+      configured: false,
+      reachable: false,
+      latencyMs: null,
+      statusText: 'Dispositivo sem conexão de rede'
+    };
+  }
+
+  if (!fiscalizaSupabase || typeof fetch !== 'function' || typeof window === 'undefined') {
+    return {
+      sistema: 'administra',
+      nomeExibicao,
+      configured: false,
+      reachable: false,
+      latencyMs: null,
+      statusText: 'Operando em base local'
+    };
+  }
+
+  try {
+    const {
+      data: { session }
+    } = await fiscalizaSupabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      return {
+        sistema: 'administra',
+        nomeExibicao,
+        configured: false,
+        reachable: false,
+        latencyMs: null,
+        statusText: 'Sessão autenticada necessária para consulta S2S via servidor'
+      };
+    }
+
+    const started = performance.now();
+    const res = await fetch('/api/administra/health', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json'
+      }
+    });
+    const latencyMs = Math.round(performance.now() - started);
+    const body = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      return {
+        sistema: 'administra',
+        nomeExibicao,
+        configured: Boolean(body?.configured ?? true),
+        reachable: false,
+        latencyMs: null,
+        statusText:
+          (typeof body?.error === 'string' && body.error) ||
+          'Sem resposta da API 2.0 do Administra no momento'
+      };
+    }
+
+    if (!body?.configured) {
+      return {
+        sistema: 'administra',
+        nomeExibicao,
+        configured: false,
+        reachable: false,
+        latencyMs: null,
+        statusText:
+          (typeof body?.statusText === 'string' && body.statusText) ||
+          'Operando em base local'
+      };
+    }
+
+    return {
+      sistema: 'administra',
+      nomeExibicao,
+      configured: true,
+      reachable: Boolean(body.reachable),
+      latencyMs: typeof body.latencyMs === 'number' ? body.latencyMs : latencyMs,
+      statusText:
+        (typeof body.statusText === 'string' && body.statusText) ||
+        (body.reachable ? 'Conectado à API 2.0 S2S do Administra' : 'Sem resposta da API 2.0')
+    };
+  } catch {
+    return {
+      sistema: 'administra',
+      nomeExibicao,
+      configured: false,
+      reachable: false,
+      latencyMs: null,
+      statusText: 'Operando em base local'
+    };
+  }
+}
+
 export async function checkEcosystemServerConnections(): Promise<ServerConnectivityResult[]> {
   const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
   const targets: {
@@ -247,12 +316,6 @@ export async function checkEcosystemServerConnections(): Promise<ServerConnectiv
     init: ReturnType<typeof buildSafeClient>;
     probeTables: string[];
   }[] = [
-    {
-      sistema: 'administra',
-      nomeExibicao: 'Administra Barragens',
-      init: administraInit,
-      probeTables: ['empreendedores', 'empreendedor', 'barragens']
-    },
     {
       sistema: 'fiscaliza',
       nomeExibicao: 'FISCALIZA - Etapa de Campo',
@@ -273,8 +336,9 @@ export async function checkEcosystemServerConnections(): Promise<ServerConnectiv
     }
   ];
 
-  return Promise.all(
-    targets.map(async t => {
+  const [administraStatus, ...supabaseStatuses] = await Promise.all([
+    checkAdministraBackendHealth(online),
+    ...targets.map(async t => {
       if (!t.init.safeKey) {
         return {
           sistema: t.sistema,
@@ -355,5 +419,7 @@ export async function checkEcosystemServerConnections(): Promise<ServerConnectiv
         };
       }
     })
-  );
+  ]);
+
+  return [administraStatus, ...supabaseStatuses];
 }

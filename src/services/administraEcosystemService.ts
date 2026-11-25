@@ -30,10 +30,9 @@ import {
   SolicitacaoAlteracaoEcossistema,
   SolicitacaoAlteracaoStatus
 } from '../types/inspection';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  administraSupabase,
   classificaSupabase,
-  ensureEcosystemClientsSession,
   fiscalizaSupabase,
   notificaSupabase
 } from './ecosystemConfig';
@@ -308,7 +307,7 @@ function mapRawBarragem(row: Record<string, any>, defaultOrigin: SistemaOrigem =
       editadoManualmente: true,
       datum: pickFirstString(row, ['datum']) || 'SIRGAS 2000'
     },
-    cotaCoroamentoMetros: pickFirstNumber(row, ['cota_coroamento_metros', 'altura_metros', 'altura']),
+    cotaCoroamentoMetros: pickFirstNumber(row, ['cota_coroamento_metros']),
     anoInicioObra: pickFirstNumber(row, ['ano_inicio_obra']),
     anoFinalObra: pickFirstNumber(row, ['ano_final_obra']),
     idadeBarragemAnos: null,
@@ -365,8 +364,130 @@ function isMissingRemoteTableError(err: unknown): boolean {
   );
 }
 
+function mapApiV2BarragemDto(dto: Record<string, any>): BarragemEntity | null {
+  const id = typeof dto.id === 'string' ? dto.id.trim() : '';
+  const nome = typeof dto.nome === 'string' ? dto.nome.trim() : '';
+  if (!id || !nome) return null;
+
+  const now = new Date().toISOString();
+  const coordObj =
+    dto.coordenadas && typeof dto.coordenadas === 'object' ? dto.coordenadas : null;
+
+  const latDec =
+    toNullableNum(coordObj?.latitude) ??
+    toNullableNum(dto.latitudeDecimal) ??
+    toNullableNum(dto.latitude);
+  const lngDec =
+    toNullableNum(coordObj?.longitude) ??
+    toNullableNum(dto.longitudeDecimal) ??
+    toNullableNum(dto.longitude);
+
+  return {
+    id,
+    administraId:
+      typeof dto.administraId === 'string' && dto.administraId.trim()
+        ? dto.administraId.trim()
+        : id,
+    sistemaOrigem: 'administra',
+    criadoPorEmail: null,
+    empreendedorId:
+      typeof dto.empreendedorId === 'string' ? dto.empreendedorId.trim() : '',
+    nome,
+    municipio: typeof dto.municipio === 'string' ? dto.municipio.trim() : '',
+    baciaHidrografica:
+      typeof dto.baciaHidrografica === 'string' && dto.baciaHidrografica.trim()
+        ? dto.baciaHidrografica.trim()
+        : null,
+    cursoDagua:
+      typeof dto.cursoDagua === 'string' && dto.cursoDagua.trim()
+        ? dto.cursoDagua.trim()
+        : null,
+    coordenadas: {
+      latitude: latDec,
+      longitude: lngDec,
+      horarioCaptura: typeof dto.updatedAt === 'string' ? dto.updatedAt : null,
+      acuraciaMetros: null,
+      altitudeEstimadaDispositivo: null,
+      editadoManualmente: true,
+      datum:
+        (typeof coordObj?.datum === 'string' && coordObj.datum.trim()) ||
+        (typeof dto.datum === 'string' && dto.datum.trim()) ||
+        'SIRGAS 2000'
+    },
+    latitudeGms:
+      typeof dto.latitudeGms === 'string' && dto.latitudeGms.trim()
+        ? dto.latitudeGms.trim()
+        : null,
+    longitudeGms:
+      typeof dto.longitudeGms === 'string' && dto.longitudeGms.trim()
+        ? dto.longitudeGms.trim()
+        : null,
+    cotaCoroamentoMetros: toNullableNum(dto.cotaCoroamentoMetros),
+    anoInicioObra: toNullableInt(dto.anoInicioObra),
+    anoFinalObra: toNullableInt(dto.anoFinalObra),
+    idadeBarragemAnos: null,
+    tipoMaterial: (typeof dto.tipoMaterial === 'string'
+      ? dto.tipoMaterial.trim()
+      : '') as BarragemEntity['tipoMaterial'],
+    usoPrincipal: typeof dto.usoPrincipal === 'string' ? dto.usoPrincipal.trim() : '',
+    usosSecundarios: Array.isArray(dto.usosSecundarios)
+      ? dto.usosSecundarios.map(s => String(s).trim()).filter(Boolean)
+      : [],
+    sincronizadoAdministraEm:
+      (typeof dto.updatedAt === 'string' && dto.updatedAt) || now,
+    createdAt: (typeof dto.createdAt === 'string' && dto.createdAt) || now,
+    updatedAt: (typeof dto.updatedAt === 'string' && dto.updatedAt) || now
+  };
+}
+
+async function fetchAdministraBarragensViaBackend(): Promise<BarragemEntity[]> {
+  const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+  if (!online || !fiscalizaSupabase || typeof fetch !== 'function' || typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const {
+      data: { session }
+    } = await fiscalizaSupabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      return [];
+    }
+
+    const res = await fetch('/api/administra/barragens', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json'
+      }
+    });
+    if (!res.ok) {
+      return [];
+    }
+
+    const payload = await res.json().catch(() => null);
+    if (!payload || !Array.isArray(payload.items)) {
+      return [];
+    }
+
+    const mapped: BarragemEntity[] = [];
+    for (const rawItem of payload.items) {
+      if (rawItem && typeof rawItem === 'object') {
+        const entity = mapApiV2BarragemDto(rawItem as Record<string, any>);
+        if (entity) {
+          mapped.push(entity);
+        }
+      }
+    }
+    return mapped;
+  } catch {
+    return [];
+  }
+}
+
 async function queryTableWithOptionalFilter(
-  client: NonNullable<typeof administraSupabase>,
+  client: SupabaseClient,
   nodeKey: string,
   tableCandidates: string[],
   searchTerms: string[]
@@ -471,15 +592,112 @@ async function queryTableWithOptionalFilter(
   return { rows: [], tableName: null, authBlocked };
 }
 
+function mergeNonEmptyStr(incoming: string | null | undefined, existing: string | null | undefined): string | null {
+  const clean = incoming !== undefined && incoming !== null ? String(incoming).trim() : '';
+  if (clean !== '') return clean;
+  return existing ?? null;
+}
+
+function mergeEmpreendedorPreservingExisting(
+  existing: EmpreendedorEntity | undefined,
+  incoming: EmpreendedorEntity
+): EmpreendedorEntity {
+  if (!existing) return incoming;
+  return {
+    ...existing,
+    ...incoming,
+    administraId: incoming.administraId || existing.administraId,
+    criadoPorEmail: incoming.criadoPorEmail || existing.criadoPorEmail || null,
+    nomeRazaoSocial: (incoming.nomeRazaoSocial || '').trim() || existing.nomeRazaoSocial,
+    cpfCnpj: mergeNonEmptyStr(incoming.cpfCnpj, existing.cpfCnpj),
+    figuraJuridica: incoming.figuraJuridica || existing.figuraJuridica,
+    processoNumero: mergeNonEmptyStr(incoming.processoNumero, existing.processoNumero),
+    endereco: (incoming.endereco || '').trim() || existing.endereco,
+    municipio: mergeNonEmptyStr(incoming.municipio, existing.municipio),
+    uf: mergeNonEmptyStr(incoming.uf, existing.uf),
+    telefone: mergeNonEmptyStr(incoming.telefone, existing.telefone),
+    email: mergeNonEmptyStr(incoming.email, existing.email),
+    documentosPessoais: mergeNonEmptyStr(incoming.documentosPessoais, existing.documentosPessoais),
+    carNumero: mergeNonEmptyStr(incoming.carNumero, existing.carNumero),
+    declaracaoUsoOutorga: mergeNonEmptyStr(incoming.declaracaoUsoOutorga, existing.declaracaoUsoOutorga),
+    quantidadeBarragens: incoming.quantidadeBarragens ?? existing.quantidadeBarragens ?? null,
+    comentarios: mergeNonEmptyStr(incoming.comentarios, existing.comentarios)
+  };
+}
+
+function mergeBarragemPreservingExisting(
+  existing: BarragemEntity | undefined,
+  incoming: BarragemEntity
+): BarragemEntity {
+  if (!existing) return incoming;
+  return {
+    ...existing,
+    ...incoming,
+    administraId: incoming.administraId || existing.administraId,
+    criadoPorEmail: incoming.criadoPorEmail || existing.criadoPorEmail || null,
+    empreendedorId: (incoming.empreendedorId || '').trim() || existing.empreendedorId,
+    nome: (incoming.nome || '').trim() || existing.nome,
+    municipio: (incoming.municipio || '').trim() || existing.municipio,
+    baciaHidrografica: mergeNonEmptyStr(incoming.baciaHidrografica, existing.baciaHidrografica),
+    cursoDagua: mergeNonEmptyStr(incoming.cursoDagua, existing.cursoDagua),
+    coordenadas: {
+      latitude: incoming.coordenadas?.latitude ?? existing.coordenadas?.latitude ?? null,
+      longitude: incoming.coordenadas?.longitude ?? existing.coordenadas?.longitude ?? null,
+      horarioCaptura: incoming.coordenadas?.horarioCaptura || existing.coordenadas?.horarioCaptura || null,
+      acuraciaMetros: incoming.coordenadas?.acuraciaMetros ?? existing.coordenadas?.acuraciaMetros ?? null,
+      altitudeEstimadaDispositivo:
+        incoming.coordenadas?.altitudeEstimadaDispositivo ??
+        existing.coordenadas?.altitudeEstimadaDispositivo ??
+        null,
+      editadoManualmente: incoming.coordenadas?.editadoManualmente ?? existing.coordenadas?.editadoManualmente,
+      datum: incoming.coordenadas?.datum || existing.coordenadas?.datum || 'SIRGAS 2000'
+    },
+    latitudeGms: mergeNonEmptyStr(incoming.latitudeGms, existing.latitudeGms),
+    longitudeGms: mergeNonEmptyStr(incoming.longitudeGms, existing.longitudeGms),
+    cotaCoroamentoMetros: incoming.cotaCoroamentoMetros ?? existing.cotaCoroamentoMetros ?? null,
+    anoInicioObra: incoming.anoInicioObra ?? existing.anoInicioObra ?? null,
+    anoFinalObra: incoming.anoFinalObra ?? existing.anoFinalObra ?? null,
+    idadeBarragemAnos: incoming.idadeBarragemAnos ?? existing.idadeBarragemAnos ?? null,
+    tipoMaterial: incoming.tipoMaterial || existing.tipoMaterial,
+    usoPrincipal: (incoming.usoPrincipal || '').trim() || existing.usoPrincipal,
+    usosSecundarios:
+      incoming.usosSecundarios && incoming.usosSecundarios.length > 0
+        ? incoming.usosSecundarios
+        : existing.usosSecundarios || []
+  };
+}
+
+function mergeRtPreservingExisting(
+  existing: ResponsavelTecnicoEntity | undefined,
+  incoming: ResponsavelTecnicoEntity
+): ResponsavelTecnicoEntity {
+  if (!existing) return incoming;
+  return {
+    ...existing,
+    ...incoming,
+    administraId: incoming.administraId || existing.administraId,
+    criadoPorEmail: incoming.criadoPorEmail || existing.criadoPorEmail || null,
+    empreendedorId: mergeNonEmptyStr(incoming.empreendedorId, existing.empreendedorId),
+    barragemId: mergeNonEmptyStr(incoming.barragemId, existing.barragemId),
+    nome: (incoming.nome || '').trim() || existing.nome,
+    cpf: mergeNonEmptyStr(incoming.cpf, existing.cpf),
+    registroProfissional: mergeNonEmptyStr(incoming.registroProfissional, existing.registroProfissional),
+    ufRegistro: mergeNonEmptyStr(incoming.ufRegistro, existing.ufRegistro),
+    artNumero: mergeNonEmptyStr(incoming.artNumero, existing.artNumero),
+    especialidade: mergeNonEmptyStr(incoming.especialidade, existing.especialidade),
+    telefone: mergeNonEmptyStr(incoming.telefone, existing.telefone),
+    email: mergeNonEmptyStr(incoming.email, existing.email)
+  };
+}
+
 /**
- * Busca catálogo padronizado do Administra Barragens e nós integrados (remoto se configurado, mesclado ao cache local).
+ * Busca catálogo padronizado do Administra Barragens (via backend Fiscaliza API 2.0 S2S)
+ * e nós integrados (mesclado ao cache local).
  */
 export async function fetchAdministraMasterCatalog(searchTerms: string[] = []): Promise<AdministraMasterCatalog> {
   const localCatalog = loadLocalAdministraCatalog();
-  await ensureEcosystemClientsSession();
 
   const clientsToQuery = [
-    { key: 'administra', client: administraSupabase, defaultOrigin: 'administra' as SistemaOrigem },
     { key: 'fiscaliza', client: fiscalizaSupabase, defaultOrigin: 'fiscaliza' as SistemaOrigem },
     { key: 'classifica', client: classificaSupabase, defaultOrigin: 'classifica' as SistemaOrigem },
     { key: 'notifica', client: notificaSupabase, defaultOrigin: 'notifica' as SistemaOrigem }
@@ -501,81 +719,95 @@ export async function fetchAdministraMasterCatalog(searchTerms: string[] = []): 
 
     let anyAuthBlocked = false;
 
-    await Promise.all(
-      clientsToQuery.map(async ({ key, client, defaultOrigin }) => {
+    const [administraV2Barragens] = await Promise.all([
+      fetchAdministraBarragensViaBackend(),
+      ...clientsToQuery.map(async ({ key, client, defaultOrigin }) => {
         if (!client) return;
-        const [empQ, barQ, rtQ, propQ] = await Promise.all([
-          queryTableWithOptionalFilter(
-            client,
-            key,
-            ['empreendedores', 'empreendedor', 'proprietarios', 'cadastros_empreendedores'],
-            searchTerms
-          ),
-          queryTableWithOptionalFilter(
-            client,
-            key,
-            ['barragens', 'barragem', 'barramentos'],
-            searchTerms
-          ),
-          queryTableWithOptionalFilter(
-            client,
-            key,
-            ['responsaveis_tecnicos', 'responsavel_tecnico'],
-            searchTerms
-          ),
-          queryTableWithOptionalFilter(
-            client,
-            key,
-            ['propriedades', 'imoveis', 'imoveis_rurais'],
-            searchTerms
-          )
-        ]);
+        try {
+          const [empQ, barQ, rtQ, propQ] = await Promise.all([
+            queryTableWithOptionalFilter(
+              client,
+              key,
+              ['empreendedores', 'empreendedor', 'proprietarios', 'cadastros_empreendedores'],
+              searchTerms
+            ),
+            queryTableWithOptionalFilter(
+              client,
+              key,
+              ['barragens', 'barragem', 'barramentos'],
+              searchTerms
+            ),
+            queryTableWithOptionalFilter(
+              client,
+              key,
+              ['responsaveis_tecnicos', 'responsavel_tecnico'],
+              searchTerms
+            ),
+            queryTableWithOptionalFilter(
+              client,
+              key,
+              ['propriedades', 'imoveis', 'imoveis_rurais'],
+              searchTerms
+            )
+          ]);
 
-        if (empQ.authBlocked || barQ.authBlocked || rtQ.authBlocked) {
-          anyAuthBlocked = true;
-        }
-
-        empQ.rows.forEach(row => {
-          const mapped = mapRawEmpreendedor(row, defaultOrigin);
-          if (mapped) empMap.set(mapped.id, mapped);
-        });
-
-        propQ.rows.forEach(row => {
-          const mapped = mapRawEmpreendedor(row, defaultOrigin);
-          if (mapped && !empMap.has(mapped.id)) empMap.set(mapped.id, mapped);
-        });
-
-        barQ.rows.forEach(row => {
-          const mapped = mapRawBarragem(row, defaultOrigin);
-          if (mapped) {
-            barMap.set(mapped.id, mapped);
-            // Caso a tabela de barragens traga CAR ou dados denormalizados do empreendedor
-            const inlineCar = pickFirstString(row, ['car_numero', 'car', 'numero_car', 'codigo_car']);
-            const inlineEmpName = pickFirstString(row, ['empreendedor_nome', 'proprietario', 'razao_social']);
-            const inlineEmpDoc = pickFirstString(row, ['cpf_cnpj_empreendedor', 'cpf_empreendedor', 'cpf_cnpj']);
-            if (inlineEmpName && mapped.empreendedorId && !empMap.has(mapped.empreendedorId)) {
-              const syntheticEmp = mapRawEmpreendedor(
-                {
-                  id: mapped.empreendedorId,
-                  nome_razao_social: inlineEmpName,
-                  cpf_cnpj: inlineEmpDoc,
-                  car_numero: inlineCar,
-                  municipio: mapped.municipio,
-                  sistema_origem: mapped.sistemaOrigem
-                },
-                defaultOrigin
-              );
-              if (syntheticEmp) empMap.set(syntheticEmp.id, syntheticEmp);
-            }
+          if (empQ.authBlocked || barQ.authBlocked || rtQ.authBlocked) {
+            anyAuthBlocked = true;
           }
-        });
 
-        rtQ.rows.forEach(row => {
-          const mapped = mapRawRt(row, defaultOrigin);
-          if (mapped) rtMap.set(mapped.id, mapped);
-        });
+          empQ.rows.forEach(row => {
+            const mapped = mapRawEmpreendedor(row, defaultOrigin);
+            if (mapped) empMap.set(mapped.id, mergeEmpreendedorPreservingExisting(empMap.get(mapped.id), mapped));
+          });
+
+          propQ.rows.forEach(row => {
+            const mapped = mapRawEmpreendedor(row, defaultOrigin);
+            if (mapped) empMap.set(mapped.id, mergeEmpreendedorPreservingExisting(empMap.get(mapped.id), mapped));
+          });
+
+          barQ.rows.forEach(row => {
+            const mapped = mapRawBarragem(row, defaultOrigin);
+            if (mapped) {
+              barMap.set(mapped.id, mergeBarragemPreservingExisting(barMap.get(mapped.id), mapped));
+              // Caso a tabela de barragens traga CAR ou dados denormalizados do empreendedor
+              const inlineCar = pickFirstString(row, ['car_numero', 'car', 'numero_car', 'codigo_car']);
+              const inlineEmpName = pickFirstString(row, ['empreendedor_nome', 'proprietario', 'razao_social']);
+              const inlineEmpDoc = pickFirstString(row, ['cpf_cnpj_empreendedor', 'cpf_empreendedor', 'cpf_cnpj']);
+              if (inlineEmpName && mapped.empreendedorId && !empMap.has(mapped.empreendedorId)) {
+                const syntheticEmp = mapRawEmpreendedor(
+                  {
+                    id: mapped.empreendedorId,
+                    nome_razao_social: inlineEmpName,
+                    cpf_cnpj: inlineEmpDoc,
+                    car_numero: inlineCar,
+                    municipio: mapped.municipio,
+                    sistema_origem: mapped.sistemaOrigem
+                  },
+                  defaultOrigin
+                );
+                if (syntheticEmp) {
+                  empMap.set(
+                    syntheticEmp.id,
+                    mergeEmpreendedorPreservingExisting(empMap.get(syntheticEmp.id), syntheticEmp)
+                  );
+                }
+              }
+            }
+          });
+
+          rtQ.rows.forEach(row => {
+            const mapped = mapRawRt(row, defaultOrigin);
+            if (mapped) rtMap.set(mapped.id, mergeRtPreservingExisting(rtMap.get(mapped.id), mapped));
+          });
+        } catch {
+          // Mantém resultados dos demais nós e do cache local em caso de falha isolada
+        }
       })
-    );
+    ]);
+
+    administraV2Barragens.forEach(bar => {
+      barMap.set(bar.id, mergeBarragemPreservingExisting(barMap.get(bar.id), bar));
+    });
 
     const merged: AdministraMasterCatalog & { authBlocked?: boolean } = {
       empreendedores: Array.from(empMap.values()),
@@ -837,7 +1069,7 @@ function buildEmpreendedorFromInspection(
     administraId: existingEmp?.administraId || targetEmpId,
     sistemaOrigem: existingEmp?.sistemaOrigem || 'fiscaliza',
     criadoPorEmail: existingEmp?.criadoPorEmail || actorEmail || inspection.createdByEmail || null,
-    nomeRazaoSocial: empName,
+    nomeRazaoSocial: empName || existingEmp?.nomeRazaoSocial || '',
     cpfCnpj:
       toNullableStr(inspection.damIdentification?.ownerCpfCnpj) ||
       toNullableStr(inspection.conclusions?.notificationDetails?.destinatario?.cpfCnpj) ||
@@ -924,33 +1156,46 @@ function buildBarragemFromInspection(
     sistemaOrigem: existingBar?.sistemaOrigem || 'fiscaliza',
     criadoPorEmail: existingBar?.criadoPorEmail || actorEmail || inspection.createdByEmail || null,
     empreendedorId: registeredEmpId ?? existingBar?.empreendedorId ?? '',
-    nome: damName,
+    nome: damName || existingBar?.nome || '',
     municipio: (inspection.damIdentification?.municipality || existingBar?.municipio || '').trim(),
     baciaHidrografica:
       toNullableStr(inspection.damIdentification?.hydrographicBasin) || existingBar?.baciaHidrografica || null,
     cursoDagua: toNullableStr(inspection.damIdentification?.waterCourse) || existingBar?.cursoDagua || null,
     coordenadas: {
-      latitude: latDec,
-      longitude: lngDec,
-      horarioCaptura: inspection.damIdentification?.coordinates?.captureTimestamp || now,
-      acuraciaMetros: toNullableNum(inspection.damIdentification?.coordinates?.accuracyMeters),
-      altitudeEstimadaDispositivo: toNullableNum(inspection.damIdentification?.coordinates?.altitudeMeters),
-      editadoManualmente: !!inspection.damIdentification?.coordinates?.isManualEdit,
-      datum: inspection.damIdentification?.coordinates?.datum || 'SIRGAS 2000'
+      latitude: latDec ?? existingBar?.coordenadas?.latitude ?? null,
+      longitude: lngDec ?? existingBar?.coordenadas?.longitude ?? null,
+      horarioCaptura:
+        latDec !== null && lngDec !== null
+          ? inspection.damIdentification?.coordinates?.captureTimestamp || existingBar?.coordenadas?.horarioCaptura || now
+          : existingBar?.coordenadas?.horarioCaptura || now,
+      acuraciaMetros:
+        toNullableNum(inspection.damIdentification?.coordinates?.accuracyMeters) ??
+        existingBar?.coordenadas?.acuraciaMetros ??
+        null,
+      altitudeEstimadaDispositivo:
+        toNullableNum(inspection.damIdentification?.coordinates?.altitudeMeters) ??
+        existingBar?.coordenadas?.altitudeEstimadaDispositivo ??
+        null,
+      editadoManualmente:
+        latDec !== null && lngDec !== null
+          ? !!inspection.damIdentification?.coordinates?.isManualEdit
+          : !!existingBar?.coordenadas?.editadoManualmente,
+      datum: inspection.damIdentification?.coordinates?.datum || existingBar?.coordenadas?.datum || 'SIRGAS 2000'
     },
-    latitudeGms: toNullableStr(inspection.damIdentification?.coordinates?.latitude),
-    longitudeGms: toNullableStr(inspection.damIdentification?.coordinates?.longitude),
-    cotaCoroamentoMetros:
-      toNullableNum(inspection.damIdentification?.estimatedDimensions?.heightMeters) ??
-      existingBar?.cotaCoroamentoMetros ??
-      null,
+    latitudeGms: toNullableStr(inspection.damIdentification?.coordinates?.latitude) || existingBar?.latitudeGms || null,
+    longitudeGms: toNullableStr(inspection.damIdentification?.coordinates?.longitude) || existingBar?.longitudeGms || null,
+    cotaCoroamentoMetros: existingBar?.cotaCoroamentoMetros ?? null,
     anoInicioObra: startYr ?? existingBar?.anoInicioObra ?? null,
     anoFinalObra: endYr ?? existingBar?.anoFinalObra ?? null,
     idadeBarragemAnos: existingBar?.idadeBarragemAnos ?? null,
     tipoMaterial: inspection.damIdentification?.damType || existingBar?.tipoMaterial || '',
     usoPrincipal:
       toNullableStr(inspection.damIdentification?.mainWaterUse) || existingBar?.usoPrincipal || '',
-    usosSecundarios: inspection.damIdentification?.secondaryWaterUses || existingBar?.usosSecundarios || [],
+    usosSecundarios:
+      inspection.damIdentification?.secondaryWaterUses &&
+      inspection.damIdentification.secondaryWaterUses.length > 0
+        ? inspection.damIdentification.secondaryWaterUses
+        : existingBar?.usosSecundarios || [],
     sincronizadoAdministraEm: now,
     createdAt: existingBar?.createdAt || inspection.createdAt || now,
     updatedAt: now
@@ -1014,7 +1259,7 @@ function buildRtFromInspection(
     criadoPorEmail: existingRt?.criadoPorEmail || actorEmail || inspection.createdByEmail || null,
     empreendedorId: registeredEmpId ?? existingRt?.empreendedorId ?? null,
     barragemId: registeredBarId ?? existingRt?.barragemId ?? null,
-    nome: rtName,
+    nome: rtName || existingRt?.nome || '',
     cpf: toNullableStr(inspection.responsavelTecnico?.cpf) || existingRt?.cpf || null,
     registroProfissional:
       toNullableStr(inspection.responsavelTecnico?.registroProfissional) ||
@@ -1107,8 +1352,9 @@ export async function registerSingleEntityToAdministra(params: {
     }
   }
 
-  // 2. Se servidor remoto está configurado mas o aparelho está offline, mantém no rascunho local
-  const remoteClient = administraSupabase || fiscalizaSupabase;
+  // 2. Se servidor remoto do Fiscaliza está configurado mas o aparelho está offline, mantém no rascunho local
+  //    (escritas diretas no cliente Supabase externo do Administra estão desativadas aguardando integração via API 2.0)
+  const remoteClient = fiscalizaSupabase;
   if (remoteClient && typeof navigator !== 'undefined' && !navigator.onLine) {
     return {
       success: false,
@@ -1117,8 +1363,6 @@ export async function registerSingleEntityToAdministra(params: {
         'Dispositivo sem internet no momento. O formulário segue salvo temporariamente no rascunho local; conecte-se para efetivar o cadastro na base do Administra.'
     };
   }
-
-  await ensureEcosystemClientsSession();
 
   const empRegistered = isEntityRegisteredInAdministra(inspection, 'empreendedor');
   const barRegistered = isEntityRegisteredInAdministra(inspection, 'barragem');
@@ -1332,7 +1576,6 @@ export async function upsertMasterEntitiesFromInspection(
   }
 
   // A. EMPREENDEDOR (somente se já cadastrado/vinculado no Administra)
-  let empPayloadForRemote: Record<string, any> | null = null;
   let resolvedRegisteredEmpId: string | null = null;
   if (empRegistered && empName) {
     const empId = ensureValidUuid(inspection.empreendedorId);
@@ -1352,17 +1595,15 @@ export async function upsertMasterEntitiesFromInspection(
       skippedReadOnlyEntities.push(`Empreendedor (${resolvedEmpOrigin})`);
       resolvedRegisteredEmpId = existingEmp?.id || empId;
     } else {
-      const { entity, payload } = buildEmpreendedorFromInspection(inspection, existingEmp, actorEmail, now);
+      const { entity } = buildEmpreendedorFromInspection(inspection, existingEmp, actorEmail, now);
       resolvedRegisteredEmpId = entity.id;
       const empIdx = catalog.empreendedores.findIndex(e => e.id === entity.id);
       if (empIdx >= 0) catalog.empreendedores[empIdx] = entity;
       else catalog.empreendedores.unshift(entity);
-      empPayloadForRemote = payload;
     }
   }
 
   // B. BARRAGEM (somente se já cadastrada/vinculada no Administra)
-  let barPayloadForRemote: Record<string, any> | null = null;
   let resolvedRegisteredBarId: string | null = null;
   if (barRegistered && damName) {
     const barId = ensureValidUuid(inspection.barragemId);
@@ -1381,7 +1622,7 @@ export async function upsertMasterEntitiesFromInspection(
       skippedReadOnlyEntities.push(`Barragem (${resolvedBarOrigin})`);
       resolvedRegisteredBarId = existingBar?.id || barId;
     } else {
-      const { entity, payload } = buildBarragemFromInspection(
+      const { entity } = buildBarragemFromInspection(
         inspection,
         existingBar,
         resolvedRegisteredEmpId,
@@ -1392,12 +1633,10 @@ export async function upsertMasterEntitiesFromInspection(
       const barIdx = catalog.barragens.findIndex(b => b.id === entity.id);
       if (barIdx >= 0) catalog.barragens[barIdx] = entity;
       else catalog.barragens.unshift(entity);
-      barPayloadForRemote = payload;
     }
   }
 
   // C. RESPONSÁVEL TÉCNICO (somente se já cadastrado/vinculado no Administra)
-  let rtPayloadForRemote: Record<string, any> | null = null;
   if (rtRegistered && rtName) {
     const rtId = ensureValidUuid(inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id);
     const rtCpfDigits = normalizeDocumentDigits(inspection.responsavelTecnico?.cpf);
@@ -1414,7 +1653,7 @@ export async function upsertMasterEntitiesFromInspection(
     if (!rtPerm.allowed) {
       skippedReadOnlyEntities.push(`Responsável Técnico (${resolvedRtOrigin})`);
     } else {
-      const { entity, payload } = buildRtFromInspection(
+      const { entity } = buildRtFromInspection(
         inspection,
         existingRt,
         resolvedRegisteredEmpId,
@@ -1425,34 +1664,22 @@ export async function upsertMasterEntitiesFromInspection(
       const rtIdx = catalog.responsaveisTecnicos.findIndex(r => r.id === entity.id);
       if (rtIdx >= 0) catalog.responsaveisTecnicos[rtIdx] = entity;
       else catalog.responsaveisTecnicos.unshift(entity);
-      rtPayloadForRemote = payload;
     }
   }
 
   saveLocalAdministraCatalog(catalog);
 
-  let savedToAdministraRemote = false;
-  if (administraSupabase && (empPayloadForRemote || barPayloadForRemote || rtPayloadForRemote)) {
-    try {
-      if (empPayloadForRemote) {
-        const { error } = await administraSupabase.from('empreendedores').upsert(empPayloadForRemote);
-        if (error) warnings.push(`Administra Empreendedor: ${error.message}`);
-      }
-      if (barPayloadForRemote) {
-        const { error } = await administraSupabase.from('barragens').upsert(barPayloadForRemote);
-        if (error) warnings.push(`Administra Barragem: ${error.message}`);
-      }
-      if (rtPayloadForRemote) {
-        const { error } = await administraSupabase.from('responsaveis_tecnicos').upsert(rtPayloadForRemote);
-        if (error) warnings.push(`Administra Responsável Técnico: ${error.message}`);
-      }
-      savedToAdministraRemote = warnings.length === 0;
-    } catch (err: any) {
-      warnings.push(err?.message || 'Falha de comunicação com a base central do Administra.');
-    }
-  }
+  // Escritas diretas no Supabase externo do Administra foram desativadas em preparação à API 2.0.
+  const savedToAdministraRemote = false;
 
-  if (inspection.importedFieldsOrigin && Object.keys(inspection.importedFieldsOrigin).length > 0) {
+  const isFutura =
+    inspection.tipoPlanejamento === 'futura' || inspection.generalInfo?.tipoPlanejamento === 'futura';
+  if (
+    inspection.isDraft === false &&
+    !isFutura &&
+    inspection.importedFieldsOrigin &&
+    Object.keys(inspection.importedFieldsOrigin).length > 0
+  ) {
     const supRes = await applyVistoriaSuperiorityUpdates(
       inspection,
       actorEmail || inspection.createdByEmail || '',
@@ -1499,7 +1726,8 @@ function saveLocalEcosystemProducts(list: ProdutoEcossistema[]): void {
  * ou empreendedor.
  */
 export async function registerFiscalizaProductsFromInspection(
-  inspection: InspectionData
+  inspection: InspectionData,
+  options: { syncRemote?: boolean } = {}
 ): Promise<void> {
   const barragemNome = (inspection.damIdentification?.damName || '').trim();
   const empNome = (inspection.damIdentification?.propertyOrBusinessName || '').trim();
@@ -1621,10 +1849,9 @@ export async function registerFiscalizaProductsFromInspection(
   productsToRegister.forEach(p => map.set(p.id, p));
   saveLocalEcosystemProducts(Array.from(map.values()));
 
-  // Sincroniza índice remoto quando ativo
-  const remoteClient = administraSupabase || fiscalizaSupabase;
-  const prodNodeKey = administraSupabase ? 'administra' : 'fiscaliza';
-  if (remoteClient && !MISSING_TABLE_CACHE.has(`${prodNodeKey}:produtos_ecossistema`)) {
+  // Sincroniza índice remoto somente na base do próprio Fiscaliza quando habilitado
+  const remoteClient = options.syncRemote !== false ? fiscalizaSupabase : null;
+  if (remoteClient && !MISSING_TABLE_CACHE.has('fiscaliza:produtos_ecossistema')) {
     try {
       const payload = productsToRegister.map(p => ({
         id: p.id,
@@ -1649,7 +1876,7 @@ export async function registerFiscalizaProductsFromInspection(
       }));
       const { error } = await remoteClient.from('produtos_ecossistema').upsert(payload);
       if (isMissingRemoteTableError(error)) {
-        MISSING_TABLE_CACHE.add(`${prodNodeKey}:produtos_ecossistema`);
+        MISSING_TABLE_CACHE.add('fiscaliza:produtos_ecossistema');
       }
     } catch {
       // Silencioso se estrutura remota estiver pendente
@@ -1684,7 +1911,6 @@ export async function findProductsByDamOrOwner(params: {
   });
 
   const clientsToQuery = [
-    { client: administraSupabase, source: 'administra' as SistemaOrigem },
     { client: fiscalizaSupabase, source: 'fiscaliza' as SistemaOrigem },
     { client: classificaSupabase, source: 'classifica' as SistemaOrigem },
     { client: notificaSupabase, source: 'notifica' as SistemaOrigem }
@@ -1772,8 +1998,8 @@ export async function listAlterationRequests(): Promise<SolicitacaoAlteracaoEcos
   const map = new Map<string, SolicitacaoAlteracaoEcossistema>();
   loadLocalAlterationRequests().forEach(r => map.set(r.id, r));
 
-  const remoteClient = administraSupabase || fiscalizaSupabase;
-  const nodeKey = administraSupabase ? 'administra' : 'fiscaliza';
+  const remoteClient = fiscalizaSupabase;
+  const nodeKey = 'fiscaliza';
   const cacheKey = `${nodeKey}:solicitacoes_alteracao_ecossistema`;
 
   if (remoteClient && !MISSING_TABLE_CACHE.has(cacheKey)) {
@@ -1866,7 +2092,7 @@ export async function submitAlterationRequest(params: {
   const list = loadLocalAlterationRequests();
   saveLocalAlterationRequests([newReq, ...list]);
 
-  const remoteClient = administraSupabase || fiscalizaSupabase;
+  const remoteClient = fiscalizaSupabase;
   if (remoteClient) {
     try {
       await remoteClient.from('solicitacoes_alteracao_ecossistema').insert({
@@ -1971,7 +2197,7 @@ export async function resolveAlterationRequest(params: {
     saveLocalAdministraCatalog(catalog);
   }
 
-  const remoteClient = administraSupabase || fiscalizaSupabase;
+  const remoteClient = fiscalizaSupabase;
   if (remoteClient) {
     try {
       await remoteClient
@@ -2054,7 +2280,7 @@ export async function searchEcosystemEntrepreneursAndDams(query: string): Promis
     empreendedores: matchedEmps,
     barragens: matchedBars,
     responsaveisTecnicos: catalog.responsaveisTecnicos,
-    queriedRemote: !!(administraSupabase || fiscalizaSupabase || classificaSupabase || notificaSupabase),
+    queriedRemote: !!(fiscalizaSupabase || classificaSupabase || notificaSupabase),
     authBlocked: !!catalog.authBlocked
   };
 }
@@ -2084,11 +2310,10 @@ export async function listAnalystInboxNotifications(): Promise<NotificacaoAnalis
   loadLocalAnalystInbox().forEach(n => map.set(n.id, n));
 
   const clientEntries = [
-    { key: 'administra', client: administraSupabase },
     { key: 'fiscaliza', client: fiscalizaSupabase },
     { key: 'classifica', client: classificaSupabase },
     { key: 'notifica', client: notificaSupabase }
-  ].filter((item): item is { key: string; client: NonNullable<typeof administraSupabase> } => item.client !== null);
+  ].filter((item): item is { key: string; client: SupabaseClient } => item.client !== null);
 
   await Promise.all(
     clientEntries.map(async ({ key, client }) => {
@@ -2145,14 +2370,11 @@ export async function markAnalystNotificationRead(id: string): Promise<void> {
   const list = loadLocalAnalystInbox();
   const next = list.map(n => (n.id === id ? { ...n, lida: true } : n));
   saveLocalAnalystInbox(next);
-  const clients = [administraSupabase, fiscalizaSupabase, classificaSupabase, notificaSupabase].filter(Boolean);
-  await Promise.all(
-    clients.map(async client => {
-      try {
-        await client?.from('notificacoes_analista_ecossistema').update({ lida: true }).eq('id', id);
-      } catch {}
-    })
-  );
+  if (fiscalizaSupabase) {
+    try {
+      await fiscalizaSupabase.from('notificacoes_analista_ecossistema').update({ lida: true }).eq('id', id);
+    } catch {}
+  }
 }
 
 function getLiveInspectionFieldValue(inspection: InspectionData, fieldKey: string): string {
@@ -2202,26 +2424,18 @@ function getLiveInspectionFieldValue(inspection: InspectionData, fieldKey: strin
   }
 }
 
-function getClientForSystem(sys: SistemaOrigem) {
-  switch (sys) {
-    case 'administra':
-      return administraSupabase;
-    case 'classifica':
-      return classificaSupabase;
-    case 'notifica':
-      return notificaSupabase;
-    case 'fiscaliza':
-    default:
-      return fiscalizaSupabase;
-  }
-}
+// Campos físicos aferidos em campo expressamente autorizados para atualização por superioridade de vistoria
+const AUTHORIZED_SUPERIORITY_BARRAGEM_FIELDS: Record<string, { dbColumn: 'curso_dagua' }> = {
+  waterCourse: { dbColumn: 'curso_dagua' }
+};
 
 /**
  * Aplica a SUPERIORIDADE DOS DADOS DE VISTORIA sobre campos importados de outros sistemas:
- * - Quando o fiscal altera em campo um dado importado (caixa laranja com *),
- *   esse valor visto presencialmente tem precedência e atualiza o cadastro mestre
- *   no Administra + envia notificação direta para a caixa do analista que inseriu o dado
- *   original dentro do sistema em que ele o cadastrou.
+ * - Restrita exclusivamente a Vistoria Atual concluída (`isDraft === false` e `tipoPlanejamento !== 'futura'`).
+ * - Restrita aos campos físicos aferidos em campo autorizados pelo fluxo (`waterCourse` -> `curso_dagua` da barragem),
+ *   nunca sobrescrevendo dados cadastrais/identidade (nome, município, anos de obra), regulatórios, de titularidade,
+ *   PII de empreendedor ou responsável técnico, nem enviando valores vazios.
+ * - Não executa escritas diretas em clientes Supabase de sistemas externos (Administra, Classifica ou Notifica).
  */
 export async function applyVistoriaSuperiorityUpdates(
   inspection: InspectionData,
@@ -2232,6 +2446,13 @@ export async function applyVistoriaSuperiorityUpdates(
   notificationsSent: NotificacaoAnalistaEcossistema[];
   warnings: string[];
 }> {
+  const isFutura =
+    inspection.tipoPlanejamento === 'futura' ||
+    inspection.generalInfo?.tipoPlanejamento === 'futura';
+  if (inspection.isDraft !== false || isFutura) {
+    return { updatedCount: 0, notificationsSent: [], warnings: [] };
+  }
+
   const importedMap = inspection.importedFieldsOrigin || {};
   const notificationsSent: NotificacaoAnalistaEcossistema[] = [];
   const warnings: string[] = [];
@@ -2241,13 +2462,19 @@ export async function applyVistoriaSuperiorityUpdates(
   const seenFieldKeys = new Set<string>();
   const catalog = loadLocalAdministraCatalog();
   const now = new Date().toISOString();
+  const linkedBarId = (inspection.barragemId || '').trim();
+  const barPatch: Record<string, any> = {};
   let updatedCount = 0;
 
   for (const [fieldKey, meta] of Object.entries(importedMap) as [string, ImportedFieldOriginRecord][]) {
     if (seenFieldKeys.has(fieldKey)) continue;
+    const authRule = AUTHORIZED_SUPERIORITY_BARRAGEM_FIELDS[fieldKey];
+    if (!authRule || meta?.entidadeTipo !== 'barragem') continue;
+    if (!meta.entidadeId || !linkedBarId || meta.entidadeId !== linkedBarId) continue;
+
     const liveVal = getLiveInspectionFieldValue(inspection, fieldKey).trim();
     const origVal = (meta.originalValue || '').trim();
-    if (liveVal === origVal) continue;
+    if (!liveVal || liveVal === origVal) continue;
 
     // Evita reenviar notificação idêntica já registrada para exatamente o mesmo valor
     const alreadyNotifiedSameValue = existingInbox.some(
@@ -2261,63 +2488,27 @@ export async function applyVistoriaSuperiorityUpdates(
     seenFieldKeys.add(fieldKey);
     updatedCount++;
 
-    // 1. Atualiza o catálogo local (e Administra remoto) com o dado verificado em vistoria
-    if (meta.entidadeTipo === 'empreendedor') {
-      const idx = catalog.empreendedores.findIndex(e => e.id === meta.entidadeId);
-      if (idx >= 0) {
-        const target = { ...catalog.empreendedores[idx] };
-        if (fieldKey === 'propertyOrBusinessName') target.nomeRazaoSocial = liveVal;
-        if (fieldKey === 'ownerCpfCnpj') target.cpfCnpj = liveVal;
-        if (fieldKey === 'ownerLegalType') target.figuraJuridica = liveVal as any;
-        if (fieldKey === 'ownerPhone') target.telefone = liveVal;
-        if (fieldKey === 'ownerAddress') target.endereco = liveVal;
-        if (fieldKey === 'ownerEmail') target.email = liveVal;
-        if (fieldKey === 'carNumber') target.carNumero = liveVal;
-        if (fieldKey === 'permitNumber') target.declaracaoUsoOutorga = liveVal;
-        if (fieldKey === 'damsCountOnProperty') target.quantidadeBarragens = Number(liveVal) || 1;
-        target.updatedAt = now;
-        catalog.empreendedores[idx] = target;
+    // 1. Atualiza somente o campo autorizado da barragem no catálogo local
+    const idx = catalog.barragens.findIndex(b => b.id === meta.entidadeId);
+    if (idx >= 0) {
+      const target = { ...catalog.barragens[idx] };
+      if (fieldKey === 'waterCourse') {
+        target.cursoDagua = liveVal;
       }
-    } else if (meta.entidadeTipo === 'barragem') {
-      const idx = catalog.barragens.findIndex(b => b.id === meta.entidadeId);
-      if (idx >= 0) {
-        const target = { ...catalog.barragens[idx] };
-        if (fieldKey === 'damName') target.nome = liveVal;
-        if (fieldKey === 'municipality') target.municipio = liveVal;
-        if (fieldKey === 'waterCourse') target.cursoDagua = liveVal;
-        if (fieldKey === 'workStartYear') target.anoInicioObra = parseInt(liveVal, 10) || null;
-        if (fieldKey === 'workEndYear') target.anoFinalObra = parseInt(liveVal, 10) || null;
-        target.updatedAt = now;
-        catalog.barragens[idx] = target;
-      }
-    } else if (meta.entidadeTipo === 'responsavel_tecnico') {
-      const idx = catalog.responsaveisTecnicos.findIndex(r => r.id === meta.entidadeId);
-      if (idx >= 0) {
-        const target = { ...catalog.responsaveisTecnicos[idx] };
-        if (fieldKey === 'rtNome') target.nome = liveVal;
-        if (fieldKey === 'rtCpf') target.cpf = liveVal;
-        if (fieldKey === 'rtRegistro') target.registroProfissional = liveVal;
-        if (fieldKey === 'rtArt') target.artNumero = liveVal;
-        if (fieldKey === 'rtTelefone') target.telefone = liveVal;
-        if (fieldKey === 'rtEmail') target.email = liveVal;
-        target.updatedAt = now;
-        catalog.responsaveisTecnicos[idx] = target;
-      }
+      target.updatedAt = now;
+      catalog.barragens[idx] = target;
     }
 
-    const entidadeNome =
-      meta.entidadeTipo === 'barragem'
-        ? inspection.damIdentification.damName || 'Barragem'
-        : meta.entidadeTipo === 'responsavel_tecnico'
-        ? inspection.responsavelTecnico?.nome || 'Responsável Técnico'
-        : inspection.damIdentification.propertyOrBusinessName || 'Empreendedor';
+    barPatch[authRule.dbColumn] = liveVal;
+
+    const entidadeNome = inspection.damIdentification.damName || 'Barragem';
 
     const notif: NotificacaoAnalistaEcossistema = {
       id: generateUUID(),
       sistemaDestino: meta.sourceSystem,
       sistemaOrigem: 'fiscaliza',
       destinatarioAnalistaEmail: (meta.originalAnalystEmail || 'nao-informado@sistema.local').toLowerCase(),
-      entidadeTipo: meta.entidadeTipo,
+      entidadeTipo: 'barragem',
       entidadeId: meta.entidadeId,
       entidadeNome,
       vistoriaId: inspection.id,
@@ -2329,22 +2520,18 @@ export async function applyVistoriaSuperiorityUpdates(
       alteradoPorEmail: (actorEmail || inspection.createdByEmail || 'nao-informado@sistema.local').toLowerCase(),
       alteradoPorNome: actorName || 'Fiscal de Campo',
       motivoSuperioridade:
-        'Alteração aplicada por superioridade da Vistoria Presencial em Campo (dado conferido in loco pelo fiscal).',
+        'Alteração aferida in loco na Vistoria Presencial em Campo e registrada apenas na base do Fiscaliza (sistema de origem externo não atualizado automaticamente).',
       lida: false,
       criadaEm: now
     };
 
     notificationsSent.push(notif);
 
-    // Envia para a caixa do analista no sistema de origem (e espelho do Administra/Fiscaliza)
-    const destClients = Array.from(
-      new Set([getClientForSystem(meta.sourceSystem), administraSupabase, fiscalizaSupabase].filter(Boolean))
-    );
-    await Promise.all(
-      destClients.map(async client => {
-        if (!client) return;
-        try {
-          await client.from('notificacoes_analista_ecossistema').insert({
+    if (fiscalizaSupabase) {
+      try {
+        const { error: notifErr } = await fiscalizaSupabase
+          .from('notificacoes_analista_ecossistema')
+          .insert({
             id: notif.id,
             sistema_destino: notif.sistemaDestino,
             sistema_origem: 'fiscaliza',
@@ -2364,15 +2551,17 @@ export async function applyVistoriaSuperiorityUpdates(
             lida: false,
             criada_em: now
           });
-        } catch (err: any) {
-          warnings.push(`Notificação analista (${meta.sourceSystem}): ${err?.message || 'pendente de migração'}`);
+        if (notifErr) {
+          warnings.push(`Notificação registrada localmente (${meta.sourceSystem}): ${notifErr.message || 'pendente de migração no Fiscaliza'}`);
         }
-      })
-    );
+      } catch (err: any) {
+        warnings.push(`Notificação registrada localmente (${meta.sourceSystem}): ${err?.message || 'pendente de migração no Fiscaliza'}`);
+      }
+    }
 
     const auditReq: SolicitacaoAlteracaoEcossistema = {
       id: generateUUID(),
-      entidadeTipo: meta.entidadeTipo,
+      entidadeTipo: 'barragem',
       entidadeId: meta.entidadeId,
       entidadeNome,
       sistemaSolicitante: 'fiscaliza',
@@ -2388,8 +2577,9 @@ export async function applyVistoriaSuperiorityUpdates(
         }
       },
       justificativa: notif.motivoSuperioridade,
-      status: 'aplicada_por_vistoria',
-      respostaMotivo: 'Atualizado automaticamente por superioridade do dado constatado em vistoria.',
+      status: 'pendente',
+      respostaMotivo:
+        'Registrado exclusivamente na base do Fiscaliza por aferição em campo; sistema de origem externo não modificado automaticamente.',
       analisadoPorEmail: notif.alteradoPorEmail,
       analisadoPorNome: notif.alteradoPorNome,
       analisadoEm: now,
@@ -2404,87 +2594,26 @@ export async function applyVistoriaSuperiorityUpdates(
     saveLocalAdministraCatalog(catalog);
     saveLocalAnalystInbox([...notificationsSent, ...existingInbox]);
 
-    // Propaga alterações no Administra e base institucional (RPC com superioridade de vistoria + fallback update)
-    const remoteTargets = [administraSupabase, fiscalizaSupabase].filter(Boolean);
-    for (const remote of remoteTargets) {
-      if (!remote) continue;
+    // Grava exclusivamente os campos autorizados alterados no projeto do próprio Fiscaliza (sem escritas em sistemas externos)
+    if (fiscalizaSupabase && linkedBarId && Object.keys(barPatch).length > 0) {
       try {
-        const empTargetId = inspection.empreendedorId;
-        const empTarget = empTargetId ? catalog.empreendedores.find(e => e.id === empTargetId) : undefined;
-        if (empTargetId && (empTarget || inspection.damIdentification?.propertyOrBusinessName)) {
-          const empUpdateData = {
-            nome_razao_social: empTarget?.nomeRazaoSocial ?? inspection.damIdentification.propertyOrBusinessName,
-            cpf_cnpj: empTarget?.cpfCnpj ?? inspection.damIdentification.ownerCpfCnpj ?? null,
-            figura_juridica: toNullableStr(empTarget?.figuraJuridica ?? inspection.damIdentification.ownerLegalType),
-            endereco: empTarget?.endereco ?? inspection.damIdentification.ownerAddress ?? '',
-            telefone: empTarget?.telefone ?? inspection.damIdentification.ownerPhone ?? null,
-            email: empTarget?.email ?? inspection.conclusions?.notificationDetails?.destinatario?.email ?? null,
-            car_numero: empTarget?.carNumero ?? inspection.damIdentification.regulatoryStatus?.carNumber ?? null,
-            declaracao_uso: empTarget?.declaracaoUsoOutorga ?? inspection.damIdentification.regulatoryStatus?.permitNumber ?? null,
-            quantidade_barragens_propriedade:
-              empTarget?.quantidadeBarragens ??
-              toNullableInt(inspection.damIdentification.damsCountOnProperty),
-            updated_at: now
-          };
-          const { error: rpcErr } = await remote.rpc('rpc_aplicar_edicao_vistoria', {
-            p_entidade_tipo: 'empreendedor',
-            p_entidade_id: empTargetId,
-            p_dados: empUpdateData
-          });
-          if (rpcErr) {
-            await remote.from('empreendedores').update(empUpdateData).eq('id', empTargetId);
-          }
-        }
-        const barTargetId = inspection.barragemId;
-        const barTarget = barTargetId ? catalog.barragens.find(b => b.id === barTargetId) : undefined;
-        if (barTargetId && (barTarget || inspection.damIdentification?.damName)) {
-          const barUpdateData = {
-            nome: barTarget?.nome ?? inspection.damIdentification.damName,
-            municipio: barTarget?.municipio ?? inspection.damIdentification.municipality,
-            bacia_hidrografica: barTarget?.baciaHidrografica ?? inspection.damIdentification.hydrographicBasin ?? null,
-            curso_dagua: barTarget?.cursoDagua ?? inspection.damIdentification.waterCourse ?? null,
-            ano_inicio_obra:
-              barTarget?.anoInicioObra ??
-              (inspection.damIdentification.workStartYear ? parseInt(inspection.damIdentification.workStartYear, 10) || null : null),
-            ano_final_obra:
-              barTarget?.anoFinalObra ??
-              (inspection.damIdentification.workEndYear ? parseInt(inspection.damIdentification.workEndYear, 10) || null : null),
-            tipo_barragem_material: toNullableStr(barTarget?.tipoMaterial ?? inspection.damIdentification.damType),
-            uso_principal: toNullableStr(barTarget?.usoPrincipal ?? inspection.damIdentification.mainWaterUse),
-            updated_at: now
-          };
-          const { error: rpcErr } = await remote.rpc('rpc_aplicar_edicao_vistoria', {
-            p_entidade_tipo: 'barragem',
-            p_entidade_id: barTargetId,
-            p_dados: barUpdateData
-          });
-          if (rpcErr) {
-            await remote.from('barragens').update(barUpdateData).eq('id', barTargetId);
-          }
-        }
-        const rtTargetId = inspection.responsavelTecnicoId || inspection.responsavelTecnico?.id;
-        const rtTarget = rtTargetId ? catalog.responsaveisTecnicos.find(r => r.id === rtTargetId) : undefined;
-        if (rtTargetId && (rtTarget || inspection.responsavelTecnico?.nome)) {
-          const rtUpdateData = {
-            nome: rtTarget?.nome ?? inspection.responsavelTecnico?.nome ?? '',
-            cpf: rtTarget?.cpf ?? inspection.responsavelTecnico?.cpf ?? null,
-            registro_profissional: rtTarget?.registroProfissional ?? inspection.responsavelTecnico?.registroProfissional ?? null,
-            art_numero: rtTarget?.artNumero ?? inspection.responsavelTecnico?.artNumero ?? null,
-            telefone: rtTarget?.telefone ?? inspection.responsavelTecnico?.telefone ?? null,
-            email: rtTarget?.email ?? inspection.responsavelTecnico?.email ?? null,
-            updated_at: now
-          };
-          const { error: rpcErr } = await remote.rpc('rpc_aplicar_edicao_vistoria', {
-            p_entidade_tipo: 'responsavel_tecnico',
-            p_entidade_id: rtTargetId,
-            p_dados: rtUpdateData
-          });
-          if (rpcErr) {
-            await remote.from('responsaveis_tecnicos').update(rtUpdateData).eq('id', rtTargetId);
+        const patchPayload = { ...barPatch, updated_at: now };
+        const { error: rpcErr } = await fiscalizaSupabase.rpc('rpc_aplicar_edicao_vistoria', {
+          p_entidade_tipo: 'barragem',
+          p_entidade_id: linkedBarId,
+          p_dados: patchPayload
+        });
+        if (rpcErr) {
+          const { error: updateErr } = await fiscalizaSupabase
+            .from('barragens')
+            .update(patchPayload)
+            .eq('id', linkedBarId);
+          if (updateErr) {
+            warnings.push(`Registro de campo na base do Fiscaliza: ${updateErr.message || 'sincronização pendente'}`);
           }
         }
       } catch (err: any) {
-        warnings.push(`Propagação de edição na base integrada: ${err?.message || 'sincronização pendente'}`);
+        warnings.push(`Registro de campo na base do Fiscaliza: ${err?.message || 'sincronização pendente'}`);
       }
     }
   }
@@ -2548,6 +2677,11 @@ export function applyMasterSelectionToInspection(
     };
   };
 
+  const preserveIfBlank = (incoming: string | null | undefined, existing: string | undefined): string => {
+    const clean = incoming !== undefined && incoming !== null ? String(incoming).trim() : '';
+    return clean !== '' ? clean : existing ?? '';
+  };
+
   if (payload.empreendedor) {
     const emp = payload.empreendedor;
     next.empreendedorId = emp.id;
@@ -2562,14 +2696,21 @@ export function applyMasterSelectionToInspection(
         registradoEm: emp.sincronizadoAdministraEm || now
       }
     };
-    next.damIdentification.propertyOrBusinessName = emp.nomeRazaoSocial;
-    next.damIdentification.ownerCpfCnpj = emp.cpfCnpj || '';
-    next.damIdentification.ownerLegalType = emp.figuraJuridica || '';
-    next.damIdentification.ownerPhone = emp.telefone || '';
-    next.damIdentification.ownerAddress = emp.endereco || '';
-    next.damIdentification.damsCountOnProperty = emp.quantidadeBarragens
-      ? String(emp.quantidadeBarragens)
-      : '';
+    next.damIdentification.propertyOrBusinessName = preserveIfBlank(
+      emp.nomeRazaoSocial,
+      prev.damIdentification.propertyOrBusinessName
+    );
+    next.damIdentification.ownerCpfCnpj = preserveIfBlank(emp.cpfCnpj, prev.damIdentification.ownerCpfCnpj);
+    next.damIdentification.ownerLegalType = (preserveIfBlank(
+      emp.figuraJuridica,
+      prev.damIdentification.ownerLegalType
+    ) || '') as any;
+    next.damIdentification.ownerPhone = preserveIfBlank(emp.telefone, prev.damIdentification.ownerPhone);
+    next.damIdentification.ownerAddress = preserveIfBlank(emp.endereco, prev.damIdentification.ownerAddress);
+    next.damIdentification.damsCountOnProperty =
+      emp.quantidadeBarragens !== null && emp.quantidadeBarragens !== undefined && emp.quantidadeBarragens > 0
+        ? String(emp.quantidadeBarragens)
+        : prev.damIdentification.damsCountOnProperty || '';
 
     if (emp.carNumero) {
       next.damIdentification.regulatoryStatus.carNumber = emp.carNumero;
@@ -2581,12 +2722,21 @@ export function applyMasterSelectionToInspection(
     }
     next.conclusions.notificationDetails.destinatario = {
       ...next.conclusions.notificationDetails.destinatario,
-      nomeRazaoSocial: emp.nomeRazaoSocial,
-      cpfCnpj: emp.cpfCnpj || '',
-      enderecoCorrespondencia: emp.endereco || '',
-      telefone: emp.telefone || '',
-      email: emp.email || '',
-      municipio: emp.municipio || next.damIdentification.municipality || ''
+      nomeRazaoSocial: preserveIfBlank(
+        emp.nomeRazaoSocial,
+        prev.conclusions.notificationDetails.destinatario?.nomeRazaoSocial
+      ),
+      cpfCnpj: preserveIfBlank(emp.cpfCnpj, prev.conclusions.notificationDetails.destinatario?.cpfCnpj),
+      enderecoCorrespondencia: preserveIfBlank(
+        emp.endereco,
+        prev.conclusions.notificationDetails.destinatario?.enderecoCorrespondencia
+      ),
+      telefone: preserveIfBlank(emp.telefone, prev.conclusions.notificationDetails.destinatario?.telefone),
+      email: preserveIfBlank(emp.email, prev.conclusions.notificationDetails.destinatario?.email),
+      municipio: preserveIfBlank(
+        emp.municipio,
+        prev.conclusions.notificationDetails.destinatario?.municipio || next.damIdentification.municipality
+      )
     };
 
     trackField(
@@ -2690,15 +2840,26 @@ export function applyMasterSelectionToInspection(
     if (bar.empreendedorId && !next.empreendedorId) {
       next.empreendedorId = bar.empreendedorId;
     }
-    next.damIdentification.damName = bar.nome;
-    next.damIdentification.municipality = bar.municipio || next.damIdentification.municipality;
-    next.damIdentification.hydrographicBasin =
-      bar.baciaHidrografica || next.damIdentification.hydrographicBasin;
-    next.damIdentification.waterCourse = bar.cursoDagua || '';
-    next.damIdentification.workStartYear = bar.anoInicioObra ? String(bar.anoInicioObra) : '';
-    next.damIdentification.workEndYear = bar.anoFinalObra ? String(bar.anoFinalObra) : '';
-    next.damIdentification.damType = bar.tipoMaterial || next.damIdentification.damType;
-    next.damIdentification.mainWaterUse = bar.usoPrincipal || next.damIdentification.mainWaterUse;
+    next.damIdentification.damName = preserveIfBlank(bar.nome, prev.damIdentification.damName);
+    next.damIdentification.municipality = preserveIfBlank(bar.municipio, prev.damIdentification.municipality);
+    next.damIdentification.hydrographicBasin = preserveIfBlank(
+      bar.baciaHidrografica,
+      prev.damIdentification.hydrographicBasin
+    );
+    next.damIdentification.waterCourse = preserveIfBlank(bar.cursoDagua, prev.damIdentification.waterCourse);
+    next.damIdentification.workStartYear =
+      bar.anoInicioObra !== null && bar.anoInicioObra !== undefined && bar.anoInicioObra > 0
+        ? String(bar.anoInicioObra)
+        : prev.damIdentification.workStartYear || '';
+    next.damIdentification.workEndYear =
+      bar.anoFinalObra !== null && bar.anoFinalObra !== undefined && bar.anoFinalObra > 0
+        ? String(bar.anoFinalObra)
+        : prev.damIdentification.workEndYear || '';
+    next.damIdentification.damType = (preserveIfBlank(bar.tipoMaterial, prev.damIdentification.damType) || '') as any;
+    next.damIdentification.mainWaterUse = preserveIfBlank(
+      bar.usoPrincipal,
+      prev.damIdentification.mainWaterUse
+    );
     if (bar.latitudeGms && bar.longitudeGms) {
       next.damIdentification.coordinates.latitude = bar.latitudeGms;
       next.damIdentification.coordinates.longitude = bar.longitudeGms;
@@ -2767,13 +2928,16 @@ export function applyMasterSelectionToInspection(
     };
     next.responsavelTecnico = {
       id: rt.id,
-      nome: rt.nome,
-      cpf: rt.cpf || '',
-      registroProfissional: rt.registroProfissional || '',
-      artNumero: rt.artNumero || '',
-      especialidade: rt.especialidade || '',
-      telefone: rt.telefone || '',
-      email: rt.email || '',
+      nome: preserveIfBlank(rt.nome, prev.responsavelTecnico?.nome),
+      cpf: preserveIfBlank(rt.cpf, prev.responsavelTecnico?.cpf),
+      registroProfissional: preserveIfBlank(
+        rt.registroProfissional,
+        prev.responsavelTecnico?.registroProfissional
+      ),
+      artNumero: preserveIfBlank(rt.artNumero, prev.responsavelTecnico?.artNumero),
+      especialidade: preserveIfBlank(rt.especialidade, prev.responsavelTecnico?.especialidade),
+      telefone: preserveIfBlank(rt.telefone, prev.responsavelTecnico?.telefone),
+      email: preserveIfBlank(rt.email, prev.responsavelTecnico?.email),
       sistemaOrigem: rt.sistemaOrigem
     };
 
