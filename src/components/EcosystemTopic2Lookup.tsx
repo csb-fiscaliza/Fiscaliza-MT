@@ -23,7 +23,11 @@ import {
   getSistemaLabel,
   ServerConnectivityResult
 } from '../services/ecosystemConfig';
-import { searchEcosystemEntrepreneursAndDams } from '../services/administraEcosystemService';
+import {
+  classifyDamLinkStatus,
+  searchDamCatalogPaginated,
+  searchEcosystemEntrepreneursAndDams
+} from '../services/administraEcosystemService';
 import { lookupCarMtByCode, SemaCarImovelResult } from '../services/semaCarPublicService';
 import { getInspectorSession } from '../services/supabase';
 
@@ -31,7 +35,7 @@ interface EcosystemTopic2LookupProps {
   initialQuery?: string;
   currentUser?: { email?: string; fullName?: string; role?: string } | null;
   onExportSelection: (payload: {
-    empreendedor: EmpreendedorEntity;
+    empreendedor?: EmpreendedorEntity | null;
     barragem?: BarragemEntity | null;
     responsavelTecnico?: ResponsavelTecnicoEntity | null;
   }) => void;
@@ -78,6 +82,8 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
   const [carResults, setCarResults] = useState<SemaCarImovelResult[]>([]);
   const [selectedEmpId, setSelectedEmpId] = useState<string | null>(null);
   const [selectedDamId, setSelectedDamId] = useState<string | null>(null);
+  const [damPage, setDamPage] = useState<number>(1);
+  const damPageSize = 8;
 
   const [serverChecks, setServerChecks] = useState<ServerConnectivityResult[] | null>(null);
   const [checkingServers, setCheckingServers] = useState(false);
@@ -140,6 +146,7 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
       ]);
       setResults(res);
       setCarResults(carList);
+      setDamPage(1);
       if (res.empreendedores.length === 1) {
         setSelectedEmpId(res.empreendedores[0].id);
       }
@@ -152,6 +159,23 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
   const empDams = selectedEmp
     ? results.barragens.filter(b => b.empreendedorId === selectedEmp.id)
     : [];
+
+  const paginatedDams = React.useMemo(
+    () =>
+      searchDamCatalogPaginated({
+        catalog: {
+          barragens: results.barragens,
+          empreendedores: results.empreendedores,
+          responsaveisTecnicos: results.responsaveisTecnicos,
+          updatedAt: ''
+        },
+        query,
+        selectedEmpreendedorId: selectedEmpId,
+        page: damPage,
+        pageSize: damPageSize
+      }),
+    [results, query, selectedEmpId, damPage]
+  );
 
   return (
     <div className="p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/60 space-y-3">
@@ -253,7 +277,7 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
                   handleSearch();
                 }
               }}
-              placeholder="Digite nome do empreendedor, CPF/CNPJ, CAR, município ou nome da barragem..."
+              placeholder="Digite nome, SNISB, CAR, processo, ID, município, empreendimento ou CPF/CNPJ..."
               className="flex-1 px-3 py-2 text-xs sm:text-sm rounded-lg border border-slate-300 bg-slate-50"
             />
             <button
@@ -267,10 +291,10 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
             </button>
           </div>
 
-          {results.empreendedores.length === 0 ? (
+          {results.empreendedores.length === 0 && paginatedDams.total === 0 ? (
             <div className="space-y-2 py-2">
               <p className="text-xs text-slate-500">
-                Nenhum empreendedor localizado para o termo informado (Nome, CPF/CNPJ ou CAR).
+                Nenhum empreendedor ou barragem localizado para o termo informado (Nome, SNISB, CAR, Processo, Município ou CPF/CNPJ).
                 {results.authBlocked &&
                   ' Autentique sua sessão institucional para consultar registros protegidos na base remota.'}
               </p>
@@ -321,117 +345,208 @@ export const EcosystemTopic2Lookup: React.FC<EcosystemTopic2LookupProps> = ({
               )}
             </div>
           ) : (
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-              {results.empreendedores.map(emp => {
-                const isSelected = selectedEmpId === emp.id;
-                const damsForThisEmp = results.barragens.filter(b => b.empreendedorId === emp.id);
-                return (
-                  <div
-                    key={emp.id}
-                    className={`p-3 rounded-xl border transition space-y-2 ${
-                      isSelected
-                        ? 'border-indigo-500 bg-indigo-50/70'
-                        : 'border-slate-200 bg-slate-50/50 hover:border-indigo-300'
-                    }`}
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
-                        <div className="flex items-center flex-wrap gap-1.5">
-                          <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-                          <span className="text-xs sm:text-sm font-bold text-slate-900">
-                            {emp.nomeRazaoSocial}
-                          </span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-900 border border-orange-300">
-                            Fonte: {getSistemaLabel(emp.sistemaOrigem)}
-                          </span>
+            <div className="space-y-3">
+              {results.empreendedores.length > 0 && (
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {results.empreendedores.map(emp => {
+                    const isSelected = selectedEmpId === emp.id;
+                    const damsForThisEmp = results.barragens.filter(b => b.empreendedorId === emp.id);
+                    return (
+                      <div
+                        key={emp.id}
+                        className={`p-3 rounded-xl border transition space-y-2 ${
+                          isSelected
+                            ? 'border-indigo-500 bg-indigo-50/70'
+                            : 'border-slate-200 bg-slate-50/50 hover:border-indigo-300'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div>
+                            <div className="flex items-center flex-wrap gap-1.5">
+                              <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                              <span className="text-xs sm:text-sm font-bold text-slate-900">
+                                {emp.nomeRazaoSocial}
+                              </span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-100 text-orange-900 border border-orange-300">
+                                Fonte: {getSistemaLabel(emp.sistemaOrigem)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5">
+                              CPF/CNPJ: <strong>{canViewFullCpfCnpj ? (emp.cpfCnpj || 'Não informado') : maskCpfCnpj(emp.cpfCnpj)}</strong> · Barragens vinculadas:{' '}
+                              <strong className="tabular-nums">{damsForThisEmp.length}</strong>
+                              {emp.criadoPorEmail ? ` · Analista: ${emp.criadoPorEmail}` : ''}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedEmpId(emp.id);
+                                setSelectedDamId(damsForThisEmp[0]?.id || null);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-indigo-100 border border-indigo-300 text-indigo-900 text-xs font-bold cursor-pointer"
+                            >
+                              {isSelected ? 'Selecionado' : 'Selecionar'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const linkedDam =
+                                  damsForThisEmp.find(d => d.id === selectedDamId) ||
+                                  damsForThisEmp[0] ||
+                                  null;
+                                const linkedRt =
+                                  results.responsaveisTecnicos.find(
+                                    rt =>
+                                      (linkedDam && rt.barragemId === linkedDam.id) ||
+                                      rt.empreendedorId === emp.id
+                                  ) || null;
+                                onExportSelection({
+                                  empreendedor: emp,
+                                  barragem: linkedDam,
+                                  responsavelTecnico: linkedRt
+                                });
+                                setIsOpen(false);
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Exportar Empreendedor{damsForThisEmp.length > 0 ? ' + Barragem' : ''}</span>
+                            </button>
+                          </div>
                         </div>
-                        <p className="text-[11px] text-slate-600 mt-0.5">
-                          CPF/CNPJ: <strong>{canViewFullCpfCnpj ? (emp.cpfCnpj || 'Não informado') : maskCpfCnpj(emp.cpfCnpj)}</strong> · Barragens vinculadas:{' '}
-                          <strong>{damsForThisEmp.length}</strong>
-                          {emp.criadoPorEmail ? ` · Analista: ${emp.criadoPorEmail}` : ''}
-                        </p>
-                      </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedEmpId(emp.id);
-                            setSelectedDamId(damsForThisEmp[0]?.id || null);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-indigo-100 border border-indigo-300 text-indigo-900 text-xs font-bold cursor-pointer"
-                        >
-                          {isSelected ? 'Selecionado' : 'Selecionar'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const linkedDam =
-                              damsForThisEmp.find(d => d.id === selectedDamId) ||
-                              damsForThisEmp[0] ||
-                              null;
-                            const linkedRt =
-                              results.responsaveisTecnicos.find(
-                                rt =>
-                                  (linkedDam && rt.barragemId === linkedDam.id) ||
-                                  rt.empreendedorId === emp.id
-                              ) || null;
-                            onExportSelection({
-                              empreendedor: emp,
-                              barragem: linkedDam,
-                              responsavelTecnico: linkedRt
-                            });
-                            setIsOpen(false);
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Exportar Empreendedor{damsForThisEmp.length > 0 ? ' + Barragem' : ''}</span>
-                        </button>
+                        {isSelected && empDams.length > 0 && (
+                          <div className="pt-2 border-t border-indigo-200 space-y-1.5">
+                            <span className="text-[11px] font-extrabold text-indigo-950 block">
+                              Barragens vinculadas a este Empreendedor (priorizadas):
+                            </span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {empDams.map(bar => {
+                                const chosen = (selectedDamId || empDams[0]?.id) === bar.id;
+                                const linkCls = classifyDamLinkStatus({ dam: bar, empreendedor: emp });
+                                return (
+                                  <button
+                                    key={bar.id}
+                                    type="button"
+                                    onClick={() => setSelectedDamId(bar.id)}
+                                    className={`p-2 rounded-lg border text-left text-xs flex items-center justify-between gap-2 cursor-pointer ${
+                                      chosen
+                                        ? 'border-orange-500 bg-orange-50 text-orange-950 font-bold'
+                                        : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <Landmark className="w-3.5 h-3.5 text-orange-600 shrink-0" />
+                                      <div className="truncate">
+                                        <div className="truncate">{bar.nome}</div>
+                                        <div className="text-[10px] font-normal text-slate-500 truncate">
+                                          {bar.municipio || 'MT'} · {linkCls.label}
+                                          {linkCls.coordenadasIndisponiveis ? ' · Sem coord.' : ''}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-900 shrink-0">
+                                      {chosen ? 'Exportar' : 'Usar'}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Catálogo Paginado de Barragens (inclui barragens sem empreendedor/RT como "Vínculo pendente de revisão") */}
+              {paginatedDams.total > 0 && (
+                <div className="pt-2 border-t border-slate-200 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-slate-700">
+                    <span>
+                      Barragens no catálogo ({paginatedDams.total} localizada(s) · página {paginatedDams.page}/{paginatedDams.totalPages})
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={paginatedDams.page <= 1}
+                        onClick={() => setDamPage(p => Math.max(1, p - 1))}
+                        className="px-2 py-0.5 rounded border border-slate-300 bg-white disabled:opacity-40 cursor-pointer"
+                      >
+                        Anterior
+                      </button>
+                      <button
+                        type="button"
+                        disabled={paginatedDams.page >= paginatedDams.totalPages}
+                        onClick={() => setDamPage(p => Math.min(paginatedDams.totalPages, p + 1))}
+                        className="px-2 py-0.5 rounded border border-slate-300 bg-white disabled:opacity-40 cursor-pointer"
+                      >
+                        Próxima
+                      </button>
                     </div>
+                  </div>
 
-                    {/* Lista de barragens do empreendedor selecionado */}
-                    {isSelected && empDams.length > 0 && (
-                      <div className="pt-2 border-t border-indigo-200 space-y-1.5">
-                        <span className="text-[11px] font-extrabold text-indigo-950 block">
-                          Barragens encontradas para este Empreendedor (selecione a barragem para exportar junto):
-                        </span>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {empDams.map(bar => {
-                            const chosen = (selectedDamId || empDams[0]?.id) === bar.id;
-                            return (
-                              <button
-                                key={bar.id}
-                                type="button"
-                                onClick={() => setSelectedDamId(bar.id)}
-                                className={`p-2 rounded-lg border text-left text-xs flex items-center justify-between gap-2 cursor-pointer ${
-                                  chosen
-                                    ? 'border-orange-500 bg-orange-50 text-orange-950 font-bold'
-                                    : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-1">
+                    {paginatedDams.items.map(entry => {
+                      const bar = entry.barragem;
+                      const owner = entry.empreendedor;
+                      return (
+                        <div
+                          key={bar.id}
+                          className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/70 flex flex-col justify-between gap-2 text-xs"
+                        >
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="font-bold text-slate-900 truncate">{bar.nome}</span>
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${
+                                  entry.linkClassification.status === 'vinculo_oficial'
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    : 'bg-amber-50 text-amber-900 border-amber-300'
                                 }`}
                               >
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <Landmark className="w-3.5 h-3.5 text-orange-600 shrink-0" />
-                                  <div className="truncate">
-                                    <div className="truncate">{bar.nome}</div>
-                                    <div className="text-[10px] font-normal text-slate-500 truncate">
-                                      {bar.municipio || 'MT'} · {getSistemaLabel(bar.sistemaOrigem)}
-                                    </div>
-                                  </div>
-                                </div>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-900 shrink-0">
-                                  {chosen ? 'Exportar' : 'Usar'}
-                                </span>
-                              </button>
-                            );
-                          })}
+                                {entry.linkClassification.label}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 truncate">
+                              {bar.municipio || 'MT'}
+                              {owner ? ` · ${owner.nomeRazaoSocial}` : ' · Empreendedor não vinculado'}
+                              {bar.snisb ? ` · SNISB ${bar.snisb}` : ''}
+                              {bar.car ? ` · CAR ${bar.car}` : ''}
+                            </p>
+                            {entry.linkClassification.coordenadasIndisponiveis && (
+                              <p className="text-[10px] text-amber-700 font-semibold">
+                                Coordenadas indisponíveis
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onExportSelection({
+                                  empreendedor: owner,
+                                  barragem: bar,
+                                  responsavelTecnico: entry.responsavelTecnico
+                                });
+                                setIsOpen(false);
+                              }}
+                              className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>Vincular Barragem</span>
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              )}
             </div>
           )}
         </div>

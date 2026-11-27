@@ -10,8 +10,10 @@ import {
 } from 'lucide-react';
 import { EntidadeMestreTipo, InspectionData } from '../types/inspection';
 import {
+  classifyDamLinkStatus,
   getEntityCadastroStatus,
-  hasEntityDataInForm
+  hasEntityDataInForm,
+  loadLocalAdministraCatalog
 } from '../services/administraEcosystemService';
 import { getSistemaLabel } from '../services/ecosystemConfig';
 
@@ -67,6 +69,18 @@ export const AdministraCadastroBanner: React.FC<AdministraCadastroBannerProps> =
   const status = getEntityCadastroStatus(inspection, tipo);
   const usedInForm = hasEntityDataInForm(inspection, tipo);
 
+  const damLinkInfo = React.useMemo(() => {
+    if (tipo !== 'barragem') return null;
+    const cat = loadLocalAdministraCatalog();
+    const dam = inspection.barragemId
+      ? cat.barragens.find(b => b.id === inspection.barragemId) || null
+      : null;
+    const emp = inspection.empreendedorId
+      ? cat.empreendedores.find(e => e.id === inspection.empreendedorId) || null
+      : null;
+    return classifyDamLinkStatus({ dam, empreendedor: emp, inspection });
+  }, [tipo, inspection]);
+
   if (tipo === 'responsavel_tecnico' && !usedInForm && !status.cadastrado) {
     return (
       <div className="mt-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/60 text-xs text-slate-600 dark:text-slate-400 flex flex-wrap items-center justify-between gap-2">
@@ -92,19 +106,44 @@ export const AdministraCadastroBanner: React.FC<AdministraCadastroBannerProps> =
   if (status.cadastrado) {
     const isLinkedExisting = status.modo === 'vinculado_existente';
     const originName = getSistemaLabel(status.sistemaOrigem || 'fiscaliza');
+    const isPendingReview = damLinkInfo?.status === 'vinculo_pendente_revisao';
 
     return (
-      <div className="mt-3 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/80 dark:bg-emerald-950/30 text-xs flex flex-col gap-2">
+      <div
+        className={`mt-3 p-3 rounded-xl border text-xs flex flex-col gap-2 ${
+          isPendingReview
+            ? 'border-amber-300 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/30'
+            : 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/80 dark:bg-emerald-950/30'
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200 min-w-0">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <div>
+            <CheckCircle2
+              className={`w-4 h-4 shrink-0 ${
+                isPendingReview
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-emerald-600 dark:text-emerald-400'
+              }`}
+            />
+            <div className="text-slate-900 dark:text-slate-100">
               <span className="font-bold">
-                {cfg.entityLabel} {isLinkedExisting ? 'vinculado(a) à base do Administra' : 'cadastrado(a) na base do Administra'}
+                {tipo === 'barragem' && damLinkInfo
+                  ? damLinkInfo.label
+                  : `${cfg.entityLabel} ${isLinkedExisting ? 'vinculado(a) à base do Administra' : 'cadastrado(a) na base do Administra'}`}
               </span>
-              <span className="ml-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+              <span className="ml-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
                 (Titularidade: {originName})
               </span>
+              {damLinkInfo?.coordenadasIndisponiveis && (
+                <span className="ml-2 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                  · Coordenadas indisponíveis
+                </span>
+              )}
+              {damLinkInfo?.motivo && (
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                  {damLinkInfo.motivo}
+                </p>
+              )}
             </div>
           </div>
 
@@ -149,10 +188,13 @@ export const AdministraCadastroBanner: React.FC<AdministraCadastroBannerProps> =
           <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="font-bold text-amber-950 dark:text-amber-100">
-              {cfg.entityLabel} não vinculado(a) — salvo temporariamente apenas nesta ficha de rascunho
+              {tipo === 'barragem'
+                ? 'Entidade ainda não vinculada — salva somente localmente neste rascunho'
+                : `${cfg.entityLabel} não vinculado(a) — salvo temporariamente apenas nesta ficha de rascunho`}
             </p>
             <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5 leading-snug">
-              {cfg.targetTablesHint} Você pode salvar rascunho normalmente e manter local, mas para <strong>Concluir Vistoria</strong> é obrigatório cadastrar na base do Administra.
+              {cfg.targetTablesHint} Ao salvar rascunho, nenhum registro é criado automaticamente no Administra. Para <strong>Concluir Vistoria</strong>, é obrigatório vincular ou cadastrar na base do Administra.
+              {damLinkInfo?.coordenadasIndisponiveis ? ' (Coordenadas indisponíveis no momento.)' : ''}
             </p>
           </div>
         </div>

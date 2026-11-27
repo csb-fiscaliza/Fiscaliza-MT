@@ -18,15 +18,19 @@ import {
   Layers,
   RefreshCw
 } from 'lucide-react';
-import { 
-  NotificationItem, 
-  SnisbItem, 
-  AneelItem, 
+import {
+  NotificationItem,
+  SnisbItem,
+  AneelItem,
   GeoJsonMunicipalityCollection,
-  fetchNotifications, 
-  fetchSnisbDams, 
-  fetchAneelDams, 
+  ExternalMapLayerLoadedState,
+  INITIAL_MAP_LAYER_FLAGS,
+  MapCatalogDamPin,
+  fetchNotifications,
+  fetchSnisbDams,
+  fetchAneelDams,
   fetchMatoGrossoGeoJson,
+  getPendingExternalLayerFetches,
   parseCoordinate as parseMapCoordinate
 } from '../services/mapDataService';
 import { 
@@ -41,6 +45,9 @@ import { decimalToGms } from '../utils/geoCoordinates';
 interface InteractiveMapProps {
   inspections?: InspectionData[];
   onSelectInspection?: (id: string) => void;
+  catalogDams?: MapCatalogDamPin[];
+  selectedDamId?: string | null;
+  onSelectDam?: (damId: string) => void;
   className?: string;
 }
 
@@ -76,6 +83,9 @@ function formatLiveGms(lat: number, lng: number): string {
 export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   inspections = [],
   onSelectInspection,
+  catalogDams = [],
+  selectedDamId = null,
+  onSelectDam,
   className = ''
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -89,40 +99,50 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const snisbLayerRef = useRef<L.LayerGroup | null>(null);
   const aneelLayerRef = useRef<L.LayerGroup | null>(null);
   const fiscalizadasLayerRef = useRef<L.LayerGroup | null>(null);
+  const catalogDamsLayerRef = useRef<L.LayerGroup | null>(null);
+  const catalogMarkerMapRef = useRef<Map<string, L.Marker>>(new Map());
   const searchMarkerRef = useRef<L.Marker | null>(null);
 
-  // Estados de dados
-  const [loading, setLoading] = useState<boolean>(true);
+  // Estados de dados (camadas externas sob demanda — iniciam vazias sem carga automática)
+  const [loading, setLoading] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [novasNotificacoes, setNovasNotificacoes] = useState<NotificacaoPontoMapa[]>([]);
   const [snisbDams, setSnisbDams] = useState<SnisbItem[]>([]);
   const [aneelDams, setAneelDams] = useState<AneelItem[]>([]);
   const [geoJsonData, setGeoJsonData] = useState<GeoJsonMunicipalityCollection | null>(null);
+  const loadedLayersRef = useRef<ExternalMapLayerLoadedState>({
+    novas: false,
+    antigas: false,
+    snisb: false,
+    aneel: false,
+    geoJson: false
+  });
 
-  // Estados de controles do topo (fiel à imagem)
+  // Estados de controles do topo
   const [latInput, setLatInput] = useState<string>('');
   const [longInput, setLongInput] = useState<string>('');
   const [coordError, setCoordError] = useState<string | null>(null);
 
-  // Checkboxes superiores da imagem: [x] NOVAS  [x] ANTIGAS  [ ] SNISB  [ ] ANEEL
-  const [showNovas, setShowNovas] = useState<boolean>(true);
-  const [showAntigas, setShowAntigas] = useState<boolean>(true);
-  const [showSnisb, setShowSnisb] = useState<boolean>(false);
-  const [showAneel, setShowAneel] = useState<boolean>(false);
+  // Checkboxes superiores: todas as camadas externas iniciam DESMARCADAS por padrão
+  const [showNovas, setShowNovas] = useState<boolean>(INITIAL_MAP_LAYER_FLAGS.showNovas);
+  const [showAntigas, setShowAntigas] = useState<boolean>(INITIAL_MAP_LAYER_FLAGS.showAntigas);
+  const [showSnisb, setShowSnisb] = useState<boolean>(INITIAL_MAP_LAYER_FLAGS.showSnisb);
+  const [showAneel, setShowAneel] = useState<boolean>(INITIAL_MAP_LAYER_FLAGS.showAneel);
+  const [showGeoJson, setShowGeoJson] = useState<boolean>(INITIAL_MAP_LAYER_FLAGS.showGeoJson);
   const showFiscalizadas = true;
 
-  // Filtros inferiores da imagem: MÊS/ANO, MUNICÍPIOS, ATENDIDA (ANTIGAS) [SIM] [NÃO]
+  // Filtros inferiores
   const [selectedMesAno, setSelectedMesAno] = useState<string>('todos');
   const [isMesAnoOpen, setIsMesAnoOpen] = useState<boolean>(false);
   const [selectedMunicipality, setSelectedMunicipality] = useState<string>('todos');
   const [isMunDropdownOpen, setIsMunDropdownOpen] = useState<boolean>(false);
   const [munSearchTerm, setMunSearchTerm] = useState<string>('');
 
-  // Atendida (Antigas) Toggle: SIM / NÃO (ambos podem estar ativos ou inativos)
+  // Atendida (Antigas) Toggle: SIM / NÃO
   const [filtroAtendidaSim, setFiltroAtendidaSim] = useState<boolean>(true);
   const [filtroAtendidaNao, setFiltroAtendidaNao] = useState<boolean>(true);
 
-  // Legenda flutuante interior do mapa (Checkboxes individuais)
+  // Legenda flutuante interior do mapa
   const [legendFilters, setLegendFilters] = useState({
     notifEmAberto: true,
     notifCumprida: true,
@@ -159,57 +179,124 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     };
   }, [isFullscreen]);
 
-  // Carregamento de dados das planilhas e do Supabase
-  const loadData = async () => {
+  // Carregamento sob demanda apenas das camadas externas explicitamente marcadas pelo usuário
+  const loadEnabledExternalLayers = async (forceReloadEnabled = false) => {
+    const flags = {
+      showNovas,
+      showAntigas,
+      showSnisb,
+      showAneel,
+      showGeoJson
+    };
+
+    const effectiveLoaded: ExternalMapLayerLoadedState = forceReloadEnabled
+      ? {
+          novas: false,
+          antigas: false,
+          snisb: false,
+          aneel: false,
+          geoJson: false
+        }
+      : loadedLayersRef.current;
+
+    const pending = getPendingExternalLayerFetches(flags, effectiveLoaded);
+    if (pending.length === 0) return;
+
     setLoading(true);
     try {
-      const [notifs, snisb, aneel, geo, novas] = await Promise.all([
-        fetchNotifications().catch(() => []),
-        fetchSnisbDams().catch(() => []),
-        fetchAneelDams().catch(() => []),
-        fetchMatoGrossoGeoJson().catch(() => null),
-        fetchNovasNotificacoes().catch(() => [])
-      ]);
-      setNotifications(notifs);
-      setSnisbDams(snisb);
-      setAneelDams(aneel);
-      setGeoJsonData(geo);
-      setNovasNotificacoes(novas);
+      const tasks: Promise<void>[] = [];
+
+      if (pending.includes('novas')) {
+        tasks.push(
+          Promise.all([
+            fetchNovasNotificacoes().catch(() => []),
+            loadedLayersRef.current.antigas ? Promise.resolve(notifications) : fetchNotifications().catch(() => [])
+          ]).then(([novas, sheetNotifs]) => {
+            setNovasNotificacoes(novas);
+            if (!loadedLayersRef.current.antigas && sheetNotifs.length > 0) {
+              setNotifications(sheetNotifs);
+              loadedLayersRef.current.antigas = true;
+            }
+            loadedLayersRef.current.novas = true;
+          })
+        );
+      }
+
+      if (pending.includes('antigas') && !pending.includes('novas')) {
+        tasks.push(
+          fetchNotifications()
+            .catch(() => [])
+            .then(notifs => {
+              setNotifications(notifs);
+              loadedLayersRef.current.antigas = true;
+            })
+        );
+      }
+
+      if (pending.includes('snisb')) {
+        tasks.push(
+          fetchSnisbDams()
+            .catch(() => [])
+            .then(snisb => {
+              setSnisbDams(snisb);
+              loadedLayersRef.current.snisb = true;
+            })
+        );
+      }
+
+      if (pending.includes('aneel')) {
+        tasks.push(
+          fetchAneelDams()
+            .catch(() => [])
+            .then(aneel => {
+              setAneelDams(aneel);
+              loadedLayersRef.current.aneel = true;
+            })
+        );
+      }
+
+      if (pending.includes('geoJson')) {
+        tasks.push(
+          fetchMatoGrossoGeoJson()
+            .catch(() => null)
+            .then(geo => {
+              setGeoJsonData(geo);
+              loadedLayersRef.current.geoJson = true;
+            })
+        );
+      }
+
+      await Promise.all(tasks);
     } catch (err) {
-      console.error('[Map] Erro ao carregar dados:', err);
+      console.error('[Map] Erro ao carregar camadas sob demanda:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadEnabledExternalLayers(false);
+  }, [showNovas, showAntigas, showSnisb, showAneel, showGeoJson]);
 
-  // Inscrição em tempo real (Realtime) no canal Supabase para tabela 'notificacoes'
+  // Inscrição Realtime SOMENTE quando a camada "NOVAS" é habilitada pelo usuário
   const [isRealtimeConnected, setIsRealtimeConnected] = useState<boolean>(false);
   const [realtimeToast, setRealtimeToast] = useState<string | null>(null);
 
   useEffect(() => {
-    // 1. Carga inicial das novas notificações do Supabase
-    fetchNovasNotificacoes().then((novas) => {
-      if (novas && novas.length > 0) {
-        setNovasNotificacoes(novas);
-      }
-    });
+    if (!showNovas) {
+      setIsRealtimeConnected(false);
+      return;
+    }
 
     const client = supabase;
     if (!isSupabaseConfigured || !client) return;
 
-    // 2. Inscrição no canal Realtime (postgres_changes na tabela 'notificacoes')
-    // Sempre que um analista inserir, editar ou deletar uma notificação, o mapa atualiza automaticamente sem recarregar
     const channel = client
       .channel('notificacoes-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notificacoes' },
         (payload: any) => {
-
           if (payload.eventType === 'INSERT' && payload.new) {
             const ponto = rowToNotificacaoPontoMapa(payload.new);
             if (ponto) {
@@ -234,7 +321,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             setRealtimeToast('Notificação removida do banco');
           }
 
-          // Reconciliação imediata com o banco Supabase
           fetchNovasNotificacoes().then((novas) => {
             if (novas && novas.length > 0) {
               setNovasNotificacoes(novas);
@@ -250,7 +336,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         }
       });
 
-    // 3. Ouvinte de evento local para sincronização instantânea entre componentes/abas
     const handleLocalUpdate = () => {
       fetchNovasNotificacoes().then((novas) => {
         if (novas && novas.length > 0) setNovasNotificacoes(novas);
@@ -262,7 +347,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       client.removeChannel(channel);
       window.removeEventListener('csb:notificacao_changed', handleLocalUpdate);
     };
-  }, []);
+  }, [showNovas]);
 
   // Limpeza automática do aviso de evento Realtime após 5 segundos
   useEffect(() => {
@@ -386,6 +471,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     snisbLayerRef.current = L.layerGroup().addTo(map);
     aneelLayerRef.current = L.layerGroup().addTo(map);
     fiscalizadasLayerRef.current = L.layerGroup().addTo(map);
+    catalogDamsLayerRef.current = L.layerGroup().addTo(map);
 
     map.on('mousemove', (e: L.LeafletMouseEvent) => {
       const gms = formatLiveGms(e.latlng.lat, e.latlng.lng);
@@ -418,7 +504,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     }
   }, [baseMap]);
 
-  // GeoJSON dos Municípios (bordas brancas semitransparentes como na imagem)
+  // GeoJSON dos Municípios (somente quando showGeoJson está ativo)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -428,7 +514,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       geoJsonLayerRef.current = null;
     }
 
-    if (!geoJsonData) return;
+    if (!showGeoJson || !geoJsonData) return;
 
     const layer = L.geoJSON(geoJsonData as any, {
       style: (feature) => {
@@ -479,7 +565,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
     layer.addTo(map);
     geoJsonLayerRef.current = layer;
-  }, [geoJsonData, selectedMunicipality]);
+  }, [geoJsonData, selectedMunicipality, showGeoJson]);
 
   // Ícones customizados idênticos à imagem:
   // - roxa_aberto / roxa_cumprida: Notificações em aberto / cumpridas
@@ -761,6 +847,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     snisbLayerRef.current?.clearLayers();
     aneelLayerRef.current?.clearLayers();
     fiscalizadasLayerRef.current?.clearLayers();
+    catalogDamsLayerRef.current?.clearLayers();
+    catalogMarkerMapRef.current.clear();
 
     const matchMun = (mun: string) => {
       if (selectedMunicipality === 'todos') return true;
@@ -1058,12 +1146,72 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       });
     }
 
+    // --------------------------------------------------------------------------
+    // 6. MARCADORES NUMERADOS DO CATÁLOGO / MESA VIRTUAL (SINCRONIZADOS LISTA <-> MAPA)
+    // --------------------------------------------------------------------------
+    if (catalogDams.length > 0) {
+      catalogDams.forEach((dam) => {
+        if (dam.lat === null || dam.lng === null || isNaN(dam.lat) || isNaN(dam.lng)) return;
+        const mun = dam.municipio || 'Mato Grosso';
+        if (!matchMun(mun)) return;
+
+        const isSelected = selectedDamId === dam.id;
+        const bgColor =
+          dam.linkStatus === 'vinculo_oficial'
+            ? '#059669'
+            : dam.linkStatus === 'vinculo_pendente_revisao'
+            ? '#D97706'
+            : '#475569';
+        const ringStyle = isSelected
+          ? 'box-shadow:0 0 0 4px rgba(16,185,129,0.45),0 4px 10px rgba(0,0,0,0.45);transform:scale(1.16);'
+          : 'box-shadow:0 2px 6px rgba(0,0,0,0.4);';
+
+        const numIcon = L.divIcon({
+          className: 'catalog-numbered-pin',
+          html: `<div style="width:26px;height:26px;border-radius:50%;background:${bgColor};border:2.5px solid #ffffff;color:#ffffff;font-size:11px;font-weight:900;font-family:ui-monospace,monospace;display:flex;align-items:center;justify-content:center;${ringStyle}">${dam.orderNumber}</div>`,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13]
+        });
+
+        const marker = L.marker([dam.lat, dam.lng], {
+          icon: numIcon,
+          zIndexOffset: isSelected ? 1500 : 200
+        });
+
+        const popup = createCleanPopup({
+          origem: `#${dam.orderNumber} · ${dam.linkLabel.toUpperCase()}`,
+          origemCor: bgColor,
+          identificador: dam.nome,
+          empreendedor: dam.empreendedor || 'Empreendedor não vinculado',
+          propriedade: dam.subtitle || '',
+          data: dam.syncLabel || 'Mesa Virtual / Catálogo',
+          prazo: dam.linkLabel,
+          municipio: mun,
+          situacaoResposta: `Situação do vínculo: ${dam.linkLabel}${dam.syncLabel ? ` · Sincronização: ${dam.syncLabel}` : ''}`,
+          lat: dam.lat,
+          lng: dam.lng
+        });
+
+        marker.bindPopup(popup, popupOptions);
+        marker.on('click', () => {
+          marker.setZIndexOffset(1500);
+          marker.openPopup();
+          onSelectDam?.(dam.id);
+        });
+        catalogDamsLayerRef.current?.addLayer(marker);
+        catalogMarkerMapRef.current.set(dam.id, marker);
+      });
+    }
+
   }, [
     notifications,
     allNovasNotificacoes,
     snisbDams,
     aneelDams,
     inspections,
+    catalogDams,
+    selectedDamId,
+    onSelectDam,
     showNovas,
     showAntigas,
     showSnisb,
@@ -1074,6 +1222,18 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     filtroAtendidaNao,
     legendFilters
   ]);
+
+  // Centraliza e abre popup quando o usuário seleciona um item na lista sincronizada
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !selectedDamId) return;
+    const marker = catalogMarkerMapRef.current.get(selectedDamId);
+    if (marker) {
+      const latLng = marker.getLatLng();
+      map.flyTo(latLng, Math.max(map.getZoom(), 11), { duration: 0.7 });
+      marker.openPopup();
+    }
+  }, [selectedDamId]);
 
   // Busca e centralização por coordenada (LAT e LONG em inputs separados)
   const handleLocalizar = () => {
@@ -1439,6 +1599,16 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 />
                 <span>ANEEL</span>
               </label>
+
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showGeoJson}
+                  onChange={(e) => setShowGeoJson(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>MUNICÍPIOS MT</span>
+              </label>
             </div>
           </div>
         </div>
@@ -1485,18 +1655,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               </div>
             )}
 
-            {/* Ações Rápidas do Mapa (Topo Direito): Sincronizar, Alternar Satélite/OSM, Fullscreen */}
+            {/* Ações Rápidas do Mapa (Topo Direito): Sincronizar camadas ativas, Satélite/OSM, Fullscreen */}
             <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
-                  loadData();
-                  fetchNovasNotificacoes().then((novas) => {
-                    if (novas && novas.length > 0) setNovasNotificacoes(novas);
-                  });
+                  void loadEnabledExternalLayers(true);
                 }}
                 className="w-10 h-10 rounded-xl bg-white/95 hover:bg-white text-slate-800 shadow-md border border-slate-200 flex items-center justify-center transition cursor-pointer"
-                title="Sincronizar dados das planilhas e monitoramento em tempo real"
+                title="Atualizar camadas externas ativas no mapa"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-600' : 'text-slate-700'}`} />
               </button>

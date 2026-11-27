@@ -18,6 +18,9 @@ import {
   AdministraCadastroStatus,
   AdministraEntityCadastroState,
   BarragemEntity,
+  ConflitoSincronizacaoBarragem,
+  ConflitoSincronizacaoCampo,
+  DamLinkClassification,
   EmpreendedorEntity,
   EntidadeMestreTipo,
   ImportedFieldOriginRecord,
@@ -364,80 +367,82 @@ function isMissingRemoteTableError(err: unknown): boolean {
   );
 }
 
-function mapApiV2BarragemDto(dto: Record<string, any>): BarragemEntity | null {
+const FALLBACK_BARRAGEM_CREATED_AT = new WeakSet<BarragemEntity>();
+const FALLBACK_BARRAGEM_UPDATED_AT = new WeakSet<BarragemEntity>();
+
+export function mapApiV2BarragemDto(
+  dto: Record<string, any>,
+  options?: { nowIso?: string }
+): BarragemEntity | null {
   const id = typeof dto.id === 'string' ? dto.id.trim() : '';
   const nome = typeof dto.nome === 'string' ? dto.nome.trim() : '';
   if (!id || !nome) return null;
 
-  const now = new Date().toISOString();
-  const coordObj =
-    dto.coordenadas && typeof dto.coordenadas === 'object' ? dto.coordenadas : null;
+  const optStr = (val: unknown): string | null => {
+    if (val === undefined || val === null) return null;
+    const s = String(val).trim();
+    return s === '' ? null : s;
+  };
 
-  const latDec =
-    toNullableNum(coordObj?.latitude) ??
-    toNullableNum(dto.latitudeDecimal) ??
-    toNullableNum(dto.latitude);
-  const lngDec =
-    toNullableNum(coordObj?.longitude) ??
-    toNullableNum(dto.longitudeDecimal) ??
-    toNullableNum(dto.longitude);
+  const rawUpdatedAt = optStr(dto.updatedAt);
+  const rawCreatedAt = optStr(dto.createdAt);
+  const fallbackIso = options?.nowIso || new Date().toISOString();
+  const resolvedCreatedAt = rawCreatedAt || rawUpdatedAt || fallbackIso;
+  const resolvedUpdatedAt = rawUpdatedAt || rawCreatedAt || fallbackIso;
 
-  return {
+  const entity: BarragemEntity = {
     id,
-    administraId:
-      typeof dto.administraId === 'string' && dto.administraId.trim()
-        ? dto.administraId.trim()
-        : id,
+    administraId: id,
     sistemaOrigem: 'administra',
     criadoPorEmail: null,
-    empreendedorId:
-      typeof dto.empreendedorId === 'string' ? dto.empreendedorId.trim() : '',
+    empreendedorId: optStr(dto.empreendedorId) || '',
     nome,
-    municipio: typeof dto.municipio === 'string' ? dto.municipio.trim() : '',
-    baciaHidrografica:
-      typeof dto.baciaHidrografica === 'string' && dto.baciaHidrografica.trim()
-        ? dto.baciaHidrografica.trim()
-        : null,
-    cursoDagua:
-      typeof dto.cursoDagua === 'string' && dto.cursoDagua.trim()
-        ? dto.cursoDagua.trim()
-        : null,
+    municipio: optStr(dto.municipio) || '',
+    uf: optStr(dto.uf),
+    car: optStr(dto.car),
+    municipioIbge: optStr(dto.municipioIbge),
+    empreendimento: optStr(dto.empreendimento),
+    processo: optStr(dto.processo),
+    snisb: optStr(dto.snisb),
+    baciaHidrografica: null,
+    cursoDagua: optStr(dto.cursoAgua),
     coordenadas: {
-      latitude: latDec,
-      longitude: lngDec,
-      horarioCaptura: typeof dto.updatedAt === 'string' ? dto.updatedAt : null,
+      latitude: toNullableNum(dto.latitude),
+      longitude: toNullableNum(dto.longitude),
+      horarioCaptura: rawUpdatedAt,
       acuraciaMetros: null,
       altitudeEstimadaDispositivo: null,
-      editadoManualmente: true,
-      datum:
-        (typeof coordObj?.datum === 'string' && coordObj.datum.trim()) ||
-        (typeof dto.datum === 'string' && dto.datum.trim()) ||
-        'SIRGAS 2000'
+      editadoManualmente: false,
+      datum: ''
     },
-    latitudeGms:
-      typeof dto.latitudeGms === 'string' && dto.latitudeGms.trim()
-        ? dto.latitudeGms.trim()
-        : null,
-    longitudeGms:
-      typeof dto.longitudeGms === 'string' && dto.longitudeGms.trim()
-        ? dto.longitudeGms.trim()
-        : null,
-    cotaCoroamentoMetros: toNullableNum(dto.cotaCoroamentoMetros),
-    anoInicioObra: toNullableInt(dto.anoInicioObra),
-    anoFinalObra: toNullableInt(dto.anoFinalObra),
+    latitudeGms: null,
+    longitudeGms: null,
+    cotaCoroamentoMetros: null,
+    altura: toNullableNum(dto.altura),
+    volume: toNullableNum(dto.volume),
+    danoPotencial: optStr(dto.danoPotencial),
+    categoriaRisco: optStr(dto.categoriaRisco),
+    classificadaEm: optStr(dto.classificadaEm),
+    situacao: optStr(dto.situacao),
+    anoInicioObra: null,
+    anoFinalObra: null,
     idadeBarragemAnos: null,
-    tipoMaterial: (typeof dto.tipoMaterial === 'string'
-      ? dto.tipoMaterial.trim()
-      : '') as BarragemEntity['tipoMaterial'],
-    usoPrincipal: typeof dto.usoPrincipal === 'string' ? dto.usoPrincipal.trim() : '',
-    usosSecundarios: Array.isArray(dto.usosSecundarios)
-      ? dto.usosSecundarios.map(s => String(s).trim()).filter(Boolean)
-      : [],
-    sincronizadoAdministraEm:
-      (typeof dto.updatedAt === 'string' && dto.updatedAt) || now,
-    createdAt: (typeof dto.createdAt === 'string' && dto.createdAt) || now,
-    updatedAt: (typeof dto.updatedAt === 'string' && dto.updatedAt) || now
+    tipoMaterial: '' as BarragemEntity['tipoMaterial'],
+    usoPrincipal: '',
+    usosSecundarios: [],
+    sincronizadoAdministraEm: rawUpdatedAt,
+    createdAt: resolvedCreatedAt,
+    updatedAt: resolvedUpdatedAt
   };
+
+  if (!rawCreatedAt) {
+    FALLBACK_BARRAGEM_CREATED_AT.add(entity);
+  }
+  if (!rawUpdatedAt) {
+    FALLBACK_BARRAGEM_UPDATED_AT.add(entity);
+  }
+
+  return entity;
 }
 
 async function fetchAdministraBarragensViaBackend(): Promise<BarragemEntity[]> {
@@ -625,11 +630,64 @@ function mergeEmpreendedorPreservingExisting(
   };
 }
 
-function mergeBarragemPreservingExisting(
+export function mergeBarragemPreservingExisting(
   existing: BarragemEntity | undefined,
   incoming: BarragemEntity
 ): BarragemEntity {
   if (!existing) return incoming;
+
+  const hasManualCoords = existing.coordenadas?.editadoManualmente === true;
+  const mergedCoordenadas = hasManualCoords
+    ? {
+        latitude: existing.coordenadas?.latitude ?? null,
+        longitude: existing.coordenadas?.longitude ?? null,
+        horarioCaptura: existing.coordenadas?.horarioCaptura || null,
+        acuraciaMetros: existing.coordenadas?.acuraciaMetros ?? null,
+        altitudeEstimadaDispositivo:
+          existing.coordenadas?.altitudeEstimadaDispositivo ?? null,
+        editadoManualmente: true,
+        datum: existing.coordenadas?.datum || ''
+      }
+    : {
+        latitude: incoming.coordenadas?.latitude ?? existing.coordenadas?.latitude ?? null,
+        longitude: incoming.coordenadas?.longitude ?? existing.coordenadas?.longitude ?? null,
+        horarioCaptura:
+          incoming.coordenadas?.horarioCaptura || existing.coordenadas?.horarioCaptura || null,
+        acuraciaMetros:
+          incoming.coordenadas?.acuraciaMetros ?? existing.coordenadas?.acuraciaMetros ?? null,
+        altitudeEstimadaDispositivo:
+          incoming.coordenadas?.altitudeEstimadaDispositivo ??
+          existing.coordenadas?.altitudeEstimadaDispositivo ??
+          null,
+        editadoManualmente: Boolean(incoming.coordenadas?.editadoManualmente),
+        datum: (incoming.coordenadas?.datum || '').trim() || existing.coordenadas?.datum || ''
+      };
+
+  const existingCreated = (existing.createdAt || '').trim();
+  const incomingCreated = (incoming.createdAt || '').trim();
+  const existingUpdated = (existing.updatedAt || '').trim();
+  const incomingUpdated = (incoming.updatedAt || '').trim();
+
+  const incomingUpdatedIsFallback =
+    FALLBACK_BARRAGEM_UPDATED_AT.has(incoming) ||
+    (incoming.sistemaOrigem === 'administra' && !incoming.sincronizadoAdministraEm) ||
+    !incomingUpdated;
+
+  const mergedUpdatedAt = incomingUpdatedIsFallback
+    ? existingUpdated || incomingUpdated || new Date().toISOString()
+    : incomingUpdated || existingUpdated || new Date().toISOString();
+
+  const incomingCreatedIsFallback =
+    FALLBACK_BARRAGEM_CREATED_AT.has(incoming) ||
+    (incoming.sistemaOrigem === 'administra' &&
+      !incoming.sincronizadoAdministraEm &&
+      existingCreated !== '') ||
+    !incomingCreated;
+
+  const mergedCreatedAt = incomingCreatedIsFallback
+    ? existingCreated || incomingCreated || mergedUpdatedAt
+    : existingCreated || incomingCreated || mergedUpdatedAt;
+
   return {
     ...existing,
     ...incoming,
@@ -638,23 +696,28 @@ function mergeBarragemPreservingExisting(
     empreendedorId: (incoming.empreendedorId || '').trim() || existing.empreendedorId,
     nome: (incoming.nome || '').trim() || existing.nome,
     municipio: (incoming.municipio || '').trim() || existing.municipio,
+    uf: mergeNonEmptyStr(incoming.uf, existing.uf),
+    car: mergeNonEmptyStr(incoming.car, existing.car),
+    municipioIbge: mergeNonEmptyStr(incoming.municipioIbge, existing.municipioIbge),
+    empreendimento: mergeNonEmptyStr(incoming.empreendimento, existing.empreendimento),
+    processo: mergeNonEmptyStr(incoming.processo, existing.processo),
+    snisb: mergeNonEmptyStr(incoming.snisb, existing.snisb),
     baciaHidrografica: mergeNonEmptyStr(incoming.baciaHidrografica, existing.baciaHidrografica),
     cursoDagua: mergeNonEmptyStr(incoming.cursoDagua, existing.cursoDagua),
-    coordenadas: {
-      latitude: incoming.coordenadas?.latitude ?? existing.coordenadas?.latitude ?? null,
-      longitude: incoming.coordenadas?.longitude ?? existing.coordenadas?.longitude ?? null,
-      horarioCaptura: incoming.coordenadas?.horarioCaptura || existing.coordenadas?.horarioCaptura || null,
-      acuraciaMetros: incoming.coordenadas?.acuraciaMetros ?? existing.coordenadas?.acuraciaMetros ?? null,
-      altitudeEstimadaDispositivo:
-        incoming.coordenadas?.altitudeEstimadaDispositivo ??
-        existing.coordenadas?.altitudeEstimadaDispositivo ??
-        null,
-      editadoManualmente: incoming.coordenadas?.editadoManualmente ?? existing.coordenadas?.editadoManualmente,
-      datum: incoming.coordenadas?.datum || existing.coordenadas?.datum || 'SIRGAS 2000'
-    },
-    latitudeGms: mergeNonEmptyStr(incoming.latitudeGms, existing.latitudeGms),
-    longitudeGms: mergeNonEmptyStr(incoming.longitudeGms, existing.longitudeGms),
+    coordenadas: mergedCoordenadas,
+    latitudeGms: hasManualCoords
+      ? (existing.latitudeGms ?? null)
+      : mergeNonEmptyStr(incoming.latitudeGms, existing.latitudeGms),
+    longitudeGms: hasManualCoords
+      ? (existing.longitudeGms ?? null)
+      : mergeNonEmptyStr(incoming.longitudeGms, existing.longitudeGms),
     cotaCoroamentoMetros: incoming.cotaCoroamentoMetros ?? existing.cotaCoroamentoMetros ?? null,
+    altura: incoming.altura ?? existing.altura ?? null,
+    volume: incoming.volume ?? existing.volume ?? null,
+    danoPotencial: mergeNonEmptyStr(incoming.danoPotencial, existing.danoPotencial),
+    categoriaRisco: mergeNonEmptyStr(incoming.categoriaRisco, existing.categoriaRisco),
+    classificadaEm: mergeNonEmptyStr(incoming.classificadaEm, existing.classificadaEm),
+    situacao: mergeNonEmptyStr(incoming.situacao, existing.situacao),
     anoInicioObra: incoming.anoInicioObra ?? existing.anoInicioObra ?? null,
     anoFinalObra: incoming.anoFinalObra ?? existing.anoFinalObra ?? null,
     idadeBarragemAnos: incoming.idadeBarragemAnos ?? existing.idadeBarragemAnos ?? null,
@@ -663,7 +726,13 @@ function mergeBarragemPreservingExisting(
     usosSecundarios:
       incoming.usosSecundarios && incoming.usosSecundarios.length > 0
         ? incoming.usosSecundarios
-        : existing.usosSecundarios || []
+        : existing.usosSecundarios || [],
+    sincronizadoAdministraEm: mergeNonEmptyStr(
+      incoming.sincronizadoAdministraEm,
+      existing.sincronizadoAdministraEm
+    ),
+    createdAt: mergedCreatedAt,
+    updatedAt: mergedUpdatedAt
   };
 }
 
@@ -2241,17 +2310,32 @@ export async function searchEcosystemEntrepreneursAndDams(query: string): Promis
   };
   const q = normalizeNameForMatch(trimmed);
 
-  const matchDam = (b: BarragemEntity) => {
+  const matchDam = (b: BarragemEntity, linkedEmp?: EmpreendedorEntity) => {
     if (!q) return false;
+    const ownerName = linkedEmp?.nomeRazaoSocial || '';
+    const ownerDoc = normalizeDocumentDigits(linkedEmp?.cpfCnpj);
     return (
       normalizeNameForMatch(b.nome).includes(q) ||
       normalizeNameForMatch(b.municipio).includes(q) ||
-      normalizeNameForMatch(b.cursoDagua).includes(q)
+      normalizeNameForMatch(b.cursoDagua).includes(q) ||
+      normalizeNameForMatch(b.snisb).includes(q) ||
+      normalizeNameForMatch(b.car).includes(q) ||
+      normalizeNameForMatch(b.empreendimento).includes(q) ||
+      normalizeNameForMatch(b.processo).includes(q) ||
+      normalizeNameForMatch(b.id).includes(q) ||
+      normalizeNameForMatch(b.administraId).includes(q) ||
+      normalizeNameForMatch(ownerName).includes(q) ||
+      Boolean(qDigits && qDigits.length >= 3 && ownerDoc.includes(qDigits))
     );
   };
 
+  const empById = new Map(catalog.empreendedores.map(e => [e.id, e]));
+
   const directlyMatchedDamEmpIds = new Set(
-    catalog.barragens.filter(matchDam).map(b => b.empreendedorId).filter(Boolean)
+    catalog.barragens
+      .filter(b => matchDam(b, empById.get(b.empreendedorId)))
+      .map(b => b.empreendedorId)
+      .filter(Boolean)
   );
 
   const matchEmp = (e: EmpreendedorEntity) => {
@@ -2264,7 +2348,11 @@ export async function searchEcosystemEntrepreneursAndDams(query: string): Promis
     const docDigits = normalizeDocumentDigits(e.cpfCnpj);
     const docMatch = qDigits && qDigits.length >= 3 ? docDigits.includes(qDigits) : false;
     const rawDocMatch = q ? normalizeNameForMatch(e.cpfCnpj).includes(q) : false;
-    return nameMatch || munMatch || carMatch || docMatch || rawDocMatch;
+    const procMatch = q ? normalizeNameForMatch(e.processoNumero).includes(q) : false;
+    const idMatch = q
+      ? normalizeNameForMatch(e.id).includes(q) || normalizeNameForMatch(e.administraId).includes(q)
+      : false;
+    return nameMatch || munMatch || carMatch || docMatch || rawDocMatch || procMatch || idMatch;
   };
 
   const matchedEmps = catalog.empreendedores.filter(matchEmp);
@@ -2273,7 +2361,7 @@ export async function searchEcosystemEntrepreneursAndDams(query: string): Promis
   const matchedBars = catalog.barragens.filter(b => {
     if (matchedEmpIds.has(b.empreendedorId)) return true;
     if (!q) return true;
-    return matchDam(b);
+    return matchDam(b, empById.get(b.empreendedorId));
   });
 
   return {
@@ -2999,4 +3087,465 @@ export function applyMasterSelectionToInspection(
 
   return next;
 }
+
+// ==============================================================================
+// 6. CLASSIFICAÇÃO EXPLÍCITA DE VÍNCULOS, BUSCA PAGINADA E CONFLITOS DE SINCRONIZAÇÃO
+// ==============================================================================
+
+export function hasValidDamCoordinates(dam?: Partial<BarragemEntity> | null, inspection?: InspectionData | null): boolean {
+  if (dam?.coordenadas) {
+    const lat = dam.coordenadas.latitude;
+    const lng = dam.coordenadas.longitude;
+    if (
+      typeof lat === 'number' &&
+      typeof lng === 'number' &&
+      !Number.isNaN(lat) &&
+      !Number.isNaN(lng) &&
+      (lat !== 0 || lng !== 0)
+    ) {
+      return true;
+    }
+  }
+  if (dam?.latitudeGms?.trim() && dam?.longitudeGms?.trim()) {
+    return true;
+  }
+  if (inspection?.damIdentification?.coordinates) {
+    const c = inspection.damIdentification.coordinates;
+    if (c.latitude?.trim() && c.longitude?.trim()) {
+      const decLat = parseGmsToDecimal(c.latitude, true);
+      const decLng = parseGmsToDecimal(c.longitude, false);
+      if (decLat !== null && decLng !== null) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Classifica explicitamente o estado de vínculo de uma barragem/ficha em 4 estados distintos:
+ * - vinculo_oficial: vínculo oficial confirmado no Administra (com empreendedor/ID oficial)
+ * - vinculo_pendente_revisao: entidade sem empreendedor/RT completo, conflito ativo ou revisão pendente
+ * - sem_vinculo: entidade ainda não vinculada ao cadastro central
+ * - coordenadasIndisponiveis: flag explícita quando coordenadas estão ausentes/inválidas
+ */
+export function classifyDamLinkStatus(params: {
+  dam?: BarragemEntity | null;
+  empreendedor?: EmpreendedorEntity | null;
+  responsavelTecnico?: ResponsavelTecnicoEntity | null;
+  inspection?: InspectionData | null;
+  hasPendingAlteration?: boolean;
+}): DamLinkClassification {
+  const { dam, empreendedor, inspection, hasPendingAlteration } = params;
+  const coordenadasIndisponiveis = !hasValidDamCoordinates(dam, inspection);
+
+  if (dam) {
+    const missingOwner = !(dam.empreendedorId && dam.empreendedorId.trim());
+    const hasAdministraOrigin = dam.sistemaOrigem === 'administra' || Boolean(dam.administraId && dam.sincronizadoAdministraEm);
+    const hasPendingConflict = Boolean(
+      inspection?.conflitosSincronizacao?.some(c => c.status === 'pendente')
+    );
+
+    if (hasPendingConflict || hasPendingAlteration || missingOwner) {
+      return {
+        status: 'vinculo_pendente_revisao',
+        label: 'Vínculo pendente de revisão',
+        motivo: hasPendingConflict
+          ? 'Existe divergência cadastral pendente de resolução entre participantes.'
+          : missingOwner
+          ? 'Barragem sem empreendedor ou vínculo completo associado; exige revisão antes de consolidação.'
+          : 'Há solicitação de alteração ou revisão cadastral em andamento.',
+        coordenadasIndisponiveis
+      };
+    }
+
+    if (hasAdministraOrigin && (empreendedor?.id || dam.empreendedorId)) {
+      return {
+        status: 'vinculo_oficial',
+        label: 'Vínculo oficial confirmado no Administra',
+        motivo: 'Cadastro validado e vinculado oficialmente ao repositório central Administra.',
+        coordenadasIndisponiveis
+      };
+    }
+
+    return {
+      status: 'vinculo_pendente_revisao',
+      label: 'Vínculo pendente de revisão',
+      motivo: 'Registro originado em campo ou sistema satélite aguardando homologação oficial no Administra.',
+      coordenadasIndisponiveis
+    };
+  }
+
+  if (inspection) {
+    const barStatus = getEntityCadastroStatus(inspection, 'barragem');
+    const empStatus = getEntityCadastroStatus(inspection, 'empreendedor');
+    const hasPendingConflict = Boolean(
+      inspection.conflitosSincronizacao?.some(c => c.status === 'pendente')
+    );
+
+    if (!barStatus.cadastrado && !inspection.barragemId) {
+      return {
+        status: 'sem_vinculo',
+        label: 'Entidade ainda não vinculada',
+        motivo: 'Barragem registrada apenas localmente nesta ficha de vistoria.',
+        coordenadasIndisponiveis
+      };
+    }
+
+    if (barStatus.cadastrado && empStatus.cadastrado && !hasPendingConflict && !hasPendingAlteration) {
+      const isOfficial =
+        barStatus.modo === 'vinculado_existente' &&
+        (barStatus.sistemaOrigem === 'administra' || Boolean(inspection.barragemId));
+      if (isOfficial) {
+        return {
+          status: 'vinculo_oficial',
+          label: 'Vínculo oficial confirmado no Administra',
+          motivo: 'Barragem e empreendedor vinculados oficialmente ao Administra.',
+          coordenadasIndisponiveis
+        };
+      }
+    }
+
+    if (barStatus.cadastrado || inspection.damIdentification?.damName?.trim()) {
+      if (!barStatus.cadastrado) {
+        return {
+          status: 'sem_vinculo',
+          label: 'Entidade ainda não vinculada',
+          motivo: 'Cadastro mantido localmente sem vínculo confirmado no Administra.',
+          coordenadasIndisponiveis
+        };
+      }
+      return {
+        status: 'vinculo_pendente_revisao',
+        label: 'Vínculo pendente de revisão',
+        motivo: hasPendingConflict
+          ? 'Divergência de dados pendente de revisão.'
+          : 'Empreendedor ou confirmação oficial no Administra ainda pendente.',
+        coordenadasIndisponiveis
+      };
+    }
+  }
+
+  return {
+    status: 'sem_vinculo',
+    label: 'Entidade ainda não vinculada',
+    motivo: 'Nenhuma entidade oficial vinculada.',
+    coordenadasIndisponiveis
+  };
+}
+
+export interface PaginatedDamSearchItem {
+  barragem: BarragemEntity;
+  empreendedor: EmpreendedorEntity | null;
+  responsavelTecnico: ResponsavelTecnicoEntity | null;
+  linkClassification: DamLinkClassification;
+  priorityMatch: 'empreendedor_vinculado' | 'revisao_ou_sem_vinculo' | 'geral';
+}
+
+export interface PaginatedDamSearchResult {
+  items: PaginatedDamSearchItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/**
+ * Busca paginada de barragens no catálogo (por nome, SNISB, CAR, município, empreendedor,
+ * empreendimento, processo ou identificador). Quando há um empreendedor selecionado,
+ * prioriza suas barragens com vínculo oficial, mas mantém barragens sem empreendedor/RT
+ * pesquisáveis e marcadas como "vínculo pendente de revisão".
+ */
+export function searchDamCatalogPaginated(params: {
+  catalog: AdministraMasterCatalog;
+  query?: string;
+  selectedEmpreendedorId?: string | null;
+  onlyPendingOrUnlinked?: boolean;
+  page?: number;
+  pageSize?: number;
+  pendingAlterationDamIds?: Set<string>;
+}): PaginatedDamSearchResult {
+  const {
+    catalog,
+    query = '',
+    selectedEmpreendedorId,
+    onlyPendingOrUnlinked = false,
+    pendingAlterationDamIds
+  } = params;
+  const pageSize = Math.max(1, Math.min(50, params.pageSize || 8));
+  const rawPage = Math.max(1, params.page || 1);
+
+  const q = normalizeNameForMatch(query);
+  const qDigits = normalizeDocumentDigits(query);
+  const empById = new Map(catalog.empreendedores.map(e => [e.id, e]));
+
+  const itemsWithScore: { item: PaginatedDamSearchItem; score: number }[] = [];
+
+  for (const bar of catalog.barragens) {
+    const emp = bar.empreendedorId ? empById.get(bar.empreendedorId) || null : null;
+    const rt =
+      catalog.responsaveisTecnicos.find(
+        r => r.barragemId === bar.id || (emp && r.empreendedorId === emp.id)
+      ) || null;
+
+    const linkClassification = classifyDamLinkStatus({
+      dam: bar,
+      empreendedor: emp,
+      responsavelTecnico: rt,
+      hasPendingAlteration: pendingAlterationDamIds?.has(bar.id)
+    });
+
+    if (onlyPendingOrUnlinked && linkClassification.status === 'vinculo_oficial') {
+      continue;
+    }
+
+    if (q || qDigits) {
+      const carNormalized = normalizeNameForMatch(bar.car || emp?.carNumero || '');
+      const carCompact = carNormalized.replace(/[^a-z0-9]/g, '');
+      const qCompact = q.replace(/[^a-z0-9]/g, '');
+      const empDocDigits = normalizeDocumentDigits(emp?.cpfCnpj);
+
+      const matches =
+        (q && normalizeNameForMatch(bar.nome).includes(q)) ||
+        (q && normalizeNameForMatch(bar.snisb).includes(q)) ||
+        (q && (carNormalized.includes(q) || (qCompact && carCompact.includes(qCompact)))) ||
+        (q && normalizeNameForMatch(bar.municipio).includes(q)) ||
+        (q && normalizeNameForMatch(bar.empreendimento).includes(q)) ||
+        (q && normalizeNameForMatch(bar.processo).includes(q)) ||
+        (q && normalizeNameForMatch(bar.cursoDagua).includes(q)) ||
+        (q && normalizeNameForMatch(bar.id).includes(q)) ||
+        (q && normalizeNameForMatch(bar.administraId).includes(q)) ||
+        (q && normalizeNameForMatch(emp?.nomeRazaoSocial).includes(q)) ||
+        Boolean(qDigits && qDigits.length >= 3 && empDocDigits.includes(qDigits));
+
+      if (!matches) continue;
+    }
+
+    const isSelectedOwnerDam = Boolean(selectedEmpreendedorId && bar.empreendedorId === selectedEmpreendedorId);
+    let score = 0;
+    let priorityMatch: PaginatedDamSearchItem['priorityMatch'] = 'geral';
+
+    if (isSelectedOwnerDam) {
+      score += linkClassification.status === 'vinculo_oficial' ? 100 : 70;
+      priorityMatch = 'empreendedor_vinculado';
+    } else if (linkClassification.status !== 'vinculo_oficial') {
+      score += 20;
+      priorityMatch = 'revisao_ou_sem_vinculo';
+    } else {
+      score += 40;
+    }
+
+    if (q && normalizeNameForMatch(bar.nome).startsWith(q)) {
+      score += 15;
+    }
+
+    itemsWithScore.push({
+      item: {
+        barragem: bar,
+        empreendedor: emp,
+        responsavelTecnico: rt,
+        linkClassification,
+        priorityMatch
+      },
+      score
+    });
+  }
+
+  itemsWithScore.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return (a.item.barragem.nome || '').localeCompare(b.item.barragem.nome || '', 'pt-BR');
+  });
+
+  const total = itemsWithScore.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(rawPage, totalPages);
+  const start = (safePage - 1) * pageSize;
+
+  return {
+    items: itemsWithScore.slice(start, start + pageSize).map(entry => entry.item),
+    total,
+    page: safePage,
+    pageSize,
+    totalPages
+  };
+}
+
+/**
+ * Compara dados locais da ficha com o registro oficial no catálogo do Administra/Ecossistema
+ * sem sobrescrever nenhum dos lados silenciosamente, gerando registro auditável de conflito
+ * quando houver divergência real.
+ */
+export function detectDamSyncConflicts(
+  inspection: InspectionData,
+  catalog: AdministraMasterCatalog
+): ConflitoSincronizacaoBarragem | null {
+  const barId = (inspection.barragemId || '').trim();
+  const empId = (inspection.empreendedorId || '').trim();
+
+  const remoteDam = barId
+    ? catalog.barragens.find(b => b.id === barId || b.administraId === barId)
+    : undefined;
+  const remoteEmp = empId
+    ? catalog.empreendedores.find(e => e.id === empId || e.administraId === empId)
+    : undefined;
+
+  if (!remoteDam && !remoteEmp) return null;
+
+  const camposDivergentes: ConflitoSincronizacaoCampo[] = [];
+  const d = inspection.damIdentification;
+
+  const pushIfDifferent = (
+    campo: string,
+    rotulo: string,
+    localVal: string | undefined | null,
+    remoteVal: string | undefined | null,
+    origemRemota: SistemaOrigem | 'administra_api'
+  ) => {
+    const l = (localVal || '').trim();
+    const r = (remoteVal || '').trim();
+    if (!l || !r) return;
+    if (normalizeNameForMatch(l) !== normalizeNameForMatch(r)) {
+      camposDivergentes.push({
+        campo,
+        rotulo,
+        valorLocal: l,
+        valorRemoto: r,
+        origemRemota
+      });
+    }
+  };
+
+  if (remoteDam) {
+    const orig = remoteDam.sistemaOrigem === 'administra' ? 'administra_api' : remoteDam.sistemaOrigem;
+    pushIfDifferent('damName', 'Nome da Barragem', d?.damName, remoteDam.nome, orig);
+    pushIfDifferent('municipality', 'Município', d?.municipality, remoteDam.municipio, orig);
+    pushIfDifferent('waterCourse', "Curso d'Água", d?.waterCourse, remoteDam.cursoDagua, orig);
+    pushIfDifferent(
+      'carNumber',
+      'CAR',
+      d?.regulatoryStatus?.carNumber,
+      remoteDam.car,
+      orig
+    );
+  }
+
+  if (remoteEmp) {
+    const orig = remoteEmp.sistemaOrigem === 'administra' ? 'administra_api' : remoteEmp.sistemaOrigem;
+    pushIfDifferent(
+      'propertyOrBusinessName',
+      'Empreendedor / Razão Social',
+      d?.propertyOrBusinessName,
+      remoteEmp.nomeRazaoSocial,
+      orig
+    );
+  }
+
+  if (camposDivergentes.length === 0) return null;
+
+  const participantes = new Set<string>();
+  if (inspection.createdByEmail) participantes.add(inspection.createdByEmail.trim().toLowerCase());
+  if (remoteDam?.criadoPorEmail) participantes.add(remoteDam.criadoPorEmail.trim().toLowerCase());
+  if (remoteEmp?.criadoPorEmail) participantes.add(remoteEmp.criadoPorEmail.trim().toLowerCase());
+
+  return {
+    id: generateUUID(),
+    vistoriaId: inspection.id,
+    entidadeTipo: remoteDam ? 'barragem' : 'empreendedor',
+    entidadeId: remoteDam?.id || remoteEmp?.id || null,
+    entidadeNome: d?.damName || remoteDam?.nome || remoteEmp?.nomeRazaoSocial || 'Entidade vinculada',
+    status: 'pendente',
+    camposDivergentes,
+    participantesEmails: Array.from(participantes),
+    detectadoEm: new Date().toISOString()
+  };
+}
+
+/**
+ * Registra a resolução explícita e auditável de um conflito de sincronização por participante,
+ * preservando decisão, autor, data, valores anteriores/novos e origem.
+ */
+export function resolveDamSyncConflict(params: {
+  inspection: InspectionData;
+  conflictId: string;
+  decisao: 'manter_local' | 'adotar_remoto' | 'mesclar_manual';
+  actorEmail: string;
+  actorName: string;
+  justificativa: string;
+  manualOverrides?: Record<string, string>;
+}): { updatedInspection: InspectionData; error?: string } {
+  const just = (params.justificativa || '').trim();
+  if (!just) {
+    return {
+      updatedInspection: params.inspection,
+      error: 'Informe uma justificativa para registrar a resolução do conflito.'
+    };
+  }
+
+  const list = params.inspection.conflitosSincronizacao || [];
+  const target = list.find(c => c.id === params.conflictId);
+  if (!target) {
+    return {
+      updatedInspection: params.inspection,
+      error: 'Conflito de sincronização não encontrado.'
+    };
+  }
+
+  const now = new Date().toISOString();
+  let nextDamId = { ...params.inspection.damIdentification, regulatoryStatus: { ...params.inspection.damIdentification.regulatoryStatus } };
+
+  if (params.decisao === 'adotar_remoto') {
+    for (const c of target.camposDivergentes) {
+      if (c.campo === 'damName') nextDamId.damName = c.valorRemoto;
+      if (c.campo === 'municipality') nextDamId.municipality = c.valorRemoto;
+      if (c.campo === 'waterCourse') nextDamId.waterCourse = c.valorRemoto;
+      if (c.campo === 'propertyOrBusinessName') nextDamId.propertyOrBusinessName = c.valorRemoto;
+      if (c.campo === 'carNumber') nextDamId.regulatoryStatus.carNumber = c.valorRemoto;
+    }
+  } else if (params.decisao === 'mesclar_manual' && params.manualOverrides) {
+    const ov = params.manualOverrides;
+    if (ov.damName !== undefined) nextDamId.damName = ov.damName;
+    if (ov.municipality !== undefined) nextDamId.municipality = ov.municipality;
+    if (ov.waterCourse !== undefined) nextDamId.waterCourse = ov.waterCourse;
+    if (ov.propertyOrBusinessName !== undefined) nextDamId.propertyOrBusinessName = ov.propertyOrBusinessName;
+    if (ov.carNumber !== undefined) nextDamId.regulatoryStatus.carNumber = ov.carNumber;
+  }
+
+  const resolvedConflict: ConflitoSincronizacaoBarragem = {
+    ...target,
+    status: 'resolvido',
+    decisao: params.decisao,
+    resolvidaPorEmail: params.actorEmail.trim().toLowerCase(),
+    resolvidaPorNome: params.actorName.trim() || params.actorEmail,
+    resolvidaEm: now,
+    justificativaResolucao: just
+  };
+
+  const nextConflicts = list.map(c => (c.id === params.conflictId ? resolvedConflict : c));
+  const auditEntry = {
+    id: generateUUID(),
+    vistoriaId: params.inspection.id,
+    tabelaNome: 'conflitos_sincronizacao',
+    registroId: params.conflictId,
+    operacao: 'UPDATE' as const,
+    dadosAnteriores: {
+      camposDivergentes: target.camposDivergentes
+    },
+    dadosNovos: {
+      decisao: params.decisao,
+      autor: params.actorEmail,
+      data: now,
+      justificativa: just
+    },
+    alteradoEm: now
+  };
+
+  return {
+    updatedInspection: {
+      ...params.inspection,
+      damIdentification: nextDamId,
+      conflitosSincronizacao: nextConflicts,
+      historicoAlteracoes: [auditEntry, ...(params.inspection.historicoAlteracoes || [])],
+      updatedAt: now
+    }
+  };
+}
+
 

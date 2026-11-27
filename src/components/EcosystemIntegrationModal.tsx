@@ -49,6 +49,7 @@ import {
   listAnalystInboxNotifications,
   markAnalystNotificationRead,
   resolveAlterationRequest,
+  searchDamCatalogPaginated,
   submitAlterationRequest,
   subscribeEcosystemUpdates
 } from '../services/administraEcosystemService';
@@ -125,6 +126,7 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
   const [serverConnections, setServerConnections] = useState<ServerConnectivityResult[]>([]);
   const [activeProducts, setActiveProducts] = useState<ProdutoEcossistema[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [damPage, setDamPage] = useState(1);
   const [catalogFilter, setCatalogFilter] = useState<'barragens' | 'empreendedores' | 'rts'>('barragens');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -196,16 +198,22 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
     return unsub;
   }, [isOpen, initialTab, initialRequestTarget]);
 
-  const filteredBarragens = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return catalog.barragens;
-    return catalog.barragens.filter(
-      b =>
-        b.nome.toLowerCase().includes(q) ||
-        b.municipio.toLowerCase().includes(q) ||
-        (b.cursoDagua || '').toLowerCase().includes(q)
-    );
-  }, [catalog.barragens, searchTerm]);
+  const paginatedBarragens = useMemo(
+    () =>
+      searchDamCatalogPaginated({
+        catalog,
+        query: searchTerm,
+        selectedEmpreendedorId: currentInspection.empreendedorId || null,
+        page: damPage,
+        pageSize: 12
+      }),
+    [catalog, searchTerm, currentInspection.empreendedorId, damPage]
+  );
+
+  const filteredBarragens = useMemo(
+    () => paginatedBarragens.items.map(i => i.barragem),
+    [paginatedBarragens]
+  );
 
   const filteredEmpreendedores = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -568,8 +576,11 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
                   <input
                     type="text"
                     value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    placeholder="Buscar barragem, empreendedor, CPF/CNPJ, município ou CREA..."
+                    onChange={e => {
+                      setSearchTerm(e.target.value);
+                      setDamPage(1);
+                    }}
+                    placeholder="Buscar por nome, SNISB, CAR, processo, ID, município, empreendimento ou CREA..."
                     className="w-full pl-9 pr-3 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                   />
                 </div>
@@ -584,7 +595,7 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
                     }`}
                   >
                     <Landmark className="w-3.5 h-3.5" />
-                    <span>Barragens ({filteredBarragens.length})</span>
+                    <span>Barragens ({paginatedBarragens.total})</span>
                   </button>
                   <button
                     type="button"
@@ -617,76 +628,121 @@ export const EcosystemIntegrationModal: React.FC<EcosystemIntegrationModalProps>
               <div className="space-y-2.5">
                 {catalogFilter === 'barragens' && (
                   <>
-                    {filteredBarragens.length === 0 ? (
+                    {paginatedBarragens.items.length === 0 ? (
                       <div className="p-6 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-xs text-slate-500">
                         Nenhuma barragem localizada no catálogo central ainda. Ao salvar uma vistoria no Fiscaliza ou sincronizar o servidor do Administra Barragens, os registros padronizados aparecerão aqui.
                       </div>
                     ) : (
-                      filteredBarragens.map(bar => {
-                        const perm = canFiscalizaEditMasterEntity(bar.sistemaOrigem);
-                        const owner = catalog.empreendedores.find(e => e.id === bar.empreendedorId);
-                        return (
-                          <div
-                            key={bar.id}
-                            className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                          >
-                            <div className="space-y-1">
-                              <div className="flex items-center flex-wrap gap-2">
-                                <span className="font-bold text-sm text-slate-900 dark:text-white">{bar.nome}</span>
-                                <span
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                    ORIGIN_BADGE_STYLES[bar.sistemaOrigem]
-                                  }`}
-                                >
-                                  Origem: {getSistemaLabel(bar.sistemaOrigem)}
-                                </span>
-                                {!perm.allowed && (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                    <Lock className="w-3 h-3" />
-                                    <span>Somente Leitura no Fiscaliza</span>
+                      <>
+                        {paginatedBarragens.items.map(entry => {
+                          const bar = entry.barragem;
+                          const perm = canFiscalizaEditMasterEntity(bar.sistemaOrigem);
+                          const owner = entry.empreendedor;
+                          return (
+                            <div
+                              key={bar.id}
+                              className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                            >
+                              <div className="space-y-1">
+                                <div className="flex items-center flex-wrap gap-2">
+                                  <span className="font-bold text-sm text-slate-900 dark:text-white">{bar.nome}</span>
+                                  <span
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                      ORIGIN_BADGE_STYLES[bar.sistemaOrigem]
+                                    }`}
+                                  >
+                                    Origem: {getSistemaLabel(bar.sistemaOrigem)}
                                   </span>
-                                )}
+                                  <span
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                      entry.linkClassification.status === 'vinculo_oficial'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                        : 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                    }`}
+                                  >
+                                    {entry.linkClassification.label}
+                                  </span>
+                                  {entry.linkClassification.coordenadasIndisponiveis && (
+                                    <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                                      · Coordenadas indisponíveis
+                                    </span>
+                                  )}
+                                  {!perm.allowed && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                      <Lock className="w-3 h-3" />
+                                      <span>Somente Leitura no Fiscaliza</span>
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-600 dark:text-slate-400">
+                                  Município: <strong>{bar.municipio || 'Não informado'}</strong>
+                                  {owner ? ` · Empreendedor: ${owner.nomeRazaoSocial}` : ' · Empreendedor não vinculado'}
+                                  {bar.snisb ? ` · SNISB ${bar.snisb}` : ''}
+                                  {bar.car ? ` · CAR ${bar.car}` : ''}
+                                  {bar.processo ? ` · Proc. ${bar.processo}` : ''}
+                                </p>
                               </div>
-                              <p className="text-xs text-slate-600 dark:text-slate-400">
-                                Município: <strong>{bar.municipio || 'Não informado'}</strong>
-                                {owner ? ` · Empreendedor: ${owner.nomeRazaoSocial}` : ''}
-                                {bar.cursoDagua ? ` · Curso d'água: ${bar.cursoDagua}` : ''}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleLinkBarragem(bar)}
-                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <Link2 className="w-3.5 h-3.5" />
-                                <span>Vincular à Ficha</span>
-                              </button>
-                              {!perm.allowed && (
+                              <div className="flex items-center gap-2 shrink-0">
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    setRequestForm({
-                                      entidadeTipo: 'barragem',
-                                      entidadeId: bar.id,
-                                      entidadeNome: bar.nome,
-                                      sistemaDetentor: bar.sistemaOrigem,
-                                      campoKey: 'nome',
-                                      campoRotulo: 'Nome / Dados da Barragem',
-                                      valorAtual: bar.nome,
-                                      valorProposto: '',
-                                      justificativa: ''
-                                    })
-                                  }
-                                  className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-bold cursor-pointer"
+                                  onClick={() => handleLinkBarragem(bar)}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                                 >
-                                  Solicitar Alteração
+                                  <Link2 className="w-3.5 h-3.5" />
+                                  <span>Vincular à Ficha</span>
                                 </button>
-                              )}
+                                {!perm.allowed && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRequestForm({
+                                        entidadeTipo: 'barragem',
+                                        entidadeId: bar.id,
+                                        entidadeNome: bar.nome,
+                                        sistemaDetentor: bar.sistemaOrigem,
+                                        campoKey: 'nome',
+                                        campoRotulo: 'Nome / Dados da Barragem',
+                                        valorAtual: bar.nome,
+                                        valorProposto: '',
+                                        justificativa: ''
+                                      })
+                                    }
+                                    className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-bold cursor-pointer"
+                                  >
+                                    Solicitar Alteração
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {paginatedBarragens.totalPages > 1 && (
+                          <div className="flex items-center justify-between pt-2 text-xs text-slate-600 dark:text-slate-400">
+                            <span className="tabular-nums">
+                              Página {paginatedBarragens.page} de {paginatedBarragens.totalPages} ({paginatedBarragens.total} barragens)
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={paginatedBarragens.page <= 1}
+                                onClick={() => setDamPage(p => Math.max(1, p - 1))}
+                                className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 disabled:opacity-40 cursor-pointer"
+                              >
+                                Anterior
+                              </button>
+                              <button
+                                type="button"
+                                disabled={paginatedBarragens.page >= paginatedBarragens.totalPages}
+                                onClick={() => setDamPage(p => Math.min(paginatedBarragens.totalPages, p + 1))}
+                                className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 disabled:opacity-40 cursor-pointer"
+                              >
+                                Próxima
+                              </button>
                             </div>
                           </div>
-                        );
-                      })
+                        )}
+                      </>
                     )}
                   </>
                 )}

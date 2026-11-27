@@ -25,32 +25,24 @@ export interface AdministraS2sConfig {
 
 export interface AdministraBarragemV2Dto {
   id: string;
-  administraId?: string | null;
-  sistemaOrigem?: string | null;
-  empreendedorId?: string | null;
   nome: string;
-  municipio?: string | null;
+  car?: string | null;
   uf?: string | null;
-  baciaHidrografica?: string | null;
-  cursoDagua?: string | null;
-  latitudeDecimal?: number | null;
-  longitudeDecimal?: number | null;
+  municipio?: string | null;
+  municipioIbge?: string | null;
+  empreendedorId?: string | null;
+  empreendimento?: string | null;
+  processo?: string | null;
+  snisb?: string | null;
+  cursoAgua?: string | null;
   latitude?: number | null;
   longitude?: number | null;
-  latitudeGms?: string | null;
-  longitudeGms?: string | null;
-  datum?: string | null;
-  coordenadas?: {
-    latitude?: number | null;
-    longitude?: number | null;
-    datum?: string | null;
-  } | null;
-  cotaCoroamentoMetros?: number | null;
-  anoInicioObra?: number | null;
-  anoFinalObra?: number | null;
-  tipoMaterial?: string | null;
-  usoPrincipal?: string | null;
-  usosSecundarios?: string[] | null;
+  altura?: number | null;
+  volume?: number | null;
+  danoPotencial?: string | null;
+  categoriaRisco?: string | null;
+  classificadaEm?: string | null;
+  situacao?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }
@@ -124,7 +116,78 @@ function parseEd25519PrivateKey(pem: string): crypto.KeyObject | null {
   }
 }
 
-export function getDefaultAdministraS2sConfig(): AdministraS2sConfig | null {
+export const S2S_KEY_ID_REGEX = /^[A-Za-z0-9._:-]{1,128}$/;
+
+export function isValidS2sKeyId(keyId: string): boolean {
+  return typeof keyId === 'string' && S2S_KEY_ID_REGEX.test(keyId);
+}
+
+const NORMALIZED_S2S_CONFIGS = new WeakSet<AdministraS2sConfig>();
+
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+}
+
+function validateAndNormalizeAdministraUrl(
+  rawUrl: string,
+  options: { requireHttps?: boolean; stripApiV2Suffix?: boolean } = {}
+): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    throw new Error('ADMINISTRA_API_URL ausente ou vazia.');
+  }
+
+  const authority = trimmed.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').split(/[/?#]/)[0];
+  if (trimmed.includes('?')) {
+    throw new Error('ADMINISTRA_API_URL não pode conter query string.');
+  }
+  if (trimmed.includes('#')) {
+    throw new Error('ADMINISTRA_API_URL não pode conter fragmento.');
+  }
+  if (authority.includes('@')) {
+    throw new Error('ADMINISTRA_API_URL não pode conter credenciais embutidas.');
+  }
+
+  const parsed = new URL(trimmed);
+  if (parsed.username || parsed.password) {
+    throw new Error('ADMINISTRA_API_URL não pode conter credenciais embutidas.');
+  }
+  if (parsed.search) {
+    throw new Error('ADMINISTRA_API_URL não pode conter query string.');
+  }
+  if (parsed.hash) {
+    throw new Error('ADMINISTRA_API_URL não pode conter fragmento.');
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Protocolo inválido para ADMINISTRA_API_URL.');
+  }
+
+  const requireHttps = options.requireHttps ?? isProductionRuntime();
+  if (requireHttps && parsed.protocol !== 'https:') {
+    throw new Error('ADMINISTRA_API_URL exige HTTPS em configuração de produção.');
+  }
+
+  let cleanPath = parsed.pathname.replace(/\/+$/, '');
+  if (options.stripApiV2Suffix !== false) {
+    cleanPath = cleanPath.replace(/\/api\/v2$/i, '').replace(/\/+$/, '');
+  }
+  return `${parsed.origin}${cleanPath}`;
+}
+
+export function normalizeAdministraApiBaseUrl(
+  rawUrl: string,
+  options?: { requireHttps?: boolean }
+): string {
+  return validateAndNormalizeAdministraUrl(rawUrl, {
+    requireHttps: options?.requireHttps,
+    stripApiV2Suffix: true
+  });
+}
+
+export function getDefaultAdministraS2sConfig(
+  options?: { requireHttps?: boolean }
+): AdministraS2sConfig | null {
   const rawUrl = (process.env.ADMINISTRA_API_URL || '').trim();
   const keyId = (process.env.FISCALIZA_S2S_KEY_ID || '').trim();
   const rawPem = (process.env.FISCALIZA_S2S_PRIVATE_KEY_PEM || '').trim();
@@ -134,6 +197,7 @@ export function getDefaultAdministraS2sConfig(): AdministraS2sConfig | null {
     isPlaceholderValue(rawUrl) ||
     !keyId ||
     isPlaceholderValue(keyId) ||
+    !isValidS2sKeyId(keyId) ||
     !rawPem ||
     isPlaceholderValue(rawPem)
   ) {
@@ -142,11 +206,7 @@ export function getDefaultAdministraS2sConfig(): AdministraS2sConfig | null {
 
   let normalizedUrl: string;
   try {
-    const parsed = new URL(rawUrl);
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      return null;
-    }
-    normalizedUrl = rawUrl.replace(/\/+$/, '');
+    normalizedUrl = normalizeAdministraApiBaseUrl(rawUrl, options);
   } catch {
     return null;
   }
@@ -156,17 +216,19 @@ export function getDefaultAdministraS2sConfig(): AdministraS2sConfig | null {
     return null;
   }
 
-  return {
+  const config: AdministraS2sConfig = {
     apiUrl: normalizedUrl,
     keyId,
     privateKeyPem: normalizedPem
   };
+  NORMALIZED_S2S_CONFIGS.add(config);
+  return config;
 }
 
 export function encodeRfc3986(value: string): string {
   return encodeURIComponent(value).replace(
     /[!'()*]/g,
-    ch => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`
+    ch => `%${ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
   );
 }
 
@@ -184,32 +246,32 @@ export function canonicalizeQueryParams(
 ): string {
   if (!params) return '';
 
-  const pairs: Array<[string, string]> = [];
+  const encodedPairs: Array<[string, string]> = [];
 
   if (params instanceof URLSearchParams) {
     for (const [k, v] of params.entries()) {
-      pairs.push([k, v]);
+      encodedPairs.push([encodeRfc3986(k), encodeRfc3986(v)]);
     }
   } else if (Array.isArray(params)) {
     for (const [k, v] of params) {
-      pairs.push([String(k), String(v)]);
+      encodedPairs.push([encodeRfc3986(String(k)), encodeRfc3986(String(v))]);
     }
   } else {
     for (const [k, v] of Object.entries(params)) {
       if (v === undefined || v === null) continue;
-      pairs.push([k, String(v)]);
+      encodedPairs.push([encodeRfc3986(k), encodeRfc3986(String(v))]);
     }
   }
 
-  if (pairs.length === 0) return '';
+  if (encodedPairs.length === 0) return '';
 
-  pairs.sort((a, b) => {
+  encodedPairs.sort((a, b) => {
     const byKey = compareStringsCodeUnit(a[0], b[0]);
     if (byKey !== 0) return byKey;
     return compareStringsCodeUnit(a[1], b[1]);
   });
 
-  return pairs.map(([k, v]) => `${encodeRfc3986(k)}=${encodeRfc3986(v)}`).join('&');
+  return encodedPairs.map(([ek, ev]) => `${ek}=${ev}`).join('&');
 }
 
 export function buildS2sV2CanonicalMessage(params: {
@@ -262,6 +324,10 @@ export function signS2sV2GetRequest(params: {
     throw new Error(`Endpoint não permitido na integração Administra V2: ${params.endpoint}`);
   }
 
+  if (!isValidS2sKeyId(params.config.keyId)) {
+    throw new Error('FISCALIZA_S2S_KEY_ID inválido para assinatura S2S.');
+  }
+
   const privateKey = parseEd25519PrivateKey(params.config.privateKeyPem);
   if (!privateKey) {
     throw new Error('Chave privada Ed25519 S2S inválida.');
@@ -278,7 +344,10 @@ export function signS2sV2GetRequest(params: {
   }
 
   const canonicalQuery = canonicalizeQueryParams(safeQueryEntries);
-  const baseUrl = new URL(params.config.apiUrl);
+  const normalizedBase = validateAndNormalizeAdministraUrl(params.config.apiUrl, {
+    stripApiV2Suffix: !NORMALIZED_S2S_CONFIGS.has(params.config)
+  });
+  const baseUrl = new URL(normalizedBase);
   const basePath = baseUrl.pathname.replace(/\/+$/, '');
   const fullPath = `${basePath}${params.endpoint}`;
   const fullUrl = `${baseUrl.origin}${fullPath}${canonicalQuery ? `?${canonicalQuery}` : ''}`;
@@ -462,6 +531,15 @@ export function validateV2HealthResponse(
   return { valid: true, apiVersion: data.apiVersion.trim() };
 }
 
+function isOptionalStringOrFiniteNumber(val: unknown): boolean {
+  return (
+    val === undefined ||
+    val === null ||
+    typeof val === 'string' ||
+    (typeof val === 'number' && Number.isFinite(val))
+  );
+}
+
 function validateAndSanitizeBarragemDto(
   raw: unknown
 ): { valid: true; dto: AdministraBarragemV2Dto } | { valid: false; error: string } {
@@ -477,19 +555,18 @@ function validateAndSanitizeBarragemDto(
   }
 
   const optionalStringFields = [
-    'administraId',
-    'sistemaOrigem',
-    'empreendedorId',
-    'empreendedorNome',
-    'municipio',
+    'car',
     'uf',
-    'baciaHidrografica',
-    'cursoDagua',
-    'latitudeGms',
-    'longitudeGms',
-    'datum',
-    'tipoMaterial',
-    'usoPrincipal',
+    'municipio',
+    'empreendedorId',
+    'empreendimento',
+    'processo',
+    'snisb',
+    'cursoAgua',
+    'danoPotencial',
+    'categoriaRisco',
+    'classificadaEm',
+    'situacao',
     'createdAt',
     'updatedAt'
   ];
@@ -500,15 +577,11 @@ function validateAndSanitizeBarragemDto(
     }
   }
 
-  const optionalNumberFields = [
-    'latitudeDecimal',
-    'longitudeDecimal',
-    'latitude',
-    'longitude',
-    'cotaCoroamentoMetros',
-    'anoInicioObra',
-    'anoFinalObra'
-  ];
+  if (!isOptionalStringOrFiniteNumber(raw.municipioIbge)) {
+    return { valid: false, error: 'Campo camelCase "municipioIbge" com tipo inválido no DTO.' };
+  }
+
+  const optionalNumberFields = ['latitude', 'longitude', 'altura', 'volume'];
 
   for (const field of optionalNumberFields) {
     if (!isOptionalFiniteNumber(raw[field])) {
@@ -516,57 +589,26 @@ function validateAndSanitizeBarragemDto(
     }
   }
 
-  if (raw.usosSecundarios !== undefined && raw.usosSecundarios !== null) {
-    if (!Array.isArray(raw.usosSecundarios) || raw.usosSecundarios.some(u => typeof u !== 'string')) {
-      return { valid: false, error: 'Campo "usosSecundarios" com tipo inválido no DTO.' };
-    }
-  }
-
-  let normalizedCoords: AdministraBarragemV2Dto['coordenadas'] = null;
-  if (raw.coordenadas !== undefined && raw.coordenadas !== null) {
-    if (!isPlainRecord(raw.coordenadas)) {
-      return { valid: false, error: 'Campo "coordenadas" com formato inválido no DTO.' };
-    }
-    if (
-      !isOptionalFiniteNumber(raw.coordenadas.latitude) ||
-      !isOptionalFiniteNumber(raw.coordenadas.longitude) ||
-      !isOptionalString(raw.coordenadas.datum)
-    ) {
-      return { valid: false, error: 'Subcampos de "coordenadas" com formato inválido no DTO.' };
-    }
-    normalizedCoords = {
-      latitude: toOptNumber(raw.coordenadas.latitude),
-      longitude: toOptNumber(raw.coordenadas.longitude),
-      datum: toOptString(raw.coordenadas.datum)
-    };
-  }
-
   const dto: AdministraBarragemV2Dto = {
     id: raw.id.trim(),
-    administraId: toOptString(raw.administraId) ?? raw.id.trim(),
-    sistemaOrigem: toOptString(raw.sistemaOrigem) ?? 'administra',
-    empreendedorId: toOptString(raw.empreendedorId),
     nome: raw.nome.trim(),
-    municipio: toOptString(raw.municipio),
+    car: toOptString(raw.car),
     uf: toOptString(raw.uf),
-    baciaHidrografica: toOptString(raw.baciaHidrografica),
-    cursoDagua: toOptString(raw.cursoDagua),
-    latitudeDecimal: toOptNumber(raw.latitudeDecimal),
-    longitudeDecimal: toOptNumber(raw.longitudeDecimal),
+    municipio: toOptString(raw.municipio),
+    municipioIbge: toOptString(raw.municipioIbge),
+    empreendedorId: toOptString(raw.empreendedorId),
+    empreendimento: toOptString(raw.empreendimento),
+    processo: toOptString(raw.processo),
+    snisb: toOptString(raw.snisb),
+    cursoAgua: toOptString(raw.cursoAgua),
     latitude: toOptNumber(raw.latitude),
     longitude: toOptNumber(raw.longitude),
-    latitudeGms: toOptString(raw.latitudeGms),
-    longitudeGms: toOptString(raw.longitudeGms),
-    datum: toOptString(raw.datum),
-    coordenadas: normalizedCoords,
-    cotaCoroamentoMetros: toOptNumber(raw.cotaCoroamentoMetros),
-    anoInicioObra: toOptNumber(raw.anoInicioObra),
-    anoFinalObra: toOptNumber(raw.anoFinalObra),
-    tipoMaterial: toOptString(raw.tipoMaterial),
-    usoPrincipal: toOptString(raw.usoPrincipal),
-    usosSecundarios: Array.isArray(raw.usosSecundarios)
-      ? raw.usosSecundarios.map(s => String(s).trim()).filter(Boolean)
-      : [],
+    altura: toOptNumber(raw.altura),
+    volume: toOptNumber(raw.volume),
+    danoPotencial: toOptString(raw.danoPotencial),
+    categoriaRisco: toOptString(raw.categoriaRisco),
+    classificadaEm: toOptString(raw.classificadaEm),
+    situacao: toOptString(raw.situacao),
     createdAt: toOptString(raw.createdAt),
     updatedAt: toOptString(raw.updatedAt)
   };

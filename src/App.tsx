@@ -22,6 +22,7 @@ import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UsersManagementStep } from './components/UsersManagementStep';
 import { PendenciasStep } from './components/PendenciasStep';
 import { SolicitacoesVistoriaStep } from './components/SolicitacoesVistoriaStep';
+import { MesaVirtualStep } from './components/MesaVirtualStep';
 import { EcosystemIntegrationModal, MasterSelectionPayload } from './components/EcosystemIntegrationModal';
 import { FiscalizaLogo } from './components/FiscalizaLogo';
 import { OfficialFooter } from './components/OfficialFooter';
@@ -40,6 +41,7 @@ import type { SolicitacaoVistoriaActorSummary, SolicitacaoVistoriaRecord } from 
 import { 
   canUserCreateInspection, 
   canUserEditInspection, 
+  canUserEditInspectionDirectly,
   canUserDeleteInspection
 } from './services/userService';
 import { 
@@ -439,8 +441,8 @@ function AppContent() {
   useEffect(() => {
     if (!currentInspection?.id) return;
 
-    // Se o usuário atual não tem permissão para editar esta vistoria, NÃO auto-salva modificações acidentais
-    const editCheck = canUserEditInspection(session, currentInspection);
+    // Se o usuário atual não tem permissão para edição direta (ou documento já foi concluído), NÃO auto-salva alterações silenciosas
+    const editCheck = canUserEditInspectionDirectly(session, currentInspection);
     if (!editCheck.allowed) return;
 
     // Se o preenchimento for zero (0%), desconsiderar e NÃO salvar automaticamente
@@ -588,10 +590,10 @@ function AppContent() {
   };
 
   const handleSaveInspection = async () => {
-    const editCheck = canUserEditInspection(session, currentInspection);
+    const editCheck = canUserEditInspectionDirectly(session, currentInspection);
     if (!editCheck.allowed) {
       setSyncFeedback({
-        message: editCheck.reason || 'Você não possui permissão para salvar alterações nesta vistoria.',
+        message: editCheck.reason || 'Você não possui permissão para salvar alterações diretas nesta vistoria.',
         type: 'error'
       });
       return;
@@ -1017,33 +1019,50 @@ function AppContent() {
         />
       )}
 
-      {/* Banner de Proteção contra Alterações Acidentais (Modo Somente Leitura) */}
-      {activeStep >= 1 && activeStep <= 5 && !canUserEditInspection(session, currentInspection).allowed && (
-        <div className="max-w-7xl 2xl:max-w-[1440px] w-full mx-auto px-2.5 xs:px-3 sm:px-5 lg:px-8 pt-3">
-          <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3 sm:p-3.5 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 shadow-xs">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-bold shrink-0 flex items-center justify-center">
-                <Lock className="w-4 h-4" />
-              </span>
-              <div className="min-w-0">
-                <p className="font-bold text-xs sm:text-sm">
-                  Ficha em Modo Somente Leitura
-                </p>
-                <p className="text-[11px] sm:text-xs text-amber-800 dark:text-amber-300/90">
-                  {canUserEditInspection(session, currentInspection).reason || 'Você está visualizando os dados de um colega sem permissão de edição.'}
-                </p>
+      {/* Banner de Proteção contra Alterações Acidentais (Modo Somente Leitura / Documento Concluído) */}
+      {activeStep >= 1 && activeStep <= 5 && (() => {
+        const directCheck = canUserEditInspectionDirectly(session, currentInspection);
+        if (directCheck.allowed) return null;
+        return (
+          <div className="max-w-7xl 2xl:max-w-[1440px] w-full mx-auto px-2.5 xs:px-3 sm:px-5 lg:px-8 pt-3">
+            <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3 sm:p-3.5 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 shadow-xs">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-bold shrink-0 flex items-center justify-center">
+                  <Lock className="w-4 h-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="font-bold text-xs sm:text-sm">
+                    {directCheck.requiresRectification
+                      ? 'Documento Concluído — Edição Silenciosa Bloqueada'
+                      : 'Ficha em Modo Somente Leitura'}
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-amber-800 dark:text-amber-300/90">
+                    {directCheck.reason || 'Você está visualizando os dados de um colega sem permissão de edição.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+                {directCheck.requiresRectification && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(10)}
+                    className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs cursor-pointer transition"
+                  >
+                    Retificar na Mesa Virtual
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveStep(0)}
+                  className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-200 dark:bg-amber-800 hover:bg-amber-300 dark:hover:bg-amber-700 text-amber-950 dark:text-amber-100 font-bold text-xs cursor-pointer transition"
+                >
+                  Voltar ao Painel
+                </button>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setActiveStep(0)}
-              className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-200 dark:bg-amber-800 hover:bg-amber-300 dark:hover:bg-amber-700 text-amber-950 dark:text-amber-100 font-bold text-xs shrink-0 self-start sm:self-auto cursor-pointer transition"
-            >
-              Voltar ao Painel
-            </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <main className="flex-1 max-w-7xl 2xl:max-w-[1440px] w-full mx-auto px-2.5 xs:px-3 sm:px-5 lg:px-8 pl-[max(0.625rem,env(safe-area-inset-left))] pr-[max(0.625rem,env(safe-area-inset-right))] py-3.5 sm:py-5 lg:py-6 pb-[calc(7.25rem+env(safe-area-inset-bottom,0px))] lg:pb-8 overflow-x-clip">
         <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
@@ -1068,6 +1087,7 @@ function AppContent() {
                 currentUser={session}
                 onGoToSheet={() => setActiveStep(1)}
                 onGoToDatabase={() => setActiveStep(6)}
+                onGoToMesaVirtual={() => setActiveStep(10)}
                 onGoToDocuments={() => setActiveStep(5)}
                 onOpenSecurityModal={() => setShowSecurityModal(true)}
                 onNewInspection={handleNewInspection}
@@ -1235,6 +1255,45 @@ function AppContent() {
                 currentUser={session}
                 onGoToDashboard={() => setActiveStep(0)}
                 onCreateFutureInspection={handleCreateFutureInspectionFromSolicitacao}
+              />
+            )}
+
+            {/* PASSO 10: MESA VIRTUAL (V1) */}
+            {activeStep === 10 && (
+              <MesaVirtualStep
+                inspections={inspections}
+                currentInspectionId={currentInspection.id}
+                currentUser={session}
+                isOnline={isOnline}
+                isSyncing={isSyncing}
+                onGoToDashboard={() => setActiveStep(0)}
+                onOpenInspectionForEdit={handleSelectAndEdit}
+                onPersistInspection={(updated) => {
+                  saveInspection(updated);
+                  const list = getAllInspections();
+                  setInspections(list);
+                  if (updated.id === currentInspection.id) {
+                    setCurrentInspection(updated);
+                  }
+                  const now = new Date();
+                  setLastSavedAt(
+                    `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
+                  );
+                }}
+                onDeleteInspection={handleDeleteInspection}
+                onSyncSingle={async (id) => {
+                  const res = await syncSingleInspection(id);
+                  const updated = getAllInspections();
+                  setInspections(updated);
+                  const curr = updated.find(i => i.id === currentInspection.id);
+                  if (curr) setCurrentInspection(curr);
+                  setSyncFeedback({
+                    message: res.success ? 'Ficha sincronizada e salva no banco de dados com sucesso.' : (res.error || 'Erro na sincronização.'),
+                    type: res.success ? 'success' : 'info',
+                    isRls: res.isRlsError
+                  });
+                }}
+                onSyncAll={handleSyncNow}
               />
             )}
           </motion.div>

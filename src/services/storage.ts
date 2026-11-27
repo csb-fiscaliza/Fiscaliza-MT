@@ -1,7 +1,11 @@
 import { DAM_COMPONENTS } from '../data/damComponents';
 import { ComponentInspectionData, InspectionData, HistoricoAlteracaoEntity } from '../types/inspection';
 import { syncVistoriaToSupabase } from './supabase';
-import { registerFiscalizaProductsFromInspection } from './administraEcosystemService';
+import {
+  detectDamSyncConflicts,
+  loadLocalAdministraCatalog,
+  registerFiscalizaProductsFromInspection
+} from './administraEcosystemService';
 import { 
   createAuthenticitySeal, 
   sanitizeDeepObject, 
@@ -750,6 +754,46 @@ export async function syncSingleInspection(id: string): Promise<{ success: boole
     const item = list.find(i => i.id === id);
     if (!item) {
       return { success: false, error: 'Vistoria não encontrada no armazenamento local.' };
+    }
+
+    const existingPendingConflict = (item.conflitosSincronizacao || []).some(
+      c => c.status === 'pendente'
+    );
+    if (existingPendingConflict) {
+      return {
+        success: false,
+        error:
+          'Existem conflitos de dados pendentes de resolução. Acesse a Mesa Virtual para escolher entre os dados locais e os do Administra antes de sincronizar.'
+      };
+    }
+
+    if (item.barragemId) {
+      const catalog = loadLocalAdministraCatalog();
+      const alreadyResolvedKeys = new Set(
+        (item.conflitosSincronizacao || [])
+          .filter(c => c.status === 'resolvido')
+          .flatMap(c => c.camposDivergentes.map(f => `${f.campo}:${f.valorLocal}|${f.valorRemoto}`))
+      );
+      const detected = detectDamSyncConflicts(item, catalog);
+      if (detected) {
+        const unresolvedFields = detected.camposDivergentes.filter(
+          f => !alreadyResolvedKeys.has(`${f.campo}:${f.valorLocal}|${f.valorRemoto}`)
+        );
+        if (unresolvedFields.length > 0) {
+          const conflictRecord = { ...detected, camposDivergentes: unresolvedFields };
+          const withConflict: InspectionData = {
+            ...item,
+            syncStatus: 'error',
+            syncError: `Divergência cadastral detectada em ${unresolvedFields.length} campo(s). Resolva na Mesa Virtual antes de sobrescrever.`,
+            conflitosSincronizacao: [conflictRecord, ...(item.conflitosSincronizacao || [])]
+          };
+          saveInspection(withConflict);
+          return {
+            success: false,
+            error: withConflict.syncError || 'Conflito de sincronização detectado.'
+          };
+        }
+      }
     }
 
     const result = await syncVistoriaToSupabase(item);

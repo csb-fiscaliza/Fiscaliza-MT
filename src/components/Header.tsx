@@ -26,7 +26,8 @@ import {
   Sunset,
   Network,
   ClipboardList,
-  ClipboardCheck
+  ClipboardCheck,
+  FolderKanban
 } from 'lucide-react';
 import { InspectionData } from '../types/inspection';
 import { getPhotoQueueSummary, subscribePhotoQueue } from '../services/photoSyncQueueService';
@@ -101,6 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
   const isUsersActive = activeStep === 7;
   const isPendenciasActive = activeStep === 8;
   const isSolicitacoesActive = activeStep === 9;
+  const isMesaActive = activeStep === 10;
   const isSheetActive = activeStep >= 1 && activeStep <= 5;
 
   const userRole = (currentUser?.role || '').toLowerCase();
@@ -127,8 +129,11 @@ export const Header: React.FC<HeaderProps> = ({
     (currentUser?.email ? currentUser.email.split('@')[0] : 'Fiscal Técnico');
   const greetingText = `Olá ${rawName}, ${greetingPeriod}`;
 
-  // Contagem de fichas locais pendentes de sincronização
+  // Contagem de fichas locais pendentes de sincronização e conflitos
   const pendingCount = allInspections.filter(i => !i.syncStatus || i.syncStatus === 'local' || i.syncStatus === 'error').length;
+  const conflictCount = allInspections.filter(i =>
+    (i.conflitosSincronizacao || []).some(c => c.status === 'pendente')
+  ).length;
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm transition-colors duration-200 select-none pt-[env(safe-area-inset-top,0px)]">
@@ -341,7 +346,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={() => setActiveStep(9)}
               title="Solicitações de Vistoria (Classifica, Notifica e Administra)"
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap ${
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0 ${
                 isSolicitacoesActive
                   ? 'bg-emerald-700 text-white shadow-emerald-700/25 ring-2 ring-emerald-700/20'
                   : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-slate-700'
@@ -349,6 +354,26 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <ClipboardCheck className={`w-3.5 h-3.5 shrink-0 ${isSolicitacoesActive ? 'text-white' : 'text-emerald-600 dark:text-emerald-400'}`} />
               <span>Solicitações</span>
+            </button>
+
+            {/* Link 8: Mesa Virtual (V1) */}
+            <button
+              type="button"
+              onClick={() => setActiveStep(10)}
+              title="Mesa Virtual: Meus documentos, Todos documentos CSB, Retificação e Mapa sincronizado"
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0 ${
+                isMesaActive
+                  ? 'bg-emerald-700 text-white shadow-emerald-700/25 ring-2 ring-emerald-700/20'
+                  : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-slate-700'
+              }`}
+            >
+              <FolderKanban className={`w-3.5 h-3.5 shrink-0 ${isMesaActive ? 'text-white' : 'text-emerald-600 dark:text-emerald-400'}`} />
+              <span>Mesa Virtual</span>
+              {conflictCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-md bg-rose-600 text-white text-[10px] font-black tabular-nums">
+                  {conflictCount}
+                </span>
+              )}
             </button>
 
             {/* Link 6: Usuários (Admin) */}

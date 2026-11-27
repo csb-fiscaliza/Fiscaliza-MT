@@ -8,12 +8,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { startServer } from '../../../server.ts';
 import {
   ADMINISTRA_V2_ENDPOINTS,
-  buildS2sV2CanonicalMessage,
   canonicalizeQueryParams,
   EMPTY_BODY_SHA256,
   encodeRfc3986,
   fetchAllAdministraBarragensV2,
   getDefaultAdministraS2sConfig,
+  isValidS2sKeyId,
+  normalizeAdministraApiBaseUrl,
   signS2sV2GetRequest,
   validateV2BarragensPageResponse,
   validateV2HealthResponse
@@ -149,53 +150,133 @@ async function requestJson(
   });
 }
 
-test('gera mensagem canônica S2S-V2 de 10 linhas LF com query RFC 3986 ordenada e vetor fixo', () => {
+test('codifica RFC 3986 antes de ordenar e normaliza ADMINISTRA_API_URL com ou sem sufixo /api/v2 contra vetor independente', () => {
   assert.equal(
     EMPTY_BODY_SHA256,
     'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
   );
   assert.equal(encodeRfc3986("a!b'c(d)e*f "), 'a%21b%27c%28d%29e%2Af%20');
 
-  const sortedQuery = canonicalizeQueryParams([
-    ['limit', '500'],
-    ['cursor', 'z!2'],
-    ['cursor', 'a(1)'],
-    ['alpha', 'x*y']
+  // Encoding-before-sorting: '/' (%2F, charCode 37) ordena antes de '-' (charCode 45)
+  const encodedSorted = canonicalizeQueryParams([
+    ['a-1', 'v'],
+    ['a/1', 'v'],
+    ['cursor', 'id-1'],
+    ['cursor', 'id/2'],
+    ['special', "!'()* "],
+    ['z', '1']
   ]);
-  assert.equal(sortedQuery, 'alpha=x%2Ay&cursor=a%281%29&cursor=z%212&limit=500');
+  assert.equal(
+    encodedSorted,
+    'a%2F1=v&a-1=v&cursor=id%2F2&cursor=id-1&special=%21%27%28%29%2A%20&z=1'
+  );
 
-  const fixedMessage = buildS2sV2CanonicalMessage({
-    method: 'get',
-    path: '/api/v2/barragens',
-    query: 'cursor=cur%211%20%28v2%29&limit=500',
-    contentType: 'application/json',
-    bodySha256: EMPTY_BODY_SHA256,
-    keyId: 'kid-fiscaliza-test',
-    timestamp: '1732560000',
-    jti: '11111111-1111-4111-8111-111111111111'
+  // Normalização de URL base sem duplicar /api/v2
+  assert.equal(
+    normalizeAdministraApiBaseUrl('https://administra.exemplo.invalid'),
+    'https://administra.exemplo.invalid'
+  );
+  assert.equal(
+    normalizeAdministraApiBaseUrl('https://administra.exemplo.invalid/api/v2'),
+    'https://administra.exemplo.invalid'
+  );
+  assert.equal(
+    normalizeAdministraApiBaseUrl('https://administra.exemplo.invalid/api/v2/'),
+    'https://administra.exemplo.invalid'
+  );
+  assert.equal(
+    normalizeAdministraApiBaseUrl('https://gateway.exemplo.invalid/proxy/api/v2/'),
+    'https://gateway.exemplo.invalid/proxy'
+  );
+
+  const { publicKey, privateKeyPem } = generateEphemeralEd25519Keypair();
+  const fixedJti = '11111111-1111-4111-8111-111111111111';
+
+  // Vetor independente literal (construído manualmente sem usar helpers do cliente)
+  const independentCanonicalBarragens =
+    'S2S-V2\n' +
+    'GET\n' +
+    '/api/v2/barragens\n' +
+    'cursor=cur%2F2%20%21%28a%29&limit=500\n' +
+    '\n' +
+    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n' +
+    'kid-fiscaliza-test\n' +
+    '1732560000\n' +
+    '11111111-1111-4111-8111-111111111111\n' +
+    '|';
+
+  for (const apiUrl of [
+    'https://administra.exemplo.invalid',
+    'https://administra.exemplo.invalid/api/v2',
+    'https://administra.exemplo.invalid/api/v2/'
+  ]) {
+    const signed = signS2sV2GetRequest({
+      config: {
+        apiUrl,
+        keyId: 'kid-fiscaliza-test',
+        privateKeyPem
+      },
+      endpoint: ADMINISTRA_V2_ENDPOINTS.BARRAGENS,
+      queryParams: { limit: 500, cursor: 'cur/2 !(a)', q: 'ignorado' },
+      nowSeconds: () => 1732560000,
+      randomUuid: () => fixedJti
+    });
+
+    assert.equal(
+      signed.url,
+      'https://administra.exemplo.invalid/api/v2/barragens?cursor=cur%2F2%20%21%28a%29&limit=500'
+    );
+    assert.equal(signed.canonicalMessage, independentCanonicalBarragens);
+    assert.equal(
+      crypto.verify(
+        null,
+        Buffer.from(independentCanonicalBarragens, 'utf8'),
+        publicKey,
+        Buffer.from(signed.headers['x-s2s-signature'], 'base64url')
+      ),
+      true
+    );
+  }
+
+  // Vetor independente literal para /api/v2/health com sufixo /api/v2 na URL base
+  const independentCanonicalHealth =
+    'S2S-V2\n' +
+    'GET\n' +
+    '/api/v2/health\n' +
+    '\n' +
+    '\n' +
+    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n' +
+    'kid-fiscaliza-test\n' +
+    '1732560005\n' +
+    '22222222-2222-4222-8222-222222222222\n' +
+    '|';
+
+  const signedHealth = signS2sV2GetRequest({
+    config: {
+      apiUrl: 'https://administra.exemplo.invalid/api/v2/',
+      keyId: 'kid-fiscaliza-test',
+      privateKeyPem
+    },
+    endpoint: ADMINISTRA_V2_ENDPOINTS.HEALTH,
+    nowSeconds: () => 1732560005,
+    randomUuid: () => '22222222-2222-4222-8222-222222222222'
   });
-
-  const expectedVector = [
-    'S2S-V2',
-    'GET',
-    '/api/v2/barragens',
-    'cursor=cur%211%20%28v2%29&limit=500',
-    '',
-    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    'kid-fiscaliza-test',
-    '1732560000',
-    '11111111-1111-4111-8111-111111111111',
-    '|'
-  ].join('\n');
-
-  assert.equal(fixedMessage, expectedVector);
-  assert.equal(fixedMessage.split('\n').length, 10);
+  assert.equal(signedHealth.url, 'https://administra.exemplo.invalid/api/v2/health');
+  assert.equal(
+    crypto.verify(
+      null,
+      Buffer.from(independentCanonicalHealth, 'utf8'),
+      publicKey,
+      Buffer.from(signedHealth.headers['x-s2s-signature'], 'base64url')
+    ),
+    true
+  );
 });
 
-test('assina requisição GET com Ed25519 efêmero, gera novo jti por chamada e proíbe q e cabeçalhos extras', () => {
-  const { publicKey, privateKeyPem } = generateEphemeralEd25519Keypair();
+test('gera novo jti por chamada, omite q/Authorization/apikey/x-consumer-* e bloqueia endpoints não autorizados', () => {
+  const { privateKeyPem } = generateEphemeralEd25519Keypair();
   const config = {
-    apiUrl: 'https://administra.exemplo.invalid',
+    apiUrl: 'https://administra.exemplo.invalid/api/v2',
     keyId: 'kid-ephemeral-1',
     privateKeyPem
   };
@@ -216,9 +297,6 @@ test('assina requisição GET com Ed25519 efêmero, gera novo jti por chamada e 
   const url1 = new URL(sign1.url);
   assert.equal(url1.pathname, '/api/v2/barragens');
   assert.equal(url1.searchParams.has('q'), false);
-  assert.equal(sign1.url, 'https://administra.exemplo.invalid/api/v2/barragens?cursor=page%282%29%21&limit=500');
-
-  // Cabeçalhos permitidos e ausência de Authorization/apikey/x-consumer-*
   assert.equal(sign1.headers['x-s2s-key-id'], 'kid-ephemeral-1');
   assert.equal(sign1.headers['x-s2s-timestamp'], '1732560100');
   assert.equal(sign1.headers['x-s2s-body-sha256'], EMPTY_BODY_SHA256);
@@ -234,15 +312,6 @@ test('assina requisição GET com Ed25519 efêmero, gera novo jti por chamada e 
   assert.equal(lowerHeaderKeys.includes('content-type'), false);
   assert.equal(lowerHeaderKeys.some(k => k.startsWith('x-consumer-')), false);
 
-  // Verificação criptográfica Ed25519 com chave pública efêmera
-  const sig1Valid = crypto.verify(
-    null,
-    Buffer.from(sign1.canonicalMessage, 'utf8'),
-    publicKey,
-    Buffer.from(sign1.headers['x-s2s-signature'], 'base64url')
-  );
-  assert.equal(sig1Valid, true);
-
   assert.throws(() =>
     signS2sV2GetRequest({
       config,
@@ -251,10 +320,10 @@ test('assina requisição GET com Ed25519 efêmero, gera novo jti por chamada e 
   );
 });
 
-test('pagina /api/v2/barragens com limit=500 e nextCursor, valida DTO camelCase mascarado e detecta respostas inválidas', async () => {
+test('pagina /api/v2/barragens com DTO confirmado de 21 campos, valida assinatura independente e rejeita respostas inválidas', async () => {
   const { publicKey, privateKeyPem } = generateEphemeralEd25519Keypair();
   const config = {
-    apiUrl: 'https://administra.exemplo.invalid',
+    apiUrl: 'https://administra.exemplo.invalid/api/v2',
     keyId: 'kid-ephemeral-2',
     privateKeyPem
   };
@@ -275,26 +344,23 @@ test('pagina /api/v2/barragens com limit=500 e nextCursor, valida DTO camelCase 
     assert.equal(seenJtis.has(jti), false);
     seenJtis.add(jti);
 
-    const reconstructed = buildS2sV2CanonicalMessage({
-      method: 'GET',
-      path: parsedUrl.pathname,
-      query: parsedUrl.search.replace(/^\?/, ''),
-      bodySha256: headers['x-s2s-body-sha256'],
-      keyId: headers['x-s2s-key-id'],
-      timestamp: headers['x-s2s-timestamp'],
-      jti
-    });
+    const cursor = parsedUrl.searchParams.get('cursor');
+    const expectedQuery = cursor ? `cursor=${cursor}&limit=500` : 'limit=500';
+    const expectedCanonicalLiteral =
+      `S2S-V2\nGET\n/api/v2/barragens\n${expectedQuery}\n\n` +
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n' +
+      `kid-ephemeral-2\n1732560200\n${jti}\n|`;
+
     assert.equal(
       crypto.verify(
         null,
-        Buffer.from(reconstructed, 'utf8'),
+        Buffer.from(expectedCanonicalLiteral, 'utf8'),
         publicKey,
         Buffer.from(headers['x-s2s-signature'], 'base64url')
       ),
       true
     );
 
-    const cursor = parsedUrl.searchParams.get('cursor');
     if (!cursor) {
       return new Response(
         JSON.stringify({
@@ -303,20 +369,26 @@ test('pagina /api/v2/barragens com limit=500 e nextCursor, valida DTO camelCase 
           items: [
             {
               id: 'bar-1',
-              administraId: 'bar-1',
-              sistemaOrigem: 'administra',
-              empreendedorId: 'emp-1',
-              empreendedorNome: '***',
               nome: 'Barragem P1',
+              car: 'MT-5107909-AAA111',
+              uf: 'MT',
               municipio: 'Sinop',
-              baciaHidrografica: 'Teles Pires',
-              cursoDagua: 'Córrego Um',
-              cotaCoroamentoMetros: 312.5,
-              anoInicioObra: 2018,
-              anoFinalObra: 2019,
-              tipoMaterial: 'terra_homogenea',
-              usoPrincipal: 'Irrigação',
-              usosSecundarios: []
+              municipioIbge: '5107909',
+              empreendedorId: 'emp-1',
+              empreendimento: 'Empreendimento ***',
+              processo: 'PROC-2026/001',
+              snisb: 'SNISB-101',
+              cursoAgua: 'Córrego Um',
+              latitude: -11.8641,
+              longitude: -55.5023,
+              altura: 14.2,
+              volume: 420000,
+              danoPotencial: 'Médio',
+              categoriaRisco: 'Baixo',
+              classificadaEm: '2026-06-10T12:00:00.000Z',
+              situacao: 'Ativa',
+              createdAt: '2026-01-10T10:00:00.000Z',
+              updatedAt: '2026-10-15T14:30:00.000Z'
             }
           ],
           pagination: {
@@ -339,7 +411,25 @@ test('pagina /api/v2/barragens com limit=500 e nextCursor, valida DTO camelCase 
           {
             id: 'bar-2',
             nome: 'Barragem P2',
-            municipio: 'Sorriso'
+            car: null,
+            uf: 'MT',
+            municipio: 'Sorriso',
+            municipioIbge: null,
+            empreendedorId: null,
+            empreendimento: null,
+            processo: null,
+            snisb: null,
+            cursoAgua: null,
+            latitude: null,
+            longitude: null,
+            altura: null,
+            volume: null,
+            danoPotencial: null,
+            categoriaRisco: null,
+            classificadaEm: null,
+            situacao: null,
+            createdAt: null,
+            updatedAt: null
           }
         ],
         pagination: {
@@ -362,13 +452,23 @@ test('pagina /api/v2/barragens com limit=500 e nextCursor, valida DTO camelCase 
   if (okRes.ok) {
     assert.equal(okRes.pagesFetched, 2);
     assert.equal(okRes.items.length, 2);
-    assert.equal(okRes.items[0].cotaCoroamentoMetros, 312.5);
+    assert.equal(okRes.items[0].cursoAgua, 'Córrego Um');
+    assert.equal(okRes.items[0].altura, 14.2);
+    assert.equal(okRes.items[0].volume, 420000);
+    assert.equal(okRes.items[0].car, 'MT-5107909-AAA111');
+    assert.equal(okRes.items[0].municipioIbge, '5107909');
+    assert.equal(okRes.items[0].snisb, 'SNISB-101');
+    assert.equal('cotaCoroamentoMetros' in okRes.items[0], false);
+    assert.equal('administraId' in okRes.items[0], false);
+    assert.equal('sistemaOrigem' in okRes.items[0], false);
+    assert.equal('baciaHidrografica' in okRes.items[0], false);
+    assert.equal('coordenadas' in okRes.items[0], false);
     assert.equal(okRes.items[1].nome, 'Barragem P2');
+    assert.equal(okRes.items[1].cursoAgua, null);
   }
   assert.equal(seenJtis.size, 2);
   assert.equal(requestedUrls.some(u => u.includes('empreendedores')), false);
 
-  // Cursor repetido é rejeitado
   const fetchRepeatedCursor: typeof fetch = async () =>
     new Response(
       JSON.stringify({
@@ -389,7 +489,6 @@ test('pagina /api/v2/barragens com limit=500 e nextCursor, valida DTO camelCase 
     assert.equal(repeatedRes.code, 'REPEATED_CURSOR');
   }
 
-  // Excesso de páginas é rejeitado
   let pageCounter = 0;
   const fetchTooManyPages: typeof fetch = async () => {
     pageCounter += 1;
@@ -414,7 +513,6 @@ test('pagina /api/v2/barragens com limit=500 e nextCursor, valida DTO camelCase 
     assert.equal(limitRes.code, 'PAGINATION_LIMIT_EXCEEDED');
   }
 
-  // Validação de respostas inválidas
   assert.equal(validateV2HealthResponse({ success: false, apiVersion: '2.0' }).valid, false);
   assert.equal(validateV2HealthResponse({ success: true, apiVersion: '1.0' }).valid, false);
   assert.equal(validateV2HealthResponse({ success: true, apiVersion: '2.0' }).valid, true);
@@ -423,7 +521,17 @@ test('pagina /api/v2/barragens com limit=500 e nextCursor, valida DTO camelCase 
     validateV2BarragensPageResponse({
       success: true,
       apiVersion: '2.0',
-      items: [{ id: '1', nome: 'X', cotaCoroamentoMetros: 'invalido' }],
+      items: [{ id: '1', nome: 'X', altura: 'invalido' }],
+      pagination: { limit: 500, hasMore: false, nextCursor: null },
+      maskingPolicy: 'masked'
+    }).valid,
+    false
+  );
+  assert.equal(
+    validateV2BarragensPageResponse({
+      success: true,
+      apiVersion: '2.0',
+      items: [{ id: '1', nome: 'X', latitude: 'nao-numero' }],
       pagination: { limit: 500, hasMore: false, nextCursor: null },
       maskingPolicy: 'masked'
     }).valid,
@@ -445,19 +553,27 @@ test('rotas /api/administra exigem sessão, mantêm modo local sem chamadas exte
   const { privateKeyPem } = generateEphemeralEd25519Keypair();
   const mockSupabase = createMockSupabaseAdmin();
 
-  // 1. Sem configuração S2S: nenhuma chamada externa, mesmo com tokens de outros fluxos definidos
   const prevApiUrl = process.env.ADMINISTRA_API_URL;
   const prevKeyId = process.env.FISCALIZA_S2S_KEY_ID;
   const prevPem = process.env.FISCALIZA_S2S_PRIVATE_KEY_PEM;
+  const prevLegacyKey = process.env.FISCALIZA_S2S_PRIVATE_KEY;
   const prevForbiddenToken = process.env.ADMINISTRA_API_TOKEN;
   const prevSolicToken = process.env.SOLICITACOES_SERVICE_TOKEN;
   delete process.env.ADMINISTRA_API_URL;
   delete process.env.FISCALIZA_S2S_KEY_ID;
   delete process.env.FISCALIZA_S2S_PRIVATE_KEY_PEM;
+  process.env.FISCALIZA_S2S_PRIVATE_KEY = privateKeyPem;
   process.env.ADMINISTRA_API_TOKEN = '__DUMMY_LEGACY_TOKEN__';
   process.env.SOLICITACOES_SERVICE_TOKEN = '__DUMMY_SOLIC_TOKEN__';
 
+  // Sem _PEM não configura mesmo que FISCALIZA_S2S_PRIVATE_KEY exista
+  process.env.ADMINISTRA_API_URL = 'https://administra.exemplo.invalid/api/v2';
+  process.env.FISCALIZA_S2S_KEY_ID = 'kid-no-pem-suffix';
   assert.equal(getDefaultAdministraS2sConfig(), null);
+
+  delete process.env.ADMINISTRA_API_URL;
+  delete process.env.FISCALIZA_S2S_KEY_ID;
+  delete process.env.FISCALIZA_S2S_PRIVATE_KEY;
 
   let unconfiguredFetchCalls = 0;
   const serverUnconfigured = await startServer({
@@ -477,7 +593,6 @@ test('rotas /api/administra exigem sessão, mantêm modo local sem chamadas exte
     const addr = serverUnconfigured.address() as any;
     const baseUrl = `http://127.0.0.1:${addr.port}`;
 
-    // Fail-closed auth
     assert.equal((await requestJson(baseUrl, '/api/administra/health')).status, 401);
     assert.equal(
       (await requestJson(baseUrl, '/api/administra/barragens', { token: 'token-inativo' })).status,
@@ -498,7 +613,6 @@ test('rotas /api/administra exigem sessão, mantêm modo local sem chamadas exte
       405
     );
 
-    // Sem config retorna modo local sem chamadas HTTP externas
     const healthLocal = await requestJson(baseUrl, '/api/administra/health', {
       token: 'token-viewer'
     });
@@ -522,13 +636,14 @@ test('rotas /api/administra exigem sessão, mantêm modo local sem chamadas exte
     else process.env.FISCALIZA_S2S_KEY_ID = prevKeyId;
     if (prevPem === undefined) delete process.env.FISCALIZA_S2S_PRIVATE_KEY_PEM;
     else process.env.FISCALIZA_S2S_PRIVATE_KEY_PEM = prevPem;
+    if (prevLegacyKey === undefined) delete process.env.FISCALIZA_S2S_PRIVATE_KEY;
+    else process.env.FISCALIZA_S2S_PRIVATE_KEY = prevLegacyKey;
     if (prevForbiddenToken === undefined) delete process.env.ADMINISTRA_API_TOKEN;
     else process.env.ADMINISTRA_API_TOKEN = prevForbiddenToken;
     if (prevSolicToken === undefined) delete process.env.SOLICITACOES_SERVICE_TOKEN;
     else process.env.SOLICITACOES_SERVICE_TOKEN = prevSolicToken;
   }
 
-  // 2. Com configuração S2S: testa 200, 401, 403, 409, resposta inválida e timeout
   let upstreamMode: 'ok' | '401' | '403' | '409' | 'invalid' | 'timeout' = 'ok';
 
   const serverConfigured = await startServer({
@@ -538,13 +653,14 @@ test('rotas /api/administra exigem sessão, mantêm modo local sem chamadas exte
     administraDeps: {
       getSupabaseAdmin: () => mockSupabase,
       getS2sConfig: () => ({
-        apiUrl: 'https://administra.exemplo.invalid',
+        apiUrl: 'https://administra.exemplo.invalid/api/v2',
         keyId: 'kid-server-test',
         privateKeyPem
       }),
       timeoutMs: 40,
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
+        assert.equal(url.pathname.startsWith('/api/v2/api/v2'), false);
         if (upstreamMode === '401') {
           return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
         }
@@ -577,7 +693,16 @@ test('rotas /api/administra exigem sessão, mantêm modo local sem chamadas exte
           JSON.stringify({
             success: true,
             apiVersion: '2.0',
-            items: [{ id: 'bar-ok', nome: 'Barragem V2', municipio: 'Cuiabá' }],
+            items: [
+              {
+                id: 'bar-ok',
+                nome: 'Barragem V2',
+                uf: 'MT',
+                municipio: 'Cuiabá',
+                cursoAgua: 'Rio Coxipó',
+                altura: 11.5
+              }
+            ],
             pagination: { limit: 500, hasMore: false, nextCursor: null },
             maskingPolicy: 'masked_pii_v2'
           }),
@@ -601,6 +726,7 @@ test('rotas /api/administra exigem sessão, mantêm modo local sem chamadas exte
     assert.equal(barOk.status, 200);
     assert.equal(barOk.body.items.length, 1);
     assert.equal(barOk.body.items[0].nome, 'Barragem V2');
+    assert.equal(barOk.body.items[0].cursoAgua, 'Rio Coxipó');
 
     upstreamMode = '401';
     const res401 = await requestJson(baseUrl, '/api/administra/barragens', { token: 'token-analista' });
@@ -635,16 +761,162 @@ test('rotas /api/administra exigem sessão, mantêm modo local sem chamadas exte
   }
 });
 
-test('verifica .env.example e isolamento de variáveis S2S exclusivamente no backend sem resíduos do Supabase do Administra', () => {
+test('verifica .env.example e uso exato de FISCALIZA_S2S_PRIVATE_KEY_PEM sem resíduos do Supabase do Administra', () => {
   const envExample = fs.readFileSync(path.resolve(process.cwd(), '.env.example'), 'utf8');
   assert.match(envExample, /^ADMINISTRA_API_URL=/m);
   assert.match(envExample, /^FISCALIZA_S2S_KEY_ID=/m);
   assert.match(envExample, /^FISCALIZA_S2S_PRIVATE_KEY_PEM=/m);
-  assert.equal(/VITE_ADMINISTRA_SUPABASE_|VITE_FISCALIZA_S2S|VITE_ADMINISTRA_API|ADMINISTRA_API_TOKEN/.test(envExample), false);
+  assert.equal(/FISCALIZA_S2S_PRIVATE_KEY(?!=|_PEM)/.test(envExample), false);
+  assert.equal(
+    /VITE_ADMINISTRA_SUPABASE_|VITE_FISCALIZA_S2S|VITE_ADMINISTRA_API|ADMINISTRA_API_TOKEN/.test(
+      envExample
+    ),
+    false
+  );
 
   const s2sSrc = fs.readFileSync(
     path.resolve(process.cwd(), 'src/server/administraS2sApi.ts'),
     'utf8'
   );
+  assert.equal(/FISCALIZA_S2S_PRIVATE_KEY(?!_PEM)/.test(s2sSrc), false);
   assert.equal(/ADMINISTRA_API_TOKEN|SOLICITACOES_SERVICE_TOKEN|empreendedores:read|VITE_/.test(s2sSrc), false);
+});
+
+test('valida formato de FISCALIZA_S2S_KEY_ID e endurece normalização de ADMINISTRA_API_URL', () => {
+  const { publicKey, privateKeyPem } = generateEphemeralEd25519Keypair();
+
+  // 1. Validação de FISCALIZA_S2S_KEY_ID (^[A-Za-z0-9._:-]{1,128}$)
+  assert.equal(isValidS2sKeyId('kid-fiscaliza.prod_01:v2'), true);
+  assert.equal(isValidS2sKeyId('a'.repeat(128)), true);
+  assert.equal(isValidS2sKeyId(''), false);
+  assert.equal(isValidS2sKeyId('a'.repeat(129)), false);
+  assert.equal(isValidS2sKeyId('kid invalido'), false);
+  assert.equal(isValidS2sKeyId('kid/barra'), false);
+  assert.equal(isValidS2sKeyId('kid@host'), false);
+  assert.equal(isValidS2sKeyId('kid?query'), false);
+
+  assert.throws(() =>
+    signS2sV2GetRequest({
+      config: {
+        apiUrl: 'https://administra.exemplo.invalid',
+        keyId: 'kid invalido!',
+        privateKeyPem
+      },
+      endpoint: ADMINISTRA_V2_ENDPOINTS.HEALTH
+    })
+  );
+
+  // 2. Normalização de ADMINISTRA_API_URL: credenciais, query string, fragmento, HTTPS em produção e sufixo único /api/v2
+  for (const badUrl of [
+    'https://user:pass@administra.exemplo.invalid/api/v2',
+    'https://user@administra.exemplo.invalid/api/v2',
+    'https://@administra.exemplo.invalid/api/v2',
+    'https://administra.exemplo.invalid/api/v2?foo=bar',
+    'https://administra.exemplo.invalid/api/v2?',
+    'https://administra.exemplo.invalid/api/v2#frag',
+    'https://administra.exemplo.invalid/api/v2#'
+  ]) {
+    assert.throws(() => normalizeAdministraApiBaseUrl(badUrl), `URL deveria ser rejeitada: ${badUrl}`);
+  }
+
+  assert.throws(() =>
+    normalizeAdministraApiBaseUrl('http://administra.exemplo.invalid/api/v2', { requireHttps: true })
+  );
+  assert.equal(
+    normalizeAdministraApiBaseUrl('http://localhost:3001/api/v2', { requireHttps: false }),
+    'http://localhost:3001'
+  );
+
+  // Remove apenas um sufixo final /api/v2 preservando prefixo legítimo de gateway
+  assert.equal(
+    normalizeAdministraApiBaseUrl('https://gateway.exemplo.invalid/proxy/api/v2/api/v2/', {
+      requireHttps: true
+    }),
+    'https://gateway.exemplo.invalid/proxy/api/v2'
+  );
+  assert.equal(
+    normalizeAdministraApiBaseUrl('https://gateway.exemplo.invalid/api/v20/', {
+      requireHttps: true
+    }),
+    'https://gateway.exemplo.invalid/api/v20'
+  );
+
+  const prevApiUrl = process.env.ADMINISTRA_API_URL;
+  const prevKeyId = process.env.FISCALIZA_S2S_KEY_ID;
+  const prevPem = process.env.FISCALIZA_S2S_PRIVATE_KEY_PEM;
+  const prevNodeEnv = process.env.NODE_ENV;
+  const prevVercelEnv = process.env.VERCEL_ENV;
+
+  try {
+    process.env.NODE_ENV = 'production';
+    delete process.env.VERCEL_ENV;
+    process.env.FISCALIZA_S2S_PRIVATE_KEY_PEM = privateKeyPem;
+
+    // HTTP em produção deve ser recusado
+    process.env.ADMINISTRA_API_URL = 'http://administra.exemplo.invalid/api/v2';
+    process.env.FISCALIZA_S2S_KEY_ID = 'Fiscaliza.key_01:v2';
+    assert.equal(getDefaultAdministraS2sConfig(), null);
+
+    // Key ID inválido deve ser recusado
+    process.env.ADMINISTRA_API_URL = 'https://gateway.exemplo.invalid/proxy/api/v2/';
+    process.env.FISCALIZA_S2S_KEY_ID = 'kid/invalido';
+    assert.equal(getDefaultAdministraS2sConfig(), null);
+
+    // URL com query/fragmento/credencial deve ser recusada
+    process.env.FISCALIZA_S2S_KEY_ID = 'Fiscaliza.key_01:v2';
+    process.env.ADMINISTRA_API_URL = 'https://user@gateway.exemplo.invalid/proxy/api/v2';
+    assert.equal(getDefaultAdministraS2sConfig(), null);
+    process.env.ADMINISTRA_API_URL = 'https://gateway.exemplo.invalid/proxy/api/v2?env=prod';
+    assert.equal(getDefaultAdministraS2sConfig(), null);
+    process.env.ADMINISTRA_API_URL = 'https://gateway.exemplo.invalid/proxy/api/v2#top';
+    assert.equal(getDefaultAdministraS2sConfig(), null);
+
+    // Configuração HTTPS válida com prefixo de gateway e keyId válido
+    process.env.ADMINISTRA_API_URL = 'https://gateway.exemplo.invalid/proxy/api/v2/';
+    const cfg = getDefaultAdministraS2sConfig();
+    assert.ok(cfg);
+    assert.equal(cfg.apiUrl, 'https://gateway.exemplo.invalid/proxy');
+    assert.equal(cfg.keyId, 'Fiscaliza.key_01:v2');
+
+    const signedGateway = signS2sV2GetRequest({
+      config: cfg,
+      endpoint: ADMINISTRA_V2_ENDPOINTS.BARRAGENS,
+      queryParams: { limit: 500 },
+      nowSeconds: () => 1732560500,
+      randomUuid: () => '33333333-3333-4333-8333-333333333333'
+    });
+    const expectedGatewayCanonical =
+      'S2S-V2\n' +
+      'GET\n' +
+      '/proxy/api/v2/barragens\n' +
+      'limit=500\n' +
+      '\n' +
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n' +
+      'Fiscaliza.key_01:v2\n' +
+      '1732560500\n' +
+      '33333333-3333-4333-8333-333333333333\n' +
+      '|';
+    assert.equal(signedGateway.url, 'https://gateway.exemplo.invalid/proxy/api/v2/barragens?limit=500');
+    assert.equal(signedGateway.canonicalMessage, expectedGatewayCanonical);
+    assert.equal(
+      crypto.verify(
+        null,
+        Buffer.from(expectedGatewayCanonical, 'utf8'),
+        publicKey,
+        Buffer.from(signedGateway.headers['x-s2s-signature'], 'base64url')
+      ),
+      true
+    );
+  } finally {
+    if (prevApiUrl === undefined) delete process.env.ADMINISTRA_API_URL;
+    else process.env.ADMINISTRA_API_URL = prevApiUrl;
+    if (prevKeyId === undefined) delete process.env.FISCALIZA_S2S_KEY_ID;
+    else process.env.FISCALIZA_S2S_KEY_ID = prevKeyId;
+    if (prevPem === undefined) delete process.env.FISCALIZA_S2S_PRIVATE_KEY_PEM;
+    else process.env.FISCALIZA_S2S_PRIVATE_KEY_PEM = prevPem;
+    if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = prevNodeEnv;
+    if (prevVercelEnv === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = prevVercelEnv;
+  }
 });

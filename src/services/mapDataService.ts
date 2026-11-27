@@ -83,6 +83,60 @@ export interface GeoJsonMunicipalityCollection {
   features: GeoJsonMunicipalityFeature[];
 }
 
+export interface ExternalMapLayerFlags {
+  showNovas: boolean;
+  showAntigas: boolean;
+  showSnisb: boolean;
+  showAneel: boolean;
+  showGeoJson: boolean;
+}
+
+export interface ExternalMapLayerLoadedState {
+  novas: boolean;
+  antigas: boolean;
+  snisb: boolean;
+  aneel: boolean;
+  geoJson: boolean;
+}
+
+export const INITIAL_MAP_LAYER_FLAGS: ExternalMapLayerFlags = {
+  showNovas: false,
+  showAntigas: false,
+  showSnisb: false,
+  showAneel: false,
+  showGeoJson: false
+};
+
+export type ExternalMapLayerKey = keyof ExternalMapLayerLoadedState;
+
+export function getPendingExternalLayerFetches(
+  flags: ExternalMapLayerFlags,
+  loaded: ExternalMapLayerLoadedState
+): ExternalMapLayerKey[] {
+  const pending: ExternalMapLayerKey[] = [];
+  if (flags.showNovas && !loaded.novas) pending.push('novas');
+  if (flags.showAntigas && !loaded.antigas) pending.push('antigas');
+  if (flags.showSnisb && !loaded.snisb) pending.push('snisb');
+  if (flags.showAneel && !loaded.aneel) pending.push('aneel');
+  if (flags.showGeoJson && !loaded.geoJson) pending.push('geoJson');
+  return pending;
+}
+
+export interface MapCatalogDamPin {
+  id: string;
+  orderNumber: number;
+  nome: string;
+  municipio?: string;
+  empreendedor?: string;
+  lat: number | null;
+  lng: number | null;
+  linkStatus: 'vinculo_oficial' | 'vinculo_pendente_revisao' | 'sem_vinculo';
+  linkLabel: string;
+  coordenadasIndisponiveis?: boolean;
+  syncLabel?: string;
+  subtitle?: string;
+}
+
 /**
  * Converte qualquer representação de coordenada (GMS com :, com graus, decimal) para decimal negativo
  */

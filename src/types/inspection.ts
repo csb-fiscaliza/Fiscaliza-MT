@@ -298,12 +298,24 @@ export interface BarragemEntity {
   empreendedorId: string;
   nome: string;
   municipio: string;
+  uf?: string | null;
+  car?: string | null;
+  municipioIbge?: string | null;
+  empreendimento?: string | null;
+  processo?: string | null;
+  snisb?: string | null;
   baciaHidrografica?: string | null;
   cursoDagua?: string | null;
   coordenadas: LocationRecord;
   latitudeGms?: string | null;
   longitudeGms?: string | null;
   cotaCoroamentoMetros?: number | null;
+  altura?: number | null;
+  volume?: number | null;
+  danoPotencial?: string | null;
+  categoriaRisco?: string | null;
+  classificadaEm?: string | null;
+  situacao?: string | null;
   anoInicioObra?: number | null;
   anoFinalObra?: number | null;
   idadeBarragemAnos?: number | null;
@@ -537,6 +549,103 @@ export interface AdministraCadastroStatus {
   responsavelTecnico?: AdministraEntityCadastroState;
 }
 
+export type MesaSyncState =
+  | 'salvo_localmente'
+  | 'pendente_sincronizacao'
+  | 'sincronizado'
+  | 'falha_conflito';
+
+export type DamLinkStatus =
+  | 'vinculo_oficial'
+  | 'vinculo_pendente_revisao'
+  | 'sem_vinculo';
+
+export interface DamLinkClassification {
+  status: DamLinkStatus;
+  label: string;
+  motivo: string;
+  coordenadasIndisponiveis: boolean;
+}
+
+export interface RetificacaoDocumentoRecord {
+  id: string;
+  vistoriaId: string;
+  documentoTipo: DocumentType | 'ficha_vistoria';
+  versao: number;
+  autorId?: string | null;
+  autorEmail: string;
+  autorNome: string;
+  justificativa: string;
+  resumoAlteracoes: string;
+  camposAlterados?: {
+    campo: string;
+    rotulo: string;
+    valorAnterior: string;
+    valorNovo: string;
+  }[];
+  alteradoEm: string;
+}
+
+export interface ConflitoSincronizacaoCampo {
+  campo: string;
+  rotulo: string;
+  valorLocal: string;
+  valorRemoto: string;
+  origemRemota: SistemaOrigem | 'administra_api';
+}
+
+export interface ConflitoSincronizacaoBarragem {
+  id: string;
+  vistoriaId: string;
+  entidadeTipo: EntidadeMestreTipo;
+  entidadeId?: string | null;
+  entidadeNome: string;
+  status: 'pendente' | 'resolvido';
+  camposDivergentes: ConflitoSincronizacaoCampo[];
+  participantesEmails: string[];
+  detectadoEm: string;
+  decisao?: 'manter_local' | 'adotar_remoto' | 'mesclar_manual';
+  resolvidaPorEmail?: string | null;
+  resolvidaPorNome?: string | null;
+  resolvidaEm?: string | null;
+  justificativaResolucao?: string | null;
+}
+
+export interface SolicitacaoMultiEntidadeItem {
+  entidadeTipo: EntidadeMestreTipo;
+  entidadeId?: string | null;
+  entidadeNome: string;
+  sistemaDestino: SistemaOrigem | 'GERAL';
+  destinatarioEmail?: string | null;
+  justificativaEspecifica?: string;
+}
+
+export interface SolicitacaoRevisaoAdministrativaRecord {
+  id: string;
+  solicitacaoId: string;
+  solicitanteEmail: string;
+  solicitanteNome: string;
+  justificativa: string;
+  destinoSolicitado: 'GERAL' | string;
+  status: 'pendente' | 'aceita' | 'rejeitada';
+  decididoPorEmail?: string | null;
+  decididoPorNome?: string | null;
+  decididoEm?: string | null;
+  parecerDecisao?: string | null;
+  criadoEm: string;
+}
+
+export interface SolicitacaoRedistribuicaoAuditRecord {
+  id: string;
+  solicitacaoId: string;
+  destinoAnterior: string;
+  novoDestino: string;
+  autorEmail: string;
+  autorNome: string;
+  motivo: string;
+  alteradoEm: string;
+}
+
 export interface InspectionData {
   id: string;
   barragemId?: string;
@@ -554,6 +663,7 @@ export interface InspectionData {
   createdAt: string;
   updatedAt: string;
   isDraft: boolean;
+  revisaoVersao?: number;
   tipoPlanejamento?: 'atual' | 'futura'; // 'atual': Vistoria Atual (em andamento) | 'futura': Vistoria Futura (pré-cadastro sem numeração)
   itensObservacaoFutura?: ItemObservacaoFutura[]; // Itens a serem observados / checklist de atenção especial em campo
   solicitacaoVistoriaId?: string;
@@ -686,6 +796,8 @@ export interface InspectionData {
   };
 
   historicoAlteracoes?: HistoricoAlteracaoEntity[];
+  retificacoesHistorico?: RetificacaoDocumentoRecord[];
+  conflitosSincronizacao?: ConflitoSincronizacaoBarragem[];
   digitalSecurity?: {
     verificationCode: string;
     sha256Hash: string;

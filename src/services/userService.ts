@@ -209,6 +209,28 @@ export function canUserCreateInspection(role?: string): boolean {
   return r !== 'visualizador';
 }
 
+export function isInspectionAuthorOrTeam(
+  currentUser: { email?: string; fullName?: string; role?: string; id?: string } | null,
+  inspection: InspectionData
+): boolean {
+  if (!currentUser || !currentUser.email) return false;
+  const userEmail = currentUser.email.trim().toLowerCase();
+  const userName = (currentUser.fullName || '').trim().toLowerCase();
+
+  if (inspection.createdByEmail && inspection.createdByEmail.trim().toLowerCase() === userEmail) {
+    return true;
+  }
+  if (inspection.createdByUserId && currentUser.id && inspection.createdByUserId === currentUser.id) {
+    return true;
+  }
+
+  const inspectors = inspection.generalInfo?.inspectors || [];
+  return inspectors.some(insp => {
+    const inspName = (insp.name || '').trim().toLowerCase();
+    return Boolean(inspName && userName && (inspName.includes(userName) || userName.includes(inspName)));
+  });
+}
+
 export function canUserEditInspection(
   currentUser: { email?: string; fullName?: string; role?: string; id?: string } | null,
   inspection: InspectionData
@@ -230,13 +252,7 @@ export function canUserEditInspection(
     };
   }
 
-  const userEmail = currentUser.email.trim().toLowerCase();
-  const userName = (currentUser.fullName || '').trim().toLowerCase();
-
-  if (inspection.createdByEmail && inspection.createdByEmail.trim().toLowerCase() === userEmail) {
-    return { allowed: true };
-  }
-  if (inspection.createdByUserId && currentUser.id && inspection.createdByUserId === currentUser.id) {
+  if (isInspectionAuthorOrTeam(currentUser, inspection)) {
     return { allowed: true };
   }
 
@@ -249,29 +265,66 @@ export function canUserEditInspection(
   }
 
   const inspectors = inspection.generalInfo?.inspectors || [];
-  const isInTeam = inspectors.some(insp => {
-    const inspName = (insp.name || '').trim().toLowerCase();
-    if (inspName && userName && (inspName.includes(userName) || userName.includes(inspName))) {
-      return true;
-    }
-    return false;
-  });
-
-  if (isInTeam) {
-    return { allowed: true };
-  }
-
   const ownerLabel =
     inspection.createdByName || inspection.createdByEmail || inspectors[0]?.name || 'outro analista';
   return {
     allowed: false,
-    reason: `Ficha criada por ${ownerLabel}. Como Analista, você só possui permissão de edição em vistorias próprias ou das quais participe na equipe técnica.`
+    reason: `Documento de ${ownerLabel}. Você pode abrir e consultar em modo somente leitura, mas não editar ou excluir documentos de outro autor.`
   };
+}
+
+/**
+ * Edição direta silenciosa permitida apenas em rascunhos pelo autor/equipe/admin.
+ * Documentos concluídos (`isDraft === false`) exigem fluxo auditável de revisão/retificação.
+ */
+export function canUserEditInspectionDirectly(
+  currentUser: { email?: string; fullName?: string; role?: string; id?: string } | null,
+  inspection: InspectionData
+): { allowed: boolean; requiresRectification?: boolean; reason?: string } {
+  const baseCheck = canUserEditInspection(currentUser, inspection);
+  if (!baseCheck.allowed) {
+    return baseCheck;
+  }
+  if (inspection.isDraft === false) {
+    return {
+      allowed: false,
+      requiresRectification: true,
+      reason:
+        'Documento concluído: alterações exigem fluxo auditável de revisão/retificação com justificativa registrada, nunca edição silenciosa.'
+    };
+  }
+  return { allowed: true };
+}
+
+export function canUserRectifyCompletedInspection(
+  currentUser: { email?: string; fullName?: string; role?: string; id?: string } | null,
+  inspection: InspectionData
+): { allowed: boolean; reason?: string } {
+  if (inspection.isDraft !== false) {
+    return {
+      allowed: false,
+      reason: 'Documento ainda em rascunho; utilize a edição direta antes de concluir.'
+    };
+  }
+  return canUserEditInspection(currentUser, inspection);
 }
 
 export function canUserDeleteInspection(
   currentUser: { email?: string; fullName?: string; role?: string; id?: string } | null,
   inspection: InspectionData
 ): { allowed: boolean; reason?: string } {
-  return canUserEditInspection(currentUser, inspection);
+  const baseCheck = canUserEditInspection(currentUser, inspection);
+  if (!baseCheck.allowed) {
+    return baseCheck;
+  }
+  const role = (currentUser?.role || '').toLowerCase();
+  const isAdmin = role === 'administrador' || role === 'admin';
+  if (inspection.isDraft === false && !isAdmin) {
+    return {
+      allowed: false,
+      reason:
+        'Documentos concluídos não podem ser excluídos diretamente. Utilize o fluxo auditável de revisão/retificação ou acione um Administrador.'
+    };
+  }
+  return { allowed: true };
 }

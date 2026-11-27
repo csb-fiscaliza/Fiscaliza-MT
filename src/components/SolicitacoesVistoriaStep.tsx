@@ -30,6 +30,16 @@ import {
   fetchSolicitacoesVistoria,
   iniciarSolicitacaoVistoria
 } from '../services/solicitacoesVistoriaService';
+import {
+  createMultiEntitySolicitacaoPlan,
+  decideSolicitacaoAdministrativeReview,
+  getEffectiveSolicitacaoDestino,
+  loadSolicitacoesWorkflowState,
+  redistributeGeralSolicitacao,
+  requestSolicitacaoAdministrativeReview,
+  SolicitacoesWorkflowState
+} from '../services/mesaVirtualService';
+import type { SistemaOrigem, SolicitacaoMultiEntidadeItem } from '../types/inspection';
 
 const MAX_OBSERVACAO_LENGTH = 1000;
 
@@ -117,6 +127,28 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
   const [editingObsText, setEditingObsText] = useState<string>('');
   const [isSavingObs, setIsSavingObs] = useState<boolean>(false);
 
+  // Governança de Caixa GERAL, Redistribuição, Revisão Administrativa e Despacho Multi-Entidade
+  const [workflowState, setWorkflowState] = useState<SolicitacoesWorkflowState>(() =>
+    loadSolicitacoesWorkflowState()
+  );
+  const [destinoFilter, setDestinoFilter] = useState<'todos' | 'geral' | 'atribuidas'>('todos');
+  const [showMultiPlanForm, setShowMultiPlanForm] = useState<boolean>(false);
+  const [planProcesso, setPlanProcesso] = useState<string>('');
+  const [planJustificativa, setPlanJustificativa] = useState<string>('');
+  const [planEntidadeNome, setPlanEntidadeNome] = useState<string>('');
+  const [planSistemas, setPlanSistemas] = useState<SistemaOrigem[]>(['fiscaliza']);
+  const [planDestinoCaixa, setPlanDestinoCaixa] = useState<string>('GERAL');
+  const [planJustBySys, setPlanJustBySys] = useState<Record<string, string>>({});
+
+  const [redistributeTargetId, setRedistributeTargetId] = useState<string | null>(null);
+  const [redistributeDestino, setRedistributeDestino] = useState<string>('');
+  const [redistributeMotivo, setRedistributeMotivo] = useState<string>('');
+
+  const [reviewRequestTargetId, setReviewRequestTargetId] = useState<string | null>(null);
+  const [reviewJustificativa, setReviewJustificativa] = useState<string>('');
+  const [reviewDestinoDesejado, setReviewDestinoDesejado] = useState<string>('GERAL');
+  const [decisionNoteByReviewId, setDecisionNoteByReviewId] = useState<Record<string, string>>({});
+
   const solicitacoesCountRef = useRef<number>(0);
   solicitacoesCountRef.current = solicitacoes.length;
 
@@ -158,6 +190,7 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
 
   const effectiveRole = (actor?.perfil || currentUser?.role || '').toLowerCase();
   const isVisualizador = effectiveRole === 'visualizador';
+  const isAdminActor = Boolean(actor?.isAdmin || effectiveRole === 'administrador' || effectiveRole === 'admin');
   const canMutate = actor ? actor.canMutate : !isVisualizador && (effectiveRole === 'administrador' || effectiveRole === 'analista');
 
   const filteredSolicitacoes = useMemo(() => {
@@ -165,6 +198,9 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
     return solicitacoes.filter(item => {
       if (statusFilter !== 'todos' && item.status !== statusFilter) return false;
       if (origemFilter !== 'todos' && item.sistema_origem !== origemFilter) return false;
+      const effDestino = getEffectiveSolicitacaoDestino(item, workflowState);
+      if (destinoFilter === 'geral' && effDestino !== 'GERAL') return false;
+      if (destinoFilter === 'atribuidas' && effDestino === 'GERAL') return false;
       if (!q) return true;
       const haystack = [
         item.barragem_nome,
@@ -174,14 +210,129 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
         item.relato_resumido,
         item.processo_numero,
         item.protocolo,
-        item.classificacao_resumo
+        item.classificacao_resumo,
+        effDestino
       ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [solicitacoes, statusFilter, origemFilter, searchQuery]);
+  }, [solicitacoes, statusFilter, origemFilter, destinoFilter, workflowState, searchQuery]);
+
+  const handleTogglePlanSistema = (sis: SistemaOrigem) => {
+    setPlanSistemas(prev =>
+      prev.includes(sis) ? prev.filter(s => s !== sis) : [...prev, sis]
+    );
+  };
+
+  const handleSubmitMultiPlan = (e: React.FormEvent) => {
+    e.preventDefault();
+    const itens: SolicitacaoMultiEntidadeItem[] = planSistemas.map(sis => ({
+      entidadeTipo: 'barragem',
+      entidadeNome: planEntidadeNome.trim() || `Demanda ${sis.toUpperCase()}`,
+      sistemaDestino: sis,
+      destinatarioEmail: planDestinoCaixa.trim() || 'GERAL',
+      justificativaEspecifica: planJustBySys[sis] || undefined
+    }));
+
+    const res = createMultiEntitySolicitacaoPlan(workflowState, {
+      processoNumero: planProcesso,
+      justificativaGeral: planJustificativa,
+      itens,
+      actorEmail: currentUser?.email || 'fiscal@sema.mt.gov.br',
+      actorName: currentUser?.fullName || actor?.nome || 'Fiscal CSB'
+    });
+    if (!res.success) {
+      setActionFeedback({ type: 'error', message: res.error || 'Falha ao criar despacho.' });
+      return;
+    }
+    setWorkflowState(res.state);
+    setShowMultiPlanForm(false);
+    setPlanProcesso('');
+    setPlanJustificativa('');
+    setPlanEntidadeNome('');
+    setPlanJustBySys({});
+    setActionFeedback({
+      type: 'success',
+      message:
+        'Plano de despacho multi-entidade registrado localmente com justificativa (pendente de endpoint central no Administra para envio remoto).'
+    });
+  };
+
+  const handleConfirmRedistribute = (item: SolicitacaoVistoriaRecord) => {
+    const res = redistributeGeralSolicitacao(workflowState, {
+      solicitacao: item,
+      novoDestino: redistributeDestino,
+      motivo: redistributeMotivo,
+      actor: {
+        email: currentUser?.email || 'admin@sema.mt.gov.br',
+        fullName: currentUser?.fullName || actor?.nome || 'Administrador',
+        role: isAdminActor ? 'administrador' : effectiveRole
+      }
+    });
+    if (!res.success) {
+      setActionFeedback({ type: 'error', message: res.error || 'Falha ao redistribuir.' });
+      return;
+    }
+    setWorkflowState(res.state);
+    setRedistributeTargetId(null);
+    setRedistributeDestino('');
+    setRedistributeMotivo('');
+    setActionFeedback({
+      type: 'success',
+      message: `Solicitação redistribuída para "${redistributeDestino}" com trilha auditável registrada.`
+    });
+  };
+
+  const handleConfirmReviewRequest = (solicitacaoId: string) => {
+    const res = requestSolicitacaoAdministrativeReview(workflowState, {
+      solicitacaoId,
+      justificativa: reviewJustificativa,
+      destinoSolicitado: reviewDestinoDesejado,
+      actor: {
+        email: currentUser?.email || 'analista@sema.mt.gov.br',
+        fullName: currentUser?.fullName || actor?.nome || 'Analista',
+        role: effectiveRole || 'analista'
+      }
+    });
+    if (!res.success) {
+      setActionFeedback({ type: 'error', message: res.error || 'Falha ao enviar revisão.' });
+      return;
+    }
+    setWorkflowState(res.state);
+    setReviewRequestTargetId(null);
+    setReviewJustificativa('');
+    setActionFeedback({
+      type: 'success',
+      message: 'Pedido de revisão administrativa registrado para avaliação exclusiva do Administrador.'
+    });
+  };
+
+  const handleAdminReviewDecision = (revisaoId: string, decision: 'aceita' | 'rejeitada') => {
+    const res = decideSolicitacaoAdministrativeReview(workflowState, {
+      revisaoId,
+      decision,
+      parecerDecisao: decisionNoteByReviewId[revisaoId] || '',
+      actor: {
+        email: currentUser?.email || 'admin@sema.mt.gov.br',
+        fullName: currentUser?.fullName || actor?.nome || 'Administrador',
+        role: isAdminActor ? 'administrador' : effectiveRole
+      }
+    });
+    if (!res.success) {
+      setActionFeedback({ type: 'error', message: res.error || 'Sem permissão para decidir.' });
+      return;
+    }
+    setWorkflowState(res.state);
+    setActionFeedback({
+      type: 'success',
+      message:
+        decision === 'aceita'
+          ? 'Revisão administrativa aceita e destino atualizado com registro de auditoria.'
+          : 'Revisão administrativa rejeitada com parecer auditável.'
+    });
+  };
 
   const handleIniciarPlanejamento = async (item: SolicitacaoVistoriaRecord) => {
     if (!canMutate) return;
@@ -299,6 +450,17 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
         </div>
 
         <div className="flex items-center flex-wrap gap-2">
+          {canMutate && (
+            <button
+              type="button"
+              onClick={() => setShowMultiPlanForm(v => !v)}
+              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <CalendarPlus className="w-3.5 h-3.5" />
+              <span>Despacho Multi-Entidade</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onGoToDashboard}
@@ -319,6 +481,148 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
           </button>
         </div>
       </div>
+
+      {/* Formulário de Despacho Multi-Entidade / Multi-Sistema com Justificativa */}
+      {showMultiPlanForm && canMutate && (
+        <form
+          onSubmit={handleSubmitMultiPlan}
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-emerald-300 dark:border-emerald-800 p-4 space-y-3 text-xs"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-black text-slate-900 dark:text-white">
+                Planejamento de Solicitação Multi-Entidade / Multi-Sistema
+              </h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Selecione múltiplos sistemas/entidades no mesmo processo com justificativa geral ou específica.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMultiPlanForm(false)}
+              className="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <input
+              type="text"
+              required
+              value={planProcesso}
+              onChange={e => setPlanProcesso(e.target.value)}
+              placeholder="Número do Processo SEMA *"
+              className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+            />
+            <input
+              type="text"
+              value={planEntidadeNome}
+              onChange={e => setPlanEntidadeNome(e.target.value)}
+              placeholder="Barragem / Entidade alvo"
+              className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+            />
+            <input
+              type="text"
+              value={planDestinoCaixa}
+              onChange={e => setPlanDestinoCaixa(e.target.value)}
+              placeholder="Caixa / Destino inicial (padrão: GERAL)"
+              className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <span className="font-bold text-slate-700 dark:text-slate-300 block">
+              Sistemas de destino incluídos:
+            </span>
+            <div className="flex flex-wrap gap-3">
+              {(['fiscaliza', 'classifica', 'notifica'] as SistemaOrigem[]).map(sis => (
+                <label
+                  key={sis}
+                  className="inline-flex items-center gap-2 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={planSistemas.includes(sis)}
+                    onChange={() => handleTogglePlanSistema(sis)}
+                    className="w-4 h-4 rounded text-emerald-600"
+                  />
+                  <span>{ORIGEM_LABELS[sis] || sis}</span>
+                </label>
+              ))}
+            </div>
+
+            {planSistemas.map(sis => (
+              <input
+                key={sis}
+                type="text"
+                value={planJustBySys[sis] || ''}
+                onChange={e => setPlanJustBySys(prev => ({ ...prev, [sis]: e.target.value }))}
+                placeholder={`Justificativa específica para ${ORIGEM_LABELS[sis] || sis} (opcional se houver justificativa geral)`}
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+              />
+            ))}
+          </div>
+
+          <textarea
+            rows={2}
+            value={planJustificativa}
+            onChange={e => setPlanJustificativa(e.target.value)}
+            placeholder="Justificativa técnica geral da solicitação conjunta..."
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+          />
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowMultiPlanForm(false)}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-bold cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+            >
+              Registrar Despacho
+            </button>
+          </div>
+        </form>
+      )}
+
+      {workflowState.multiEntityPlans.length > 0 && (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-2 text-xs">
+          <div className="font-bold text-slate-900 dark:text-white">
+            Planos Multi-Entidade Registrados ({workflowState.multiEntityPlans.length})
+          </div>
+          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+            {workflowState.multiEntityPlans.map(plan => (
+              <div
+                key={plan.id}
+                className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2"
+              >
+                <div>
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Proc. {plan.processoNumero}
+                  </span>
+                  <span className="text-slate-500">
+                    {' '}
+                    · Destinos: {plan.itens.map(i => `${i.sistemaDestino.toUpperCase()} (${i.destinatarioEmail || 'GERAL'})`).join(', ')}
+                  </span>
+                  {plan.justificativaGeral && (
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                      Justificativa: {plan.justificativaGeral}
+                    </p>
+                  )}
+                </div>
+                <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                  Aguardando contrato Administra
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Feedback de ação */}
       {actionFeedback && (
@@ -389,6 +693,17 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
               </option>
             ))}
           </select>
+
+          <select
+            value={destinoFilter}
+            onChange={e => setDestinoFilter(e.target.value as 'todos' | 'geral' | 'atribuidas')}
+            aria-label="Filtrar por caixa ou destino"
+            className="px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-semibold"
+          >
+            <option value="todos">Caixa: Todas</option>
+            <option value="geral">Caixa GERAL (sem atribuição)</option>
+            <option value="atribuidas">Atribuídas a analista/equipe</option>
+          </select>
         </div>
       </div>
 
@@ -441,6 +756,11 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
             const isBusy = actionBusyId === item.id;
             const canEditObs = canActorEditSolicitacaoObservacao(item, actor, currentUser?.role);
             const isEditingThis = editingObsId === item.id;
+            const effectiveDestino = getEffectiveSolicitacaoDestino(item, workflowState);
+            const itemReviews = workflowState.revisoes.filter(r => r.solicitacaoId === item.id);
+            const itemRedistributions = workflowState.redistribuicoes.filter(
+              r => r.solicitacaoId === item.id
+            );
 
             return (
               <div
@@ -449,29 +769,39 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
               >
                 <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
                   <div className="space-y-2 min-w-0 flex-1">
-                    {/* Badges de Status e Origem */}
+                    {/* Badges de Status, Caixa/Destino e Origem */}
                     <div className="flex items-center flex-wrap gap-2">
                       <span
-                        className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
+                        className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md border ${
                           STATUS_BADGE_CLASSES[item.status] || STATUS_BADGE_CLASSES.pendente
                         }`}
                       >
                         {STATUS_LABELS[item.status] || item.status}
                       </span>
 
-                      <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800">
+                      <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800">
                         Origem: {ORIGEM_LABELS[item.sistema_origem] || item.sistema_origem}
                       </span>
 
+                      <span
+                        className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-md border ${
+                          effectiveDestino === 'GERAL'
+                            ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                            : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                        }`}
+                      >
+                        Caixa: {effectiveDestino}
+                      </span>
+
                       {item.protocolo && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                          {item.protocolo}
+                        <span className="text-[10px] font-mono text-slate-600 dark:text-slate-300">
+                          · {item.protocolo}
                         </span>
                       )}
 
                       {item.classificacao_resumo && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                          {item.classificacao_resumo}
+                        <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                          · {item.classificacao_resumo}
                         </span>
                       )}
                     </div>
@@ -646,9 +976,192 @@ export const SolicitacoesVistoriaStep: React.FC<SolicitacoesVistoriaStepProps> =
                           <span>Editar observação</span>
                         </button>
                       )}
+
+                      {isAdminActor && effectiveDestino === 'GERAL' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRedistributeTargetId(item.id);
+                            setRedistributeDestino('');
+                            setRedistributeMotivo('');
+                          }}
+                          className="px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Users className="w-3.5 h-3.5" />
+                          <span>Redistribuir (Admin)</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReviewRequestTargetId(item.id);
+                          setReviewJustificativa('');
+                          setReviewDestinoDesejado(effectiveDestino);
+                        }}
+                        className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>Solicitar revisão adm.</span>
+                      </button>
                     </div>
                   )}
                 </div>
+
+                {/* Painel Inline de Redistribuição Admin (Caixa GERAL) */}
+                {redistributeTargetId === item.id && isAdminActor && (
+                  <div className="p-3 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/30 space-y-2 text-xs">
+                    <div className="font-bold text-slate-900 dark:text-white">
+                      Redistribuir solicitação da Caixa GERAL (Administrador)
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={redistributeDestino}
+                        onChange={e => setRedistributeDestino(e.target.value)}
+                        placeholder="Novo destinatário / analista / equipe *"
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                      />
+                      <input
+                        type="text"
+                        value={redistributeMotivo}
+                        onChange={e => setRedistributeMotivo(e.target.value)}
+                        placeholder="Motivo da redistribuição *"
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRedistributeTargetId(null)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 font-bold cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmRedistribute(item)}
+                        className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
+                      >
+                        Confirmar Redistribuição
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Painel Inline de Pedido de Revisão Administrativa (Analista) */}
+                {reviewRequestTargetId === item.id && (
+                  <div className="p-3 rounded-xl border border-indigo-300 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/30 space-y-2 text-xs">
+                    <div className="font-bold text-slate-900 dark:text-white">
+                      Solicitar Revisão Administrativa (decisão exclusiva do Administrador)
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={reviewDestinoDesejado}
+                        onChange={e => setReviewDestinoDesejado(e.target.value)}
+                        placeholder="Destino / reatribuição sugerida"
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                      />
+                      <input
+                        type="text"
+                        value={reviewJustificativa}
+                        onChange={e => setReviewJustificativa(e.target.value)}
+                        placeholder="Justificativa do pedido (mín. 6 caracteres) *"
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setReviewRequestTargetId(null)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 font-bold cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmReviewRequest(item.id)}
+                        className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold cursor-pointer"
+                      >
+                        Enviar para Administrador
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Histórico Auditável de Revisões Administrativas e Redistribuições */}
+                {(itemReviews.length > 0 || itemRedistributions.length > 0) && (
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                    {itemReviews.map(rev => (
+                      <div
+                        key={rev.id}
+                        className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 space-y-1.5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            Revisão Adm. · {rev.solicitanteNome} → Sugestão: {rev.destinoSolicitado}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                              rev.status === 'aceita'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : rev.status === 'rejeitada'
+                                ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                : 'bg-amber-100 text-amber-900 border-amber-300'
+                            }`}
+                          >
+                            {rev.status}
+                          </span>
+                        </div>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          Justificativa: {rev.justificativa}
+                        </p>
+                        {rev.status === 'pendente' && isAdminActor && (
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <input
+                              type="text"
+                              value={decisionNoteByReviewId[rev.id] || ''}
+                              onChange={e =>
+                                setDecisionNoteByReviewId(prev => ({ ...prev, [rev.id]: e.target.value }))
+                              }
+                              placeholder="Parecer da decisão administrativa..."
+                              className="flex-1 min-w-[160px] px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAdminReviewDecision(rev.id, 'aceita')}
+                              className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                            >
+                              Aceitar (Admin)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminReviewDecision(rev.id, 'rejeitada')}
+                              className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer"
+                            >
+                              Rejeitar (Admin)
+                            </button>
+                          </div>
+                        )}
+                        {rev.status !== 'pendente' && (
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Decidido por {rev.decididoPorNome} · Parecer: {rev.parecerDecisao}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                    {itemRedistributions.map(red => (
+                      <div
+                        key={red.id}
+                        className="text-[11px] text-slate-500 dark:text-slate-400"
+                      >
+                        Redistribuído de <strong>{red.destinoAnterior}</strong> para{' '}
+                        <strong>{red.novoDestino}</strong> por {red.autorNome} · {red.motivo}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

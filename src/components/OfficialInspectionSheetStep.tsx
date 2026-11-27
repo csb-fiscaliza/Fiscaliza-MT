@@ -61,6 +61,11 @@ import {
   registerSingleEntityToAdministra,
   subscribeEcosystemUpdates
 } from '../services/administraEcosystemService';
+import {
+  findNewerCompletedInspectionsAlert,
+  queryRelatedContextSummaryOnDemand,
+  RelatedContextSummary
+} from '../services/mesaVirtualService';
 import { getSistemaLabel } from '../services/ecosystemConfig';
 import { EcosystemImportedField } from './EcosystemImportedField';
 import { EcosystemTopic2Lookup } from './EcosystemTopic2Lookup';
@@ -232,6 +237,60 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
     setUnlockedImportedFields({});
     setShowPreSavedPanel(false);
   };
+
+  const [relatedContextSummary, setRelatedContextSummary] = useState<RelatedContextSummary | null>(null);
+
+  const newerInspectionAlert = React.useMemo(
+    () =>
+      findNewerCompletedInspectionsAlert({
+        currentInspection: data,
+        allInspections: localSavedPool
+      }),
+    [data, localSavedPool]
+  );
+
+  React.useEffect(() => {
+    const hasLookupKey = Boolean(
+      data.barragemId ||
+        data.empreendedorId ||
+        (data.generalInfo?.recordNumber || '').trim().length >= 3
+    );
+    if (!hasLookupKey) {
+      setRelatedContextSummary(null);
+      return;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await queryRelatedContextSummaryOnDemand({
+          barragemId: data.barragemId,
+          empreendedorId: data.empreendedorId,
+          barragemNome: data.damIdentification?.damName,
+          empreendedorNome: data.damIdentification?.propertyOrBusinessName,
+          processoNumero: data.generalInfo?.recordNumber,
+          excludeVistoriaId: data.id,
+          localInspections: localSavedPool
+        });
+        if (active) setRelatedContextSummary(res);
+      } catch {
+        // non-blocking
+      }
+    }, 350);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [
+    data.id,
+    data.barragemId,
+    data.empreendedorId,
+    data.damIdentification?.damName,
+    data.damIdentification?.propertyOrBusinessName,
+    data.generalInfo?.recordNumber,
+    localSavedPool
+  ]);
 
   React.useEffect(() => {
     let active = true;
@@ -1727,6 +1786,42 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 </div>
               )}
 
+              {/* Alerta contextual não bloqueante: vistoria mais recente / documentos relacionados / conflitos */}
+              {(newerInspectionAlert.hasNewerOfficialMatch ||
+                newerInspectionAlert.auxiliaryTextMatches.length > 0 ||
+                (relatedContextSummary && relatedContextSummary.relatedInspections.length > 0) ||
+                (data.conflitosSincronizacao || []).some(c => c.status === 'pendente')) && (
+                <div className="p-3 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/35 text-xs space-y-1.5">
+                  {newerInspectionAlert.hasNewerOfficialMatch && (
+                    <div className="flex items-start gap-2 text-amber-950 dark:text-amber-200">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong>Aviso contextual (não bloqueante):</strong> Existe vistoria concluída mais recente para esta barragem vinculada por ID ({newerInspectionAlert.officialMatches.map(m => `Vistoria ${m.numeroVistoria} em ${m.inspectionDate || m.updatedAt.slice(0, 10)}`).join(', ')}). Você pode prosseguir normalmente.
+                      </div>
+                    </div>
+                  )}
+                  {!newerInspectionAlert.hasNewerOfficialMatch &&
+                    newerInspectionAlert.auxiliaryTextMatches.length > 0 && (
+                      <div className="flex items-start gap-2 text-slate-800 dark:text-slate-200">
+                        <FileSearch className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Referência auxiliar por processo/nome:</strong> Localizada(s) {newerInspectionAlert.auxiliaryTextMatches.length} vistoria(s) concluída(s) com processo ou nome semelhante ({newerInspectionAlert.auxiliaryTextMatches.map(m => m.numeroVistoria).join(', ')}). Confirme pelo vínculo oficial da barragem se aplicável.
+                        </div>
+                      </div>
+                    )}
+                  {relatedContextSummary && relatedContextSummary.relatedInspections.length > 0 && (
+                    <div className="text-[11px] text-slate-700 dark:text-slate-300">
+                      Documentos relacionados sob demanda no Fiscaliza: <strong>{relatedContextSummary.relatedInspections.length}</strong> registro(s) para o mesmo processo, barragem ou empreendedor.
+                    </div>
+                  )}
+                  {(data.conflitosSincronizacao || []).some(c => c.status === 'pendente') && (
+                    <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
+                      Conflito de sincronização pendente: seus dados locais estão preservados. Resolva na Mesa Virtual antes da próxima sincronização.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Sub-bloco 1A: Registro da Vistoria & Identificação da Barragem */}
               <SubBlockCard
                 code="1A"
@@ -2364,10 +2459,11 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
                 onExportSelection={payload => {
                   onChange(prev => applyMasterSelectionToInspection(prev, payload));
                   setUnlockedImportedFields({});
+                  const ownerName = payload.empreendedor?.nomeRazaoSocial || 'Sem empreendedor vinculado';
                   showFieldToast(
                     payload.barragem
-                      ? `Dados de "${payload.empreendedor.nomeRazaoSocial}" e da barragem "${payload.barragem.nome}" aplicados (editáveis e marcados em laranja*).`
-                      : `Dados de "${payload.empreendedor.nomeRazaoSocial}" aplicados (editáveis e marcados em laranja*).`
+                      ? `Dados de "${ownerName}" e da barragem "${payload.barragem.nome}" aplicados (editáveis e marcados em laranja*).`
+                      : `Dados de "${ownerName}" aplicados (editáveis e marcados em laranja*).`
                   );
                 }}
                 onApplyCarOnly={car => {
@@ -4398,7 +4494,15 @@ export const OfficialInspectionSheetStep: React.FC<Props> = ({
       />
 
       {/* Status de Rascunho Temporário vs Conclusão e Validação no Administra */}
-      <div className="mt-6">
+      <div className="mt-6 space-y-3">
+        {data.isDraft === false && (
+          <div className="p-3 rounded-xl border border-indigo-300 dark:border-indigo-800 bg-indigo-50/80 dark:bg-indigo-950/40 text-xs text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
+            <Lock className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span>
+              <strong>Documento concluído (versão v{data.revisaoVersao || 1}):</strong> Edições silenciosas permanecem bloqueadas. Utilize o botão <strong>Retificar</strong> na <strong>Mesa Virtual</strong> para registrar correções auditáveis com justificativa.
+            </span>
+          </div>
+        )}
         <VistoriaConclusaoBar
           data={data}
           onChange={onChange}

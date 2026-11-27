@@ -11,6 +11,8 @@ import {
   loadLocalAlterationRequests,
   loadLocalAnalystInbox,
   loadLocalEcosystemProducts,
+  mapApiV2BarragemDto,
+  mergeBarragemPreservingExisting,
   upsertMasterEntitiesFromInspection
 } from '../administraEcosystemService.ts';
 import {
@@ -536,8 +538,75 @@ test('mantém heightMeters separado de cotaCoroamentoMetros e cota_coroamento_me
       'utf8'
     );
     assert.match(ecoServiceSrc, /cotaCoroamentoMetros:\s*pickFirstNumber\(row,\s*\['cota_coroamento_metros'\]\)/);
-    assert.match(ecoServiceSrc, /cotaCoroamentoMetros:\s*toNullableNum\(dto\.cotaCoroamentoMetros\)/);
     assert.equal(ecoServiceSrc.includes('heightMeters'), false);
+
+    // DTO V2 do Administra usa cursoAgua/altura e nunca sobrescreve cotaCoroamentoMetros nem dados locais existentes
+    const mappedV2 = mapApiV2BarragemDto({
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      nome: 'Barragem V2 Mapeada',
+      car: 'MT-5107909-XYZ',
+      uf: 'MT',
+      municipio: 'Sinop',
+      municipioIbge: '5107909',
+      empreendedorId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      empreendimento: 'Fazenda ***',
+      processo: 'PROC-2026/002',
+      snisb: 'SNISB-77',
+      cursoAgua: 'Ribeirão V2',
+      latitude: -11.85,
+      longitude: -55.49,
+      altura: 19.5,
+      volume: 350000,
+      danoPotencial: 'Alto',
+      categoriaRisco: 'Médio',
+      classificadaEm: '2026-05-01T00:00:00.000Z',
+      situacao: 'Ativa',
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2026-10-01T00:00:00.000Z'
+    });
+    assert.ok(mappedV2);
+    assert.equal(mappedV2.cursoDagua, 'Ribeirão V2');
+    assert.equal(mappedV2.altura, 19.5);
+    assert.equal(mappedV2.cotaCoroamentoMetros, null);
+
+    const existingLocal: BarragemEntity = {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      administraId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      sistemaOrigem: 'administra',
+      empreendedorId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      nome: 'Barragem Antiga',
+      municipio: 'Sinop',
+      baciaHidrografica: 'Teles Pires',
+      cursoDagua: 'Córrego Local',
+      coordenadas: {
+        latitude: -11.8,
+        longitude: -55.4,
+        horarioCaptura: null,
+        acuraciaMetros: null,
+        altitudeEstimadaDispositivo: null,
+        editadoManualmente: true,
+        datum: 'SIRGAS 2000'
+      },
+      cotaCoroamentoMetros: 342.8,
+      anoInicioObra: 2014,
+      anoFinalObra: 2015,
+      tipoMaterial: 'terra_homogenea',
+      usoPrincipal: 'Irrigação',
+      usosSecundarios: ['Dessedentação'],
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-02-01T00:00:00.000Z'
+    };
+
+    const mergedV2 = mergeBarragemPreservingExisting(existingLocal, mappedV2);
+    assert.equal(mergedV2.cotaCoroamentoMetros, 342.8);
+    assert.equal(mergedV2.baciaHidrografica, 'Teles Pires');
+    assert.equal(mergedV2.anoInicioObra, 2014);
+    assert.equal(mergedV2.tipoMaterial, 'terra_homogenea');
+    assert.equal(mergedV2.usoPrincipal, 'Irrigação');
+    assert.equal(mergedV2.coordenadas.datum, 'SIRGAS 2000');
+    assert.equal(mergedV2.coordenadas.editadoManualmente, true);
+    assert.equal(mergedV2.cursoDagua, 'Ribeirão V2');
+    assert.equal(mergedV2.altura, 19.5);
   } finally {
     cleanupMockBrowserStorage();
   }
@@ -681,4 +750,195 @@ test('preserva valores existentes e dados digitados em indisponibilidade, erros 
   } finally {
     cleanupMockBrowserStorage();
   }
+});
+
+test('mergeBarragemPreservingExisting protege coordenadas manuais (editadoManualmente=true) e preenche coordenadas vazias quando false', () => {
+  installMockBrowserStorage();
+
+  try {
+    const manualExisting: BarragemEntity = {
+      id: 'bar-manual-1',
+      administraId: 'bar-manual-1',
+      sistemaOrigem: 'administra',
+      empreendedorId: 'emp-1',
+      nome: 'Barragem Coordenada Manual',
+      municipio: 'Sinop',
+      baciaHidrografica: 'Teles Pires',
+      cursoDagua: 'Córrego A',
+      coordenadas: {
+        latitude: -11.8111,
+        longitude: -55.4111,
+        horarioCaptura: '2026-08-01T10:15:00.000Z',
+        acuraciaMetros: 3.5,
+        altitudeEstimadaDispositivo: 382,
+        editadoManualmente: true,
+        datum: 'SIRGAS 2000'
+      },
+      latitudeGms: '11°48\'39.96" S',
+      longitudeGms: '55°24\'39.96" O',
+      cotaCoroamentoMetros: 390,
+      anoInicioObra: 2018,
+      anoFinalObra: 2019,
+      tipoMaterial: 'terra_homogenea',
+      usoPrincipal: 'Irrigação',
+      usosSecundarios: [],
+      createdAt: '2026-01-10T00:00:00.000Z',
+      updatedAt: '2026-08-01T10:15:00.000Z'
+    };
+
+    const incomingFromV2 = mapApiV2BarragemDto({
+      id: 'bar-manual-1',
+      nome: 'Barragem Coordenada Manual',
+      municipio: 'Sinop',
+      latitude: -12.9999,
+      longitude: -56.9999,
+      updatedAt: '2026-10-20T12:00:00.000Z'
+    });
+    assert.ok(incomingFromV2);
+
+    const incomingWithExtraCoords: BarragemEntity = {
+      ...incomingFromV2,
+      coordenadas: {
+        ...incomingFromV2.coordenadas,
+        acuraciaMetros: 25,
+        altitudeEstimadaDispositivo: 410,
+        datum: 'WGS 84'
+      },
+      latitudeGms: '12°59\'59.64" S',
+      longitudeGms: '56°59\'59.64" O'
+    };
+
+    // Caso 1: editadoManualmente === true -> nada das coordenadas locais é sobrescrito
+    const mergedManual = mergeBarragemPreservingExisting(manualExisting, incomingWithExtraCoords);
+    assert.equal(mergedManual.coordenadas.editadoManualmente, true);
+    assert.equal(mergedManual.coordenadas.latitude, -11.8111);
+    assert.equal(mergedManual.coordenadas.longitude, -55.4111);
+    assert.equal(mergedManual.coordenadas.datum, 'SIRGAS 2000');
+    assert.equal(mergedManual.coordenadas.horarioCaptura, '2026-08-01T10:15:00.000Z');
+    assert.equal(mergedManual.coordenadas.acuraciaMetros, 3.5);
+    assert.equal(mergedManual.coordenadas.altitudeEstimadaDispositivo, 382);
+    assert.equal(mergedManual.latitudeGms, '11°48\'39.96" S');
+    assert.equal(mergedManual.longitudeGms, '55°24\'39.96" O');
+
+    // Caso 2: editadoManualmente === false -> coordenadas remotas válidas preenchem campos vazios
+    const autoExistingEmpty: BarragemEntity = {
+      id: 'bar-auto-1',
+      administraId: 'bar-auto-1',
+      sistemaOrigem: 'administra',
+      empreendedorId: 'emp-1',
+      nome: 'Barragem Sem Coord Local',
+      municipio: 'Sorriso',
+      baciaHidrografica: null,
+      cursoDagua: null,
+      coordenadas: {
+        latitude: null,
+        longitude: null,
+        horarioCaptura: null,
+        acuraciaMetros: null,
+        altitudeEstimadaDispositivo: null,
+        editadoManualmente: false,
+        datum: 'SIRGAS 2000'
+      },
+      latitudeGms: null,
+      longitudeGms: null,
+      cotaCoroamentoMetros: null,
+      anoInicioObra: null,
+      anoFinalObra: null,
+      tipoMaterial: '',
+      usoPrincipal: '',
+      usosSecundarios: [],
+      createdAt: '2026-01-10T00:00:00.000Z',
+      updatedAt: '2026-01-10T00:00:00.000Z'
+    };
+
+    const incomingRemoteValid = mapApiV2BarragemDto({
+      id: 'bar-auto-1',
+      nome: 'Barragem Sem Coord Local',
+      municipio: 'Sorriso',
+      latitude: -12.5425,
+      longitude: -55.7211,
+      updatedAt: '2026-10-20T12:00:00.000Z'
+    });
+    assert.ok(incomingRemoteValid);
+
+    const mergedAuto = mergeBarragemPreservingExisting(autoExistingEmpty, incomingRemoteValid);
+    assert.equal(mergedAuto.coordenadas.editadoManualmente, false);
+    assert.equal(mergedAuto.coordenadas.latitude, -12.5425);
+    assert.equal(mergedAuto.coordenadas.longitude, -55.7211);
+    assert.equal(mergedAuto.coordenadas.horarioCaptura, '2026-10-20T12:00:00.000Z');
+    assert.equal(mergedAuto.coordenadas.datum, 'SIRGAS 2000');
+  } finally {
+    cleanupMockBrowserStorage();
+  }
+});
+
+test('mapApiV2BarragemDto usa fallback ISO consistente para timestamps omitidos e merge preserva datas locais existentes', () => {
+  const fixedNow = '2026-11-25T15:00:00.000Z';
+
+  // DTO sem createdAt e updatedAt não produz string vazia
+  const mappedWithoutDates = mapApiV2BarragemDto(
+    {
+      id: 'bar-nodates-1',
+      nome: 'Barragem Sem Datas'
+    },
+    { nowIso: fixedNow }
+  );
+  assert.ok(mappedWithoutDates);
+  assert.equal(mappedWithoutDates.createdAt, fixedNow);
+  assert.equal(mappedWithoutDates.updatedAt, fixedNow);
+  assert.equal(mappedWithoutDates.sincronizadoAdministraEm, null);
+  assert.notEqual(mappedWithoutDates.createdAt, '');
+  assert.notEqual(mappedWithoutDates.updatedAt, '');
+
+  // DTO com updatedAt apenas usa updatedAt como fallback consistente para createdAt
+  const mappedUpdatedOnly = mapApiV2BarragemDto(
+    {
+      id: 'bar-nodates-1',
+      nome: 'Barragem Só Updated',
+      updatedAt: '2026-09-12T08:30:00.000Z',
+      createdAt: null
+    },
+    { nowIso: fixedNow }
+  );
+  assert.ok(mappedUpdatedOnly);
+  assert.equal(mappedUpdatedOnly.createdAt, '2026-09-12T08:30:00.000Z');
+  assert.equal(mappedUpdatedOnly.updatedAt, '2026-09-12T08:30:00.000Z');
+  assert.equal(mappedUpdatedOnly.sincronizadoAdministraEm, '2026-09-12T08:30:00.000Z');
+
+  // Merge não sobrescreve createdAt / updatedAt locais existentes com fallback do DTO
+  const existingLocal: BarragemEntity = {
+    id: 'bar-nodates-1',
+    administraId: 'bar-nodates-1',
+    sistemaOrigem: 'administra',
+    empreendedorId: 'emp-1',
+    nome: 'Barragem Local',
+    municipio: 'Cuiabá',
+    baciaHidrografica: null,
+    cursoDagua: null,
+    coordenadas: {
+      latitude: null,
+      longitude: null,
+      horarioCaptura: null,
+      acuraciaMetros: null,
+      altitudeEstimadaDispositivo: null,
+      editadoManualmente: false,
+      datum: ''
+    },
+    cotaCoroamentoMetros: null,
+    anoInicioObra: null,
+    anoFinalObra: null,
+    tipoMaterial: '',
+    usoPrincipal: '',
+    usosSecundarios: [],
+    createdAt: '2025-03-01T10:00:00.000Z',
+    updatedAt: '2025-04-15T11:20:00.000Z'
+  };
+
+  const mergedNoDates = mergeBarragemPreservingExisting(existingLocal, mappedWithoutDates);
+  assert.equal(mergedNoDates.createdAt, '2025-03-01T10:00:00.000Z');
+  assert.equal(mergedNoDates.updatedAt, '2025-04-15T11:20:00.000Z');
+
+  const mergedUpdatedOnly = mergeBarragemPreservingExisting(existingLocal, mappedUpdatedOnly);
+  assert.equal(mergedUpdatedOnly.createdAt, '2025-03-01T10:00:00.000Z');
+  assert.equal(mergedUpdatedOnly.updatedAt, '2026-09-12T08:30:00.000Z');
 });
